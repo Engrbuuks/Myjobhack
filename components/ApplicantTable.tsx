@@ -12,16 +12,23 @@ type Row = {
 };
 const STATUSES = ["submitted", "shortlisted", "interviewing", "offered", "hired", "rejected"];
 
-export function ApplicantTable({ rows }: { rows: Row[] }) {
+export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEndpoint?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function setStatus(id: string, status: string) {
     setBusy(id);
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    await supabase.from("applications").update({ status: status as any, reviewed_by: user!.id }).eq("id", id);
+    if (statusEndpoint) {
+      await fetch(statusEndpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status })
+      });
+    } else {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from("applications").update({ status: status as any, reviewed_by: user!.id }).eq("id", id);
+    }
     setBusy(null); router.refresh();
   }
 

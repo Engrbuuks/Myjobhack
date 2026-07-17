@@ -42,7 +42,15 @@ update app_settings set value='{"bank":"Wema Bank","account_name":"Myjobhack","a
 - Seven portal shells in the dashboard DNA (ink sidebar / paper canvas / Fraunces numerals)
 - Admin dashboard with live counts + pending-action queues
 
-## Layers ahead
-L2 talent intake wizard · L3 admin CRM + one-button invites (Resend) ·
-L4 subscriptions + payments + 3 Gemini tools · L5 jobs engine + auto-shortlist ·
-L6 trainings + LMS UI · L7 Elite · L8 employer self-serve
+## Build status — ALL 8 LAYERS COMPLETE
+L1 foundation · L2 talent intake wizard + compression · L3 admin CRM + one-button
+Resend invites · L4 subscriptions (Paystack/manual NGN/USD) + 3 Gemini AI tools ·
+L5 jobs engine + form builder + auto-shortlist + CV scoring · L6 trainings + LMS +
+certificates · L7 Elite verification + chapters + member cards · L8 employer self-serve
+
+## Migrations (run in order, Supabase SQL Editor)
+0001_foundation.sql · 0002_elite.sql · 0003_employer.sql
+
+## Env vars (Vercel)
+NEXT_PUBLIC_SUPABASE_URL · NEXT_PUBLIC_SUPABASE_ANON_KEY · SUPABASE_SERVICE_ROLE_KEY
+RESEND_API_KEY · RESEND_FROM · GEMINI_API_KEY · PAYSTACK_SECRET_KEY · NEXT_PUBLIC_APP_URL

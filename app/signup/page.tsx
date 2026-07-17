@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
+  const [role, setRole] = useState<"job_seeker" | "employer">("job_seeker");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,7 +19,7 @@ export default function SignupPage() {
     const { error } = await supabase.auth.signUp({
       email, password,
       options: {
-        data: { full_name: fullName, role: "job_seeker" },
+        data: { full_name: fullName, role },
         emailRedirectTo: `${window.location.origin}/auth/callback`
       }
     });
@@ -51,8 +52,18 @@ export default function SignupPage() {
           </div>
         ) : (
           <form onSubmit={onSubmit} className="w-full max-w-sm">
-            <h2 className="font-display font-semibold text-3xl mb-1">Create your profile</h2>
-            <p className="text-muted text-sm mb-8">Free to join. Takes two minutes.</p>
+            <h2 className="font-display font-semibold text-3xl mb-1">Create your account</h2>
+            <p className="text-muted text-sm mb-6">Free to join. Takes two minutes.</p>
+            <div className="flex rounded-pill border border-line overflow-hidden text-sm font-bold mb-6">
+              <button type="button" onClick={() => setRole("job_seeker")}
+                className={`flex-1 h-11 ${role === "job_seeker" ? "bg-ink text-white" : "bg-white"}`}>
+                I&rsquo;m talent
+              </button>
+              <button type="button" onClick={() => setRole("employer")}
+                className={`flex-1 h-11 ${role === "employer" ? "bg-ink text-white" : "bg-white"}`}>
+                I&rsquo;m hiring
+              </button>
+            </div>
             <label className="label">Full name</label>
             <input className="input mb-4" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
             <label className="label">Email</label>
@@ -61,7 +72,7 @@ export default function SignupPage() {
             <input className="input mb-6" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
             {err && <p className="text-coral text-sm mb-4">{err}</p>}
             <button className="btn-coral w-full justify-center" disabled={busy}>
-              {busy ? "Creating…" : "Create free profile →"}
+              {busy ? "Creating…" : role === "employer" ? "Create hiring account →" : "Create free profile →"}
             </button>
             <p className="text-sm text-muted mt-6">
               Already a member? <Link href="/login" className="text-coral font-semibold">Sign in</Link>

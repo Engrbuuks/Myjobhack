@@ -15,7 +15,7 @@ const MODES = ["remote", "hybrid", "onsite", "flexible"];
 const LEVELS = ["entry", "junior", "mid", "senior", "lead", "executive"];
 const TYPES = ["full_time", "part_time", "contract", "internship", "temporary"];
 
-export function JobEditor({ job, niches }: { job: Job | null; niches: Tax[] }) {
+export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" }: { job: Job | null; niches: Tax[]; orgId?: string | null; basePath?: string }) {
   const router = useRouter();
   const [j, setJ] = useState<Job>(job ?? {
     title: "", description: "", location: "", work_mode: null, role_level: null,
@@ -45,9 +45,9 @@ export function JobEditor({ job, niches }: { job: Job | null; niches: Tax[] }) {
       router.refresh(); setBusy(false);
     } else {
       const { data, error } = await supabase.from("jobs")
-        .insert({ ...payload, posted_by: user!.id }).select("id").single();
+        .insert({ ...payload, posted_by: user!.id, org_id: orgId ?? null }).select("id").single();
       if (error) { setErr(error.message); setBusy(false); return; }
-      router.push(`/portal/admin/jobs/${data.id}`);
+      router.push(`${basePath}/${data.id}`);
     }
   }
 
