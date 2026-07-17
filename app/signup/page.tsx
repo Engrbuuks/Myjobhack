@@ -31,13 +31,13 @@ export default function SignupPage() {
     <main className="min-h-screen grid lg:grid-cols-2">
       <section className="hidden lg:flex flex-col justify-between bg-ink text-white p-12 relative overflow-hidden">
         <div className="absolute -top-40 -right-40 w-[560px] h-[560px] rounded-full bg-coral/20 blur-[120px]" />
-        <span className="text-xs font-extrabold uppercase tracking-[.28em] text-[#FFB4AC]">Free for talent — always</span>
+        <span className="text-xs font-extrabold uppercase tracking-[.28em] text-[#FFB4AC]">Free to join — both sides</span>
         <div>
           <h1 className="font-display font-semibold text-5xl leading-tight max-w-md">
-            Join the talent <em className="text-coral">pool.</em>
+            Built for both sides of the <em className="text-coral">table.</em>
           </h1>
           <p className="mt-6 text-white/60 max-w-sm text-sm leading-relaxed">
-            Build your profile on what matters — your niche, your goal, your expertise, your expectations — and let the right opportunities find you.
+            Talent builds one profile and lets the right opportunities come hunting. Employers post roles and watch qualified candidates shortlist themselves. Pick your side — the machine does the rest.
           </p>
         </div>
         <span className="text-white/40 text-xs">myjobhack.co</span>

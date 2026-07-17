@@ -27,10 +27,10 @@ export default function LoginPage() {
         <span className="text-xs font-extrabold uppercase tracking-[.28em] text-[#FFB4AC]">Workforce transformation for Africa</span>
         <div>
           <h1 className="font-display font-semibold text-5xl leading-tight max-w-md">
-            Need a job?<br />We can help you <em className="text-coral">get one.</em>
+            Every side of the table,<br /><em className="text-coral">one room.</em>
           </h1>
           <p className="mt-6 text-white/60 max-w-sm text-sm leading-relaxed">
-            One profile. Real representation. Trainings that fit your skills, and AI tools that sharpen your edge.
+            Talent gets discovered. Employers hire people who arrive ready. Experts teach rooms we fill for them. Sign in — your portal knows who you are.
           </p>
         </div>
         <span className="text-white/40 text-xs">myjobhack.co</span>
