@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
+import { DeleteButton } from "@/components/DeleteButton";
 
 export default async function TalentDetail({ params }: { params: { id: string } }) {
   const supabase = createClient();
@@ -100,6 +101,15 @@ export default async function TalentDetail({ params }: { params: { id: string } 
               ))}
             </div>
           )}
+        </div>
+        <div className="card p-6 lg:col-span-2 border-coral/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-widest text-coral mb-1">Danger zone</div>
+              <p className="text-sm text-muted">Permanently delete this account and all its data — applications, enrollments, certificates, credentials. Meant for test accounts and legitimate removal requests.</p>
+            </div>
+            <DeleteButton action="delete_user" id={params.id} label="Delete account" confirmLabel="Permanently delete" redirect="/portal/admin/pool" />
+          </div>
         </div>
         <div className="card p-6 lg:col-span-2">
           <div className="text-xs font-bold uppercase tracking-widest text-muted mb-3">Learning record — feeds matching</div>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateSubscription } from "@/lib/subscription";
+import { enrollAfterPayment } from "@/lib/trainingPay";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
 
@@ -28,6 +29,12 @@ export async function POST(request: Request) {
   if (!profileId || !planId) return NextResponse.json({ received: true });
 
   const admin = createAdminClient();
+
+  // training payments take their own path
+  if (d?.metadata?.kind === "training" && paymentId) {
+    await enrollAfterPayment(admin, paymentId, profileId ?? "system");
+    return NextResponse.json({ received: true });
+  }
 
   // idempotency: skip if this payment is already confirmed
   if (paymentId) {

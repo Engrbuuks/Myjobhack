@@ -2,11 +2,16 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { AcceptInviteButton } from "@/components/EnrollActions";
+import { TrainingPay } from "@/components/TrainingPay";
 
 export default async function SeekerTrainings() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
+  const [{ data: bankN }, { data: bankU }] = await Promise.all([
+    supabase.from("app_settings").select("value").eq("key", "bank_transfer_ngn").maybeSingle(),
+    supabase.from("app_settings").select("value").eq("key", "bank_transfer_usd").maybeSingle()
+  ]);
   const [{ data: invites }, { data: enrolls }, { data: certs }] = await Promise.all([
     supabase.from("training_invites").select("training_id, sent_at").eq("talent_id", user!.id),
     supabase.from("enrollments").select("id, training_id, status").eq("talent_id", user!.id),
@@ -22,7 +27,7 @@ export default async function SeekerTrainings() {
   ]));
   const { data: trainings } = allTrainingIds.length
     ? await supabase.from("trainings")
-        .select("id, title, description, delivery, status, starts_at, location_or_link, course_id")
+        .select("id, title, description, delivery, status, starts_at, location_or_link, course_id, price_ngn, price_usd")
         .in("id", allTrainingIds)
     : { data: [] as any[] };
   const tmap = new Map((trainings ?? []).map((t) => [t.id, t]));
@@ -63,7 +68,12 @@ export default async function SeekerTrainings() {
                         {t.starts_at ? new Date(t.starts_at).toLocaleString() : "date TBA"}
                       </div>
                     </div>
-                    <AcceptInviteButton trainingId={t.id} />
+                    {(t.price_ngn > 0 || t.price_usd > 0) ? (
+                      <TrainingPay trainingId={t.id} priceNgn={t.price_ngn} priceUsd={t.price_usd}
+                        bankNgn={bankN?.value} bankUsd={bankU?.value} />
+                    ) : (
+                      <AcceptInviteButton trainingId={t.id} />
+                    )}
                   </div>
                 </div>
               );

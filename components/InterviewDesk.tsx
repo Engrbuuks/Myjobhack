@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { DeleteButton } from "@/components/DeleteButton";
 
 type Competency = { name: string; rating: number; note?: string };
 export type InterviewRow = {
@@ -74,6 +75,9 @@ export function InterviewDesk({ rows }: { rows: InterviewRow[] }) {
                 <button className="text-xs font-semibold text-muted hover:text-coral" disabled={busy === r.id}
                   onClick={() => call(r.id, { action: "cancel" })}>Cancel</button>
               </>
+            )}
+            {!["invited", "scheduled"].includes(r.status) && (
+              <DeleteButton action="delete_interview" id={r.id} label="✕" confirmLabel="Delete" small />
             )}
             <button className="text-coral text-sm font-semibold" onClick={() => setOpen(open === r.id ? null : r.id)}>
               {open === r.id ? "Close" : "Review →"}

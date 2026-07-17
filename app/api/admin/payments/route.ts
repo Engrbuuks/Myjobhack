@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateSubscription } from "@/lib/subscription";
+import { enrollAfterPayment } from "@/lib/trainingPay";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
 
@@ -50,6 +51,11 @@ export async function POST(request: Request) {
   }
 
   const { data: plan } = await admin.from("plans").select("id").eq("active", true).limit(1).single();
+  if ((payment as any).kind === "training") {
+    const r = await enrollAfterPayment(admin, payment_id, user.id);
+    if ((r as any).error) return NextResponse.json({ error: (r as any).error }, { status: 400 });
+    return NextResponse.json({ ok: true, action: "confirmed" });
+  }
   const subId = await activateSubscription(payment.profile_id, plan!.id, payment.method, 30);
   await admin.from("payments").update({
     status: "confirmed", subscription_id: subId,

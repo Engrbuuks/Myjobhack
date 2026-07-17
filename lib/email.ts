@@ -12,6 +12,7 @@ export type EmailSpec = {
   heading: string;                  // big serif line
   paragraphs?: string[];            // body copy (plain text, we escape)
   details?: [string, string][];     // label/value rows
+  bullets?: string[];               // coral-dot value bullets (marketing)
   cta?: { label: string; url: string };
   footNote?: string;                // small line under the CTA
 };
@@ -26,6 +27,20 @@ export function renderEmail(spec: EmailSpec): string {
         `<p style="margin:0 0 18px;color:rgba(255,255,255,.72);font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.75">${esc(p)}</p>`
     )
     .join("");
+
+  const bullets = spec.bullets?.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:2px 0 22px">
+        ${spec.bullets
+          .map(
+            (b) =>
+              `<tr>
+                <td style="padding:6px 12px 6px 0;vertical-align:top"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#FC5647;margin-top:5px"></span></td>
+                <td style="padding:6px 0;color:rgba(255,255,255,.78);font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6">${esc(b)}</td>
+              </tr>`
+          )
+          .join("")}
+      </table>`
+    : "";
 
   const details = spec.details?.length
     ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 26px">
@@ -96,6 +111,7 @@ ${spec.preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hi
       </h1>
 
       ${paragraphs}
+      ${bullets}
       ${details}
       ${cta}
       ${footNote}

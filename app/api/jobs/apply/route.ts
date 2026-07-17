@@ -78,6 +78,22 @@ JOB DESCRIPTION:\n${jd}\n\nCANDIDATE CV:\n${cv.text.slice(0, 12000)}`
     }
   } catch { /* scoring is best-effort */ }
 
+  // tell the hiring side
+  try {
+    const notifyAdmin = createAdminClient();
+    const { data: jobOrg } = await notifyAdmin.from("jobs").select("org_id, title").eq("id", job_id).single();
+    if (jobOrg?.org_id) {
+      const { data: members } = await notifyAdmin.from("org_members").select("profile_id").eq("org_id", jobOrg.org_id);
+      for (const m of members ?? []) {
+        await notifyAdmin.from("notifications").insert({
+          profile_id: m.profile_id, title: "New application 📥",
+          body: `Someone applied to "${jobOrg.title}"${app.status === "shortlisted" ? " — and passed your rules (auto-shortlisted)" : ""}.`,
+          link: `/portal/employer/jobs/${job_id}/applicants`
+        });
+      }
+    }
+  } catch { /* best effort */ }
+
   await supabase.from("activity_log").insert({
     actor_id: user.id, action: "Applied to job", entity: "application", entity_id: app.id,
     meta: { job: job.title, auto: app.status, rules_failures: evalResult.failures }

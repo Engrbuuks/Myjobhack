@@ -34,7 +34,10 @@ export function NotificationsBell() {
   }
 
   return (
-    <div className="fixed top-5 right-5 z-50">
+    <div className="fixed top-5 right-5 z-50 flex items-center gap-2">
+      <a href="/portal/account" title="Account settings"
+        className="w-11 h-11 rounded-full bg-white border border-line shadow-sm grid place-items-center hover:border-coral transition text-lg">⚙</a>
+      <div className="relative">
       <button onClick={toggle}
         className="relative w-11 h-11 rounded-full bg-white border border-line shadow-sm grid place-items-center hover:border-coral transition">
         <span className="text-lg">🔔</span>
@@ -59,6 +62,7 @@ export function NotificationsBell() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

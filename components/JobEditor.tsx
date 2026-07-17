@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { DeleteButton } from "@/components/DeleteButton";
 
 type Tax = { id: string; label: string };
 type Job = {
@@ -101,6 +102,12 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
           {busy ? "Saving…" : j.id ? "Save changes" : "Create job →"}
         </button>
         {err && <span className="text-coral text-sm">{err}</span>}
+        {j.id && (
+          <span className="ml-auto">
+            <DeleteButton action="delete_job" id={j.id} label="Delete job"
+              confirmLabel="Delete job + applications" redirect={basePath} />
+          </span>
+        )}
       </div>
     </div>
   );
