@@ -1,26 +1,36 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
-import { EmptyState } from "@/components/EmptyState";
 
-export default async function Page() {
+export default async function TrainerDashboard() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user!.id).single();
-  const first = (profile?.full_name || "there").split(" ")[0];
+  const { data: trainings } = await supabase.from("trainings")
+    .select("id, title, status, starts_at").eq("trainer_id", user!.id);
+  const ids = (trainings ?? []).map((t) => t.id);
+  const { data: enrolls } = ids.length
+    ? await supabase.from("enrollments").select("training_id, status").in("training_id", ids)
+    : { data: [] as any[] };
+
+  const learners = (enrolls ?? []).length;
+  const completions = (enrolls ?? []).filter((e) => e.status === "completed").length;
+  const upcoming = (trainings ?? [])
+    .filter((t) => t.starts_at && new Date(t.starts_at) > new Date())
+    .sort((a, b) => +new Date(a.starts_at!) - +new Date(b.starts_at!))[0];
 
   return (
     <>
-      <PageHeader title={`Your teaching studio`} sub="Run external sessions or build LMS courses — the invite engine fills your room with the right learners." />
-      <p className="text-sm text-muted -mt-4 mb-8">Signed in as <b className="text-ink">{first}</b></p>
-      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-10">
-        <StatCard label="Trainings" value="0" hint="External + LMS" accent />
-        <StatCard label="Enrolled learners" value="0" hint="Across all trainings" />
-        <StatCard label="Completions" value="0" hint="Certificates issued" />
-        <StatCard label="Upcoming session" value="—" hint="Nothing scheduled" />
+      <PageHeader title="Your teaching studio"
+        sub="Trainings assigned to you — sessions, learners, and completions."
+        action={<Link href="/portal/trainer/trainings" className="btn-coral">My trainings →</Link>} />
+      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5">
+        <StatCard label="My trainings" value={(trainings ?? []).length} accent hint="Assigned to you" />
+        <StatCard label="Learners" value={learners} hint="Across all trainings" />
+        <StatCard label="Completions" value={completions} hint="Marked or certified" />
+        <StatCard label="Next session" value={upcoming ? new Date(upcoming.starts_at!).toLocaleDateString() : "—"}
+          hint={upcoming?.title ?? "Nothing scheduled"} />
       </div>
-      <EmptyState title="This portal goes live layer by layer"
-        body="The foundation is running — profile, data, and security are in place. Features land here in the coming build layers." />
     </>
   );
 }

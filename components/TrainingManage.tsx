@@ -3,9 +3,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export function TrainingSettings({ training, courses }: {
-  training: { id: string; status: string; course_id: string | null; delivery: string; starts_at: string | null; location_or_link: string | null };
+export function TrainingSettings({ training, courses, trainers }: {
+  training: { id: string; status: string; course_id: string | null; delivery: string; starts_at: string | null; location_or_link: string | null; trainer_id?: string | null };
   courses: { id: string; title: string }[];
+  trainers?: { id: string; full_name: string }[];
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -13,6 +14,7 @@ export function TrainingSettings({ training, courses }: {
   const [courseId, setCourseId] = useState(training.course_id ?? "");
   const [startsAt, setStartsAt] = useState(training.starts_at?.slice(0, 16) ?? "");
   const [where, setWhere] = useState(training.location_or_link ?? "");
+  const [trainerId, setTrainerId] = useState(training.trainer_id ?? "");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -20,6 +22,7 @@ export function TrainingSettings({ training, courses }: {
     setBusy(true); setNote(null);
     const { error } = await supabase.from("trainings").update({
       status: status as any, course_id: courseId || null,
+      trainer_id: trainerId || null,
       starts_at: startsAt ? new Date(startsAt).toISOString() : null,
       location_or_link: where
     }).eq("id", training.id);
@@ -51,6 +54,15 @@ export function TrainingSettings({ training, courses }: {
             </select></div>
         )}
       </div>
+      {trainers && (
+        <div className="mb-5">
+          <label className="label">Assigned trainer</label>
+          <select className="input" value={trainerId} onChange={(e) => setTrainerId(e.target.value)}>
+            <option value="">None</option>
+            {trainers.map((tr) => <option key={tr.id} value={tr.id}>{tr.full_name}</option>)}
+          </select>
+        </div>
+      )}
       <div className="flex items-center gap-4">
         <button className="btn-coral" onClick={save} disabled={busy}>Save</button>
         {note && <span className="text-sm text-muted">{note}</span>}

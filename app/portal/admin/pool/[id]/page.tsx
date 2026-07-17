@@ -4,14 +4,21 @@ import { PageHeader } from "@/components/PageHeader";
 
 export default async function TalentDetail({ params }: { params: { id: string } }) {
   const supabase = createClient();
-  const [{ data: profile }, { data: talent }, { data: expertise }, { data: taxonomies }, { data: creds }] =
+  const [{ data: profile }, { data: talent }, { data: expertise }, { data: taxonomies }, { data: creds }, { data: enrolls }, { data: certs }] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", params.id).single(),
       supabase.from("talent_profiles").select("*").eq("profile_id", params.id).single(),
       supabase.from("talent_expertise").select("taxonomy_id").eq("talent_id", params.id),
       supabase.from("taxonomies").select("id, label"),
-      supabase.from("credentials").select("*").eq("talent_id", params.id).order("created_at", { ascending: false })
+      supabase.from("credentials").select("*").eq("talent_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("enrollments").select("training_id, status, completed_at").eq("talent_id", params.id),
+      supabase.from("certificates").select("serial, issued_at, course_id").eq("talent_id", params.id)
     ]);
+  const trainingIds = (enrolls ?? []).map((e) => e.training_id);
+  const { data: trainings } = trainingIds.length
+    ? await supabase.from("trainings").select("id, title").in("id", trainingIds)
+    : { data: [] as any[] };
+  const trMap = new Map((trainings ?? []).map((t) => [t.id, t.title]));
 
   const tmap = new Map((taxonomies ?? []).map((t) => [t.id, t.label]));
   let resumeUrl: string | null = null;
@@ -91,6 +98,28 @@ export default async function TalentDetail({ params }: { params: { id: string } 
                   }`}>{c.status}</span>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+        <div className="card p-6 lg:col-span-2">
+          <div className="text-xs font-bold uppercase tracking-widest text-muted mb-3">Learning record — feeds matching</div>
+          {(enrolls ?? []).length === 0 ? (
+            <p className="text-sm text-muted-2">No trainings yet. Segment them into one from the invite engine.</p>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-2">
+              {(enrolls ?? []).map((e, i) => (
+                <div key={i} className="flex items-center justify-between text-sm border border-line rounded-xl px-4 py-3">
+                  <span>{trMap.get(e.training_id) ?? "Training"}</span>
+                  <span className={`capitalize text-xs font-bold px-2 py-1 rounded-pill ${
+                    e.status === "completed" ? "bg-ink text-white" : "bg-coral-soft text-coral"
+                  }`}>{e.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {(certs ?? []).length > 0 && (
+            <div className="mt-3 text-xs text-muted">
+              Certificates: {(certs ?? []).map((c) => c.serial).join(" · ")}
             </div>
           )}
         </div>

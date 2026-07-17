@@ -5,11 +5,12 @@ import { TrainingSettings, EnrollmentRow } from "@/components/TrainingManage";
 
 export default async function TrainingDetail({ params }: { params: { id: string } }) {
   const supabase = createClient();
-  const [{ data: training }, { data: courses }, { data: enrolls }, { count: invites }] = await Promise.all([
+  const [{ data: training }, { data: courses }, { data: enrolls }, { count: invites }, { data: trainers }] = await Promise.all([
     supabase.from("trainings").select("*").eq("id", params.id).single(),
     supabase.from("courses").select("id, title").order("created_at", { ascending: false }),
     supabase.from("enrollments").select("id, status, talent_id").eq("training_id", params.id),
-    supabase.from("training_invites").select("*", { count: "exact", head: true }).eq("training_id", params.id)
+    supabase.from("training_invites").select("*", { count: "exact", head: true }).eq("training_id", params.id),
+    supabase.from("profiles").select("id, full_name").eq("role", "trainer").order("full_name")
   ]);
 
   const rows = await Promise.all(
@@ -26,7 +27,7 @@ export default async function TrainingDetail({ params }: { params: { id: string 
         sub={`${invites ?? 0} invited · ${rows.length} enrolled · ${completed} completed`}
         action={<Link href="/portal/admin/trainings" className="btn-ghost">← All trainings</Link>} />
       <div className="grid xl:grid-cols-2 gap-6 items-start">
-        <TrainingSettings training={training!} courses={courses ?? []} />
+        <TrainingSettings training={training!} courses={courses ?? []} trainers={trainers ?? []} />
         <div className="card p-6">
           <div className="text-xs font-bold uppercase tracking-widest text-muted mb-4">Enrollments & attendance</div>
           {rows.length === 0 ? (
