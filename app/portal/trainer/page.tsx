@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { PageHeader } from "@/components/PageHeader";
+import { DashHero } from "@/components/DashHero";
 import { StatCard } from "@/components/StatCard";
 
 export default async function TrainerDashboard() {
@@ -21,9 +21,16 @@ export default async function TrainerDashboard() {
 
   return (
     <>
-      <PageHeader title="Your teaching studio"
+      <DashHero kicker="Teaching studio" title="Your room is ready."
         sub="Trainings assigned to you — sessions, learners, and completions."
-        action={<Link href="/portal/trainer/trainings" className="btn-coral">My trainings →</Link>} />
+        right={
+          <div className="text-right">
+            <div className="numeral !text-6xl text-coral leading-none">{learners}</div>
+            <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-white/45 mt-2">Learners</div>
+          </div>
+        }>
+        <Link href="/portal/trainer/trainings" className="btn-coral !h-11">My trainings →</Link>
+      </DashHero>
       <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5">
         <StatCard label="My trainings" value={(trainings ?? []).length} accent hint="Assigned to you" />
         <StatCard label="Learners" value={learners} hint="Across all trainings" />

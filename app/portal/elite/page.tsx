@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { PageHeader } from "@/components/PageHeader";
+import { DashHero } from "@/components/DashHero";
 import { StatCard } from "@/components/StatCard";
 
 export default async function EliteDashboard() {
@@ -24,8 +24,14 @@ export default async function EliteDashboard() {
 
   return (
     <>
-      <PageHeader title={`Welcome to the room, ${first}`}
-        sub="Your chapter, your network, and priority access — Elite membership working for you." />
+      <DashHero kicker="Myjobhack Elite" title={`Welcome to the room, ${first}.`}
+        sub="Your chapter, your network, and priority access — Elite membership working for you."
+        right={memberNo ? (
+          <div className="text-right">
+            <div className="numeral !text-5xl text-coral leading-none">№ {memberNo}</div>
+            <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-white/45 mt-2">Member number</div>
+          </div>
+        ) : undefined} />
 
       <div className="grid lg:grid-cols-[420px_1fr] gap-8 items-start">
         {/* THE MEMBER CARD */}
