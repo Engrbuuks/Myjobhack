@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { InterviewScheduler } from "@/components/InterviewScheduler";
 
 type Row = {
   id: string; status: string; rules_passed: boolean | null;
@@ -15,6 +16,7 @@ const STATUSES = ["submitted", "shortlisted", "interviewing", "offered", "hired"
 export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEndpoint?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function setStatus(id: string, status: string) {
@@ -65,10 +67,19 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
                 <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
               ))}
             </select>
+            <button className="text-sm font-semibold text-ink hover:text-coral transition"
+              onClick={() => setScheduling(scheduling === r.id ? null : r.id)}>
+              {scheduling === r.id ? "Close" : "🗓 Interview"}
+            </button>
             <button className="text-coral text-sm font-semibold" onClick={() => setOpen(open === r.id ? null : r.id)}>
               {open === r.id ? "Close" : "Details"}
             </button>
           </div>
+          {scheduling === r.id && (
+            <div className="mt-4 pt-4 border-t border-line">
+              <InterviewScheduler applicationId={r.id} onDone={() => setScheduling(null)} />
+            </div>
+          )}
           {open === r.id && (
             <div className="mt-4 pt-4 border-t border-line grid md:grid-cols-2 gap-4 text-sm">
               <div>
