@@ -46,6 +46,16 @@ export default async function SeekerDashboard() {
           hint={sub.data ? "All tools unlocked" : "Subscribe to unlock all tools"} />
       </div>
 
+      <a href="/portal/seeker/elite"
+        className="card p-5 mb-8 max-w-xl flex items-center gap-4 bg-ink text-white border-ink hover:border-coral transition block">
+        <span className="w-10 h-10 rounded-full bg-coral grid place-items-center shrink-0">✦</span>
+        <span className="flex-1">
+          <span className="block font-display font-semibold">Finished at the top of your class?</span>
+          <span className="block text-sm text-white/55">Apply for Elite — verified chapters of Africa&rsquo;s best graduates.</span>
+        </span>
+        <span className="text-coral font-semibold text-sm">Apply →</span>
+      </a>
+
       {/* onboarding checklist — the sample-1 pattern */}
       <div className="card p-6 max-w-xl">
         <div className="flex items-center justify-between mb-4">

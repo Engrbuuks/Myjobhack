@@ -7,7 +7,7 @@ export default async function Layout({ children }: { children: React.ReactNode }
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const { data: profile } = await supabase.from("profiles").select("role, full_name").eq("id", user.id).single();
-  if (profile?.role !== "job_seeker" && profile?.role !== "admin") redirect("/");
+  if (!["job_seeker", "elite_member", "admin"].includes(profile?.role ?? "")) redirect("/");
   return (
     <>
       <Sidebar
