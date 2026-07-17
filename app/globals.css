@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #0C0D11; --coral: #FC5647; --paper: #FAFAF8;
+  --font-fraunces: 'Fraunces';
+  --font-inter: 'Inter';
+}
+html, body { height: 100%; }
+body { @apply bg-paper text-ink font-sans antialiased; }
+
+/* editorial numerals — the sample-1 move */
+.numeral { @apply font-display font-semibold tracking-tight; font-size: 44px; line-height: 1; }
+
+.card { @apply bg-white border border-line rounded-card; box-shadow: 0 1px 2px rgba(12,13,17,.04); }
+.btn-coral { @apply inline-flex items-center gap-2 rounded-pill bg-coral text-white font-semibold text-sm px-5 h-11 transition hover:brightness-105 active:scale-[.98]; box-shadow: 0 8px 22px rgba(252,86,71,.28); }
+.btn-ghost { @apply inline-flex items-center gap-2 rounded-pill border border-line bg-white text-ink font-semibold text-sm px-5 h-11 transition hover:border-ink; }
+.input { @apply w-full h-12 rounded-2xl border border-line bg-white px-4 text-sm outline-none transition focus:border-coral focus:ring-4 focus:ring-coral/10; }
+.label { @apply block text-xs font-bold uppercase tracking-widest text-muted mb-2; }

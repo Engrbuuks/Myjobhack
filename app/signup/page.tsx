@@ -1,0 +1,74 @@
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+
+export default function SignupPage() {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signUp({
+      email, password,
+      options: {
+        data: { full_name: fullName, role: "job_seeker" },
+        emailRedirectTo: `${window.location.origin}/auth/callback`
+      }
+    });
+    if (error) { setErr(error.message); setBusy(false); return; }
+    setDone(true);
+  }
+
+  return (
+    <main className="min-h-screen grid lg:grid-cols-2">
+      <section className="hidden lg:flex flex-col justify-between bg-ink text-white p-12 relative overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-[560px] h-[560px] rounded-full bg-coral/20 blur-[120px]" />
+        <span className="text-xs font-extrabold uppercase tracking-[.28em] text-[#FFB4AC]">Free for talent — always</span>
+        <div>
+          <h1 className="font-display font-semibold text-5xl leading-tight max-w-md">
+            Join the talent <em className="text-coral">pool.</em>
+          </h1>
+          <p className="mt-6 text-white/60 max-w-sm text-sm leading-relaxed">
+            Build your profile on what matters — your niche, your goal, your expertise, your expectations — and let the right opportunities find you.
+          </p>
+        </div>
+        <span className="text-white/40 text-xs">myjobhack.co</span>
+      </section>
+
+      <section className="flex items-center justify-center p-8">
+        {done ? (
+          <div className="w-full max-w-sm text-center">
+            <div className="w-14 h-14 rounded-full bg-coral text-white grid place-items-center text-2xl mx-auto mb-6">✓</div>
+            <h2 className="font-display font-semibold text-3xl mb-2">Check your email</h2>
+            <p className="text-muted text-sm">We sent a confirmation link to <b>{email}</b>. Click it to activate your profile.</p>
+          </div>
+        ) : (
+          <form onSubmit={onSubmit} className="w-full max-w-sm">
+            <h2 className="font-display font-semibold text-3xl mb-1">Create your profile</h2>
+            <p className="text-muted text-sm mb-8">Free to join. Takes two minutes.</p>
+            <label className="label">Full name</label>
+            <input className="input mb-4" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+            <label className="label">Email</label>
+            <input className="input mb-4" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label className="label">Password</label>
+            <input className="input mb-6" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
+            {err && <p className="text-coral text-sm mb-4">{err}</p>}
+            <button className="btn-coral w-full justify-center" disabled={busy}>
+              {busy ? "Creating…" : "Create free profile →"}
+            </button>
+            <p className="text-sm text-muted mt-6">
+              Already a member? <Link href="/login" className="text-coral font-semibold">Sign in</Link>
+            </p>
+          </form>
+        )}
+      </section>
+    </main>
+  );
+}
