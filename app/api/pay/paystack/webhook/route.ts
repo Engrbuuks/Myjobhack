@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateSubscription } from "@/lib/subscription";
+import { sendEmail } from "@/lib/resend";
+import { renderEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -49,5 +51,20 @@ export async function POST(request: Request) {
     actor_id: profileId, action: "Subscription activated (webhook)",
     entity: "subscription", entity_id: subId, meta: { reference }
   });
+  const { data: prof } = await admin.from("profiles").select("email, full_name").eq("id", profileId).single();
+  if (prof?.email) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+    await sendEmail(prof.email, "Your AI toolkit is unlocked 🎉", renderEmail({
+      preheader: "Payment received — all AI tools are now active on your account.",
+      kicker: "Payment confirmed",
+      heading: "The toolkit is yours.",
+      paragraphs: [
+        `Hi ${(prof.full_name || "there").split(" ")[0]} — your Paystack payment went through and your subscription is active for the next 30 days.`,
+        "AI Resume Review, the Interview Preparer, Skills Gap Analysis — and every tool we add next — are all unlocked."
+      ],
+      details: [["Reference", String(reference ?? "")]],
+      cta: { label: "Open AI tools", url: `${appUrl}/portal/seeker/ai-tools` }
+    }));
+  }
   return NextResponse.json({ received: true });
 }

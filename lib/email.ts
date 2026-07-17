@@ -1,0 +1,130 @@
+/**
+ * MYJOBHACK email design system.
+ * Email-safe rendition of the brand DNA: ink card on paper, coral accents,
+ * Georgia serif display (Fraunces' email-safe cousin), table-based layout
+ * so it renders correctly in Gmail, Outlook, Apple Mail, and Nigerian
+ * webmail clients alike.
+ */
+
+export type EmailSpec = {
+  preheader?: string;               // inbox preview line
+  kicker: string;                   // e.g. "Training invitation"
+  heading: string;                  // big serif line
+  paragraphs?: string[];            // body copy (plain text, we escape)
+  details?: [string, string][];     // label/value rows
+  cta?: { label: string; url: string };
+  footNote?: string;                // small line under the CTA
+};
+
+const esc = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+export function renderEmail(spec: EmailSpec): string {
+  const paragraphs = (spec.paragraphs ?? [])
+    .map(
+      (p) =>
+        `<p style="margin:0 0 18px;color:rgba(255,255,255,.72);font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.75">${esc(p)}</p>`
+    )
+    .join("");
+
+  const details = spec.details?.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 26px">
+        ${spec.details
+          .map(
+            ([k, v]) =>
+              `<tr>
+                <td style="padding:5px 18px 5px 0;color:rgba(255,255,255,.45);font-family:Arial,Helvetica,sans-serif;font-size:13px;white-space:nowrap">${esc(k)}</td>
+                <td style="padding:5px 0;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold">${esc(v)}</td>
+              </tr>`
+          )
+          .join("")}
+      </table>`
+    : "";
+
+  const cta = spec.cta
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:4px 0 0">
+        <tr><td style="border-radius:999px;background:#FC5647">
+          <a href="${spec.cta.url}"
+            style="display:inline-block;padding:15px 32px;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;text-decoration:none;border-radius:999px">
+            ${esc(spec.cta.label)} &rarr;
+          </a>
+        </td></tr>
+      </table>`
+    : "";
+
+  const footNote = spec.footNote
+    ? `<p style="margin:22px 0 0;color:rgba(255,255,255,.4);font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.6">${esc(spec.footNote)}</p>`
+    : "";
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(spec.heading)}</title>
+</head>
+<body style="margin:0;padding:0;background:#FAFAF8">
+${spec.preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${esc(spec.preheader)}</div>` : ""}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAFAF8">
+<tr><td align="center" style="padding:36px 16px">
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
+
+    <!-- ink card -->
+    <tr><td style="background:#0C0D11;border-radius:24px;padding:40px 36px">
+
+      <!-- wordmark -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:bold;color:#ffffff">
+            myjob<span style="color:#FC5647">hack</span>
+          </td>
+          <td align="right">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#FC5647"></span>
+          </td>
+        </tr>
+      </table>
+
+      <!-- kicker -->
+      <p style="margin:30px 0 14px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:bold;letter-spacing:3px;text-transform:uppercase;color:#FFB4AC">
+        ${esc(spec.kicker)}
+      </p>
+
+      <!-- heading (serif display) -->
+      <h1 style="margin:0 0 20px;font-family:Georgia,'Times New Roman',serif;font-weight:600;font-size:28px;line-height:1.25;color:#ffffff;letter-spacing:-.01em">
+        ${esc(spec.heading)}
+      </h1>
+
+      ${paragraphs}
+      ${details}
+      ${cta}
+      ${footNote}
+
+      <!-- hairline + coral bar signature -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:34px">
+        <tr><td style="border-top:1px solid rgba(255,255,255,.1);padding-top:18px">
+          <table role="presentation" cellpadding="0" cellspacing="0">
+            <tr><td style="width:44px;height:5px;border-radius:3px;background:#FC5647"></td></tr>
+          </table>
+        </td></tr>
+      </table>
+
+    </td></tr>
+
+    <!-- footer -->
+    <tr><td align="center" style="padding:20px 10px 0">
+      <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.7;color:#9FA2AE">
+        MYJOBHACK — Workforce transformation for Africa<br>
+        <a href="https://myjobhack.co" style="color:#9FA2AE;text-decoration:underline">myjobhack.co</a>
+        &nbsp;·&nbsp;
+        <a href="https://app.myjobhack.co" style="color:#9FA2AE;text-decoration:underline">app.myjobhack.co</a>
+      </p>
+    </td></tr>
+
+  </table>
+
+</td></tr>
+</table>
+</body>
+</html>`;
+}

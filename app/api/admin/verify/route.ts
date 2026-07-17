@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmail } from "@/lib/resend";
+import { renderEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -29,6 +31,19 @@ export async function POST(request: Request) {
     if (action === "verify") {
       await admin.from("talent_profiles").update({ verification: "verified" }).eq("profile_id", cred.talent_id);
     }
+    const { data: cProf } = await admin.from("profiles").select("email, full_name").eq("id", cred.talent_id).single();
+    if (action === "verify" && cProf?.email) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+      await sendEmail(cProf.email, "Your credential is verified ✓", renderEmail({
+        kicker: "Verification complete",
+        heading: "Verified — employers will know.",
+        paragraphs: [
+          `Hi ${(cProf.full_name || "there").split(" ")[0]} — ${cred.title || "your credential"} from ${cred.institution} has been verified by our team.`,
+          "Your profile now carries verified status, which puts you ahead in matching and in front of employers."
+        ],
+        cta: { label: "View your profile", url: `${appUrl}/portal/seeker/profile` }
+      }));
+    }
     await admin.from("notifications").insert({
       profile_id: cred.talent_id,
       title: action === "verify" ? "Credential verified ✓" : "Credential review update",
@@ -55,6 +70,22 @@ export async function POST(request: Request) {
         body: "Your Elite membership is verified. Your member card, chapter, and the continental network are waiting.",
         link: "/portal/elite"
       });
+      const { data: eProf } = await admin.from("profiles").select("email, full_name").eq("id", em.talent_id).single();
+      const { data: mem } = await admin.from("elite_memberships").select("member_no").eq("id", id).single();
+      if (eProf?.email) {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+        await sendEmail(eProf.email, "Welcome to the room — you're Elite ✦", renderEmail({
+          preheader: "Your membership is verified. Your member card is waiting.",
+          kicker: "Myjobhack Elite · verified",
+          heading: "Welcome to the room.",
+          paragraphs: [
+            `${(eProf.full_name || "").split(" ")[0]}, your credentials are verified — you're now a member of Africa's community of first class minds.`,
+            "Your digital member card, your city chapter, and the continental network are live in your portal. Priority matching starts now."
+          ],
+          details: [["Member", `№ ${String(mem?.member_no ?? "").padStart(4, "0")}`], ["Distinction", em.distinction ?? "Verified"]],
+          cta: { label: "See your member card", url: `${appUrl}/portal/elite` }
+        }));
+      }
     } else {
       await admin.from("notifications").insert({
         profile_id: em.talent_id, title: "Elite application update",

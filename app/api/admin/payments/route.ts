@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateSubscription } from "@/lib/subscription";
+import { sendEmail } from "@/lib/resend";
+import { renderEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -31,6 +33,19 @@ export async function POST(request: Request) {
       body: "We couldn't verify your transfer. Reply to support or try again.",
       link: "/portal/seeker/subscription"
     });
+    const { data: rejProf } = await admin.from("profiles").select("email, full_name").eq("id", payment.profile_id).single();
+    if (rejProf?.email) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+      await sendEmail(rejProf.email, "About your MYJOBHACK payment", renderEmail({
+        kicker: "Payment review",
+        heading: "We couldn't confirm your transfer",
+        paragraphs: [
+          `Hi ${(rejProf.full_name || "there").split(" ")[0]} — we reviewed your ${payment.currency} transfer but couldn't match it to a payment received.`,
+          "This is usually a reference mismatch or a transfer still in transit. Reply to this email with your receipt, or submit again from your portal."
+        ],
+        cta: { label: "Review subscription", url: `${appUrl}/portal/seeker/subscription` }
+      }));
+    }
     return NextResponse.json({ ok: true, action: "rejected" });
   }
 
@@ -49,5 +64,25 @@ export async function POST(request: Request) {
     actor_id: user.id, action: "Confirmed manual payment", entity: "payment", entity_id: payment_id,
     meta: { amount: payment.amount, currency: payment.currency }
   });
+  const { data: okProf } = await admin.from("profiles").select("email, full_name").eq("id", payment.profile_id).single();
+  if (okProf?.email) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+    const sym = payment.currency === "NGN" ? "₦" : "$";
+    await sendEmail(okProf.email, "Your AI toolkit is unlocked 🎉", renderEmail({
+      preheader: "Payment confirmed — all AI tools are now active on your account.",
+      kicker: "Payment confirmed",
+      heading: "The toolkit is yours.",
+      paragraphs: [
+        `Hi ${(okProf.full_name || "there").split(" ")[0]} — your transfer is confirmed and your subscription is active for the next 30 days.`,
+        "AI Resume Review, the Interview Preparer, Skills Gap Analysis — and every tool we add next — are all unlocked."
+      ],
+      details: [
+        ["Amount", `${sym}${Number(payment.amount).toLocaleString()}`],
+        ["Method", payment.method.replace(/_/g, " ")],
+        ["Active until", new Date(Date.now() + 30 * 864e5).toLocaleDateString("en-GB", { dateStyle: "long" })]
+      ],
+      cta: { label: "Open AI tools", url: `${appUrl}/portal/seeker/ai-tools` }
+    }));
+  }
   return NextResponse.json({ ok: true, action: "confirmed" });
 }

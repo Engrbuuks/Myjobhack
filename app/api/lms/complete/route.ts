@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmail } from "@/lib/resend";
+import { renderEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -54,6 +56,21 @@ export async function POST(request: Request) {
     actor_id: user.id, action: "Completed course", entity: "certificate", entity_id: cert.id,
     meta: { course: course?.title, serial }
   });
+  const { data: prof } = await admin.from("profiles").select("email, full_name").eq("id", user.id).single();
+  if (prof?.email) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+    await sendEmail(prof.email, `Certificate earned — ${course?.title ?? "MYJOBHACK Training"} 🎓`, renderEmail({
+      preheader: `Serial ${serial} — your certificate is ready to view and share.`,
+      kicker: "Myjobhack Academy",
+      heading: "Certificate earned.",
+      paragraphs: [
+        `Congratulations ${(prof.full_name || "").split(" ")[0]} — you completed "${course?.title ?? "your course"}" and your certificate has been issued.`,
+        "This completion is now part of your matching profile — employers and our recruitment team can see what you've built."
+      ],
+      details: [["Serial", serial], ["Issued", new Date().toLocaleDateString("en-GB", { dateStyle: "long" })]],
+      cta: { label: "View certificate", url: `${appUrl}/portal/seeker/trainings` }
+    }));
+  }
 
   return NextResponse.json({ certificate_id: cert.id, serial });
 }
