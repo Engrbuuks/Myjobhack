@@ -7,6 +7,7 @@ type Training = { id: string; title: string; delivery: string; starts_at: string
 export function InviteEngine({ matched, trainings }: { matched: number; trainings: Training[] }) {
   const sp = useSearchParams();
   const [existingId, setExistingId] = useState("");
+  const [deliveryFilter, setDeliveryFilter] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [delivery, setDelivery] = useState("external");
@@ -43,12 +44,20 @@ export function InviteEngine({ matched, trainings }: { matched: number; training
 
       <div className="mb-5">
         <label className="label">Training</label>
-        <select className="input mb-3" value={existingId} onChange={(e) => setExistingId(e.target.value)}>
+        <div className="flex gap-2">
+            <select className="input !h-11 !w-40 text-sm" value={deliveryFilter}
+              onChange={(e) => { setDeliveryFilter(e.target.value); setExistingId(""); }}>
+              <option value="">All types</option>
+              <option value="lms">LMS courses</option>
+              <option value="external">External / live</option>
+            </select>
+            <select className="input mb-3" value={existingId} onChange={(e) => setExistingId(e.target.value)}>
           <option value="">＋ Create a new training</option>
-          {trainings.map((t) => (
+          {trainings.filter((t) => !deliveryFilter || t.delivery === deliveryFilter).map((t) => (
             <option key={t.id} value={t.id}>{t.title} · {t.delivery}</option>
           ))}
         </select>
+          </div>
         {!existingId && (
           <input className="input" placeholder="Training title — e.g. SQL for Analysts (Cohort 2)"
             value={title} onChange={(e) => setTitle(e.target.value)} />

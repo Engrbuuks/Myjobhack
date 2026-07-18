@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/auth"];
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/jobs", "/api/public", "/robots.txt", "/sitemap.xml"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -30,7 +30,7 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  if (user && (isPublic || path === "/")) {
+  if (user && ((isPublic && !path.startsWith("/jobs") && !path.startsWith("/api/public")) || path === "/")) {
     const { data: profile } = await supabase
       .from("profiles").select("role").eq("id", user.id).single();
     const dest: Record<string, string> = {

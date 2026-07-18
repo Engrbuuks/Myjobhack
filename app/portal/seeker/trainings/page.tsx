@@ -27,7 +27,7 @@ export default async function SeekerTrainings() {
   ]));
   const { data: trainings } = allTrainingIds.length
     ? await supabase.from("trainings")
-        .select("id, title, description, delivery, status, starts_at, location_or_link, course_id, price_ngn, price_usd")
+        .select("id, title, description, delivery, status, starts_at, location_or_link, course_id, price_ngn, price_usd, thumbnail_document_id, facilitator_name, format")
         .in("id", allTrainingIds)
     : { data: [] as any[] };
   const tmap = new Map((trainings ?? []).map((t) => [t.id, t]));
@@ -40,6 +40,18 @@ export default async function SeekerTrainings() {
     ? await supabase.from("courses").select("id, title").in("id", courseIds)
     : { data: [] as any[] };
   const cmap = new Map((courses ?? []).map((c) => [c.id, c.title]));
+
+  // signed thumbnail urls
+  const thumbs = new Map<string, string>();
+  for (const t of trainings ?? []) {
+    if (t.thumbnail_document_id) {
+      const { data: doc } = await supabase.from("documents").select("bucket, path").eq("id", t.thumbnail_document_id).single();
+      if (doc) {
+        const { data: su } = await supabase.storage.from(doc.bucket).createSignedUrl(doc.path, 3600);
+        if (su?.signedUrl) thumbs.set(t.id, su.signedUrl);
+      }
+    }
+  }
 
   const myEnrollments = (enrolls ?? [])
     .map((e) => ({ ...e, t: tmap.get(e.training_id) }))
@@ -58,14 +70,19 @@ export default async function SeekerTrainings() {
               const t = tmap.get(i.training_id);
               if (!t) return null;
               return (
-                <div key={i.training_id} className="card p-6 border-coral/40">
+                <div key={i.training_id} className="card p-6 border-coral/40 overflow-hidden">
+                  {thumbs.get(t.id) && (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={thumbs.get(t.id)} alt="" className="w-full aspect-video object-cover rounded-xl mb-5" />
+                  )}
                   <div className="flex flex-wrap items-center gap-4">
                     <div className="flex-1 min-w-60">
                       <div className="font-display font-semibold text-lg">{t.title}</div>
                       <div className="text-sm text-muted mt-1">{t.description}</div>
                       <div className="text-xs text-muted-2 mt-2">
-                        {t.delivery === "lms" ? "Self-paced LMS course" : "Live session"} ·{" "}
+                        {t.format === "physical" ? "In person" : t.delivery === "lms" ? "Self-paced LMS course" : "Live virtual session"} ·{" "}
                         {t.starts_at ? new Date(t.starts_at).toLocaleString() : "date TBA"}
+                        {t.facilitator_name ? ` · with ${t.facilitator_name}` : ""}
                       </div>
                     </div>
                     {(t.price_ngn > 0 || t.price_usd > 0) ? (

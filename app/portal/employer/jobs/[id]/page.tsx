@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { JobEditor } from "@/components/JobEditor";
 import { FormBuilder } from "@/components/FormBuilder";
+import { CopyLink } from "@/components/CopyLink";
 import { getMyOrg } from "@/lib/org";
 
 export default async function EmployerEditJob({ params }: { params: { id: string } }) {
@@ -24,7 +25,7 @@ export default async function EmployerEditJob({ params }: { params: { id: string
     <>
       <PageHeader title={job.title}
         sub="Edit the role and shape its application form. Rules on fields auto-shortlist eligible applicants."
-        action={<Link href={`/portal/employer/jobs/${params.id}/applicants`} className="btn-ghost">View applicants →</Link>} />
+        action={<span className="flex gap-2"><CopyLink path={`/jobs/${params.id}`} /><Link href={`/portal/employer/jobs/${params.id}/applicants`} className="btn-ghost">View applicants →</Link></span>} />
       <div className="grid xl:grid-cols-2 gap-6 items-start">
         <JobEditor job={job} niches={niches ?? []} orgId={org.id} basePath="/portal/employer/jobs" />
         <FormBuilder jobId={params.id} formId={job.form_id ?? null} initial={(fields ?? []) as any} />

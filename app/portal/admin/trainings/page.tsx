@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { NewCourseButton } from "@/components/CourseBuilder";
+import { DeleteButton } from "@/components/DeleteButton";
 
 export default async function AdminTrainings() {
   const supabase = createClient();
@@ -18,7 +19,7 @@ export default async function AdminTrainings() {
     <>
       <PageHeader title="Trainings"
         sub="External sessions and LMS courses. The invite engine fills them; this is where you run them."
-        action={<Link href="/portal/admin/invites" className="btn-coral">Send invites ✉</Link>} />
+        action={<span className="flex gap-3"><Link href="/portal/admin/trainings/new" className="btn-coral">＋ Curate training</Link><Link href="/portal/admin/invites" className="btn-ghost">Send invites ✉</Link></span>} />
 
       <div className="grid xl:grid-cols-2 gap-6 items-start">
         <div>
@@ -60,14 +61,14 @@ export default async function AdminTrainings() {
           ) : (
             <div className="space-y-3">
               {(courses ?? []).map((c) => (
-                <Link key={c.id} href={`/portal/admin/courses/${c.id}`}
-                  className="card p-5 flex items-center gap-4 hover:border-coral transition">
-                  <div className="flex-1">
+                <div key={c.id} className="card p-5 flex items-center gap-4 hover:border-coral transition">
+                  <Link href={`/portal/admin/courses/${c.id}`} className="flex-1">
                     <div className="font-semibold text-sm">{c.title}</div>
                     <div className="text-xs text-muted-2 capitalize">{c.status.replace(/_/g, " ")}</div>
-                  </div>
-                  <span className="text-coral font-semibold text-sm">Build →</span>
-                </Link>
+                  </Link>
+                  <DeleteButton action="delete_course" id={c.id} label="✕" confirmLabel="Delete" small />
+                  <Link href={`/portal/admin/courses/${c.id}`} className="text-coral font-semibold text-sm">Build →</Link>
+                </div>
               ))}
             </div>
           )}

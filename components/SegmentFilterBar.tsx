@@ -25,6 +25,13 @@ export function SegmentFilterBar({ taxonomies }: { taxonomies: Tax[] }) {
 
   return (
     <div className="flex flex-wrap items-center gap-3 mb-6">
+      <input
+        className="input !h-10 !rounded-xl text-sm !w-60"
+        placeholder="Keyword — name, headline, skill…"
+        defaultValue={val("q")}
+        onKeyDown={(e) => { if (e.key === "Enter") setParam("q", (e.target as HTMLInputElement).value.trim()); }}
+        onBlur={(e) => { if (e.target.value.trim() !== val("q")) setParam("q", e.target.value.trim()); }}
+      />
       <select className={sel} value={val("niche")} onChange={(e) => setParam("niche", e.target.value)}>
         <option value="">Niche · all</option>
         {niches.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}

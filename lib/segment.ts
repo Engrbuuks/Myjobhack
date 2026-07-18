@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
 export type SegmentFilters = {
+  q?: string;
   niche?: string;
   goal?: string;
   expertise?: string;
@@ -12,8 +13,9 @@ export type SegmentFilters = {
 };
 
 export function filtersFromSearchParams(sp: Record<string, string | string[] | undefined>): SegmentFilters {
+  const _q = typeof sp.q === "string" && sp.q.trim() ? sp.q.trim() : undefined;
   const g = (k: string) => (typeof sp[k] === "string" && sp[k] ? (sp[k] as string) : undefined);
-  return {
+  return { q: _q,
     niche: g("niche"), goal: g("goal"), expertise: g("expertise"),
     level: g("level"), mode: g("mode"), reloc: g("reloc"),
     min_completion: g("min_completion"), verified: g("verified")
@@ -22,6 +24,11 @@ export function filtersFromSearchParams(sp: Record<string, string | string[] | u
 
 /** Returns talent rows (profile_id, plus profile fields) matching a CRM segment. */
 export async function querySegment(supabase: SupabaseClient, f: SegmentFilters) {
+  // only real talent (job seekers + elite) — admins/staff never surface in the pool
+  const { data: talentProfiles } = await supabase
+    .from("profiles").select("id").in("role", ["job_seeker", "elite_member"]);
+  const talentIds = (talentProfiles ?? []).map((p) => p.id);
+  if (talentIds.length === 0) return [];
   let ids: string[] | null = null;
   if (f.expertise) {
     const { data } = await supabase
@@ -36,6 +43,15 @@ export async function querySegment(supabase: SupabaseClient, f: SegmentFilters) 
   if (ids) q = q.in("profile_id", ids);
   if (f.niche) q = q.eq("niche_id", f.niche);
   if (f.goal) q = q.eq("career_goal_id", f.goal);
+  q = q.in("profile_id", talentIds);
+  if (f.q) {
+    const term = `%${f.q}%`;
+    const { data: nameHits } = await supabase.from("profiles")
+      .select("id").in("role", ["job_seeker", "elite_member"]).ilike("full_name", term);
+    const nameIds = (nameHits ?? []).map((p) => p.id);
+    // headline matches OR name matches
+    q = q.or(`headline.ilike.${term.replace(/,/g, "")}${nameIds.length ? `,profile_id.in.(${nameIds.join(",")})` : ""}`);
+  }
   if (f.level) q = q.eq("expected_role_level", f.level);
   if (f.mode) q = q.eq("preferred_work_mode", f.mode);
   if (f.reloc) q = q.eq("relocation", f.reloc);

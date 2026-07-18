@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-export async function POST() {
+export async function POST(request: Request) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -13,12 +13,17 @@ export async function POST() {
   if (!key) return NextResponse.json({ error: "Paystack is not configured yet — use bank transfer for now." }, { status: 400 });
 
   const admin = createAdminClient();
-  const { data: plan } = await admin.from("plans").select("*").eq("active", true).limit(1).single();
+  let planId: string | null = null;
+  try { const body = await request.json(); planId = body?.plan_id ?? null; } catch {}
+  const planQ = admin.from("plans").select("*").eq("active", true);
+  const { data: plan } = planId
+    ? await planQ.eq("id", planId).single()
+    : await planQ.order("sort", { ascending: false }).limit(1).single();
   if (!plan) return NextResponse.json({ error: "No active plan" }, { status: 400 });
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
   const { data: payment } = await admin.from("payments").insert({
-    profile_id: user.id, amount: plan.price_ngn, currency: "NGN",
+    profile_id: user.id, amount: plan.price_ngn, currency: "NGN", plan_id: plan.id,
     method: "paystack", status: "initiated"
   }).select("id").single();
 

@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST() {
-  const g = await requireSubscriber();
+  const g = await requireSubscriber("skills-gap");
   if (g.error) return NextResponse.json({ error: g.error }, { status: g.status });
   const { user, supabase } = g;
 

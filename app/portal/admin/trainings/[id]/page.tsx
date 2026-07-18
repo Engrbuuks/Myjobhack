@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { TrainingSettings, EnrollmentRow } from "@/components/TrainingManage";
+import { TrainingBroadcast } from "@/components/TrainingBroadcast";
 
 export default async function TrainingDetail({ params }: { params: { id: string } }) {
   const supabase = createClient();
@@ -27,7 +28,10 @@ export default async function TrainingDetail({ params }: { params: { id: string 
         sub={`${invites ?? 0} invited · ${rows.length} enrolled · ${completed} completed`}
         action={<Link href="/portal/admin/trainings" className="btn-ghost">← All trainings</Link>} />
       <div className="grid xl:grid-cols-2 gap-6 items-start">
-        <TrainingSettings training={training!} courses={courses ?? []} trainers={trainers ?? []} />
+        <div className="space-y-6">
+          <TrainingSettings training={training!} courses={courses ?? []} trainers={trainers ?? []} />
+          <TrainingBroadcast trainingId={params.id} />
+        </div>
         <div className="card p-6">
           <div className="text-xs font-bold uppercase tracking-widest text-muted mb-4">Enrollments & attendance</div>
           {rows.length === 0 ? (

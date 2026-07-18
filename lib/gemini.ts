@@ -1,4 +1,4 @@
-const MODEL = "gemini-1.5-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 /** Call Gemini and return parsed JSON (prompt must demand a JSON-only reply). */
 export async function geminiJson(prompt: string): Promise<{ data: any | null; error: string | null; raw?: string }> {

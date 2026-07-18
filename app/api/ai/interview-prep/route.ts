@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  const g = await requireSubscriber();
+  const g = await requireSubscriber("interview-prep");
   if (g.error) return NextResponse.json({ error: g.error }, { status: g.status });
   const { user, supabase } = g;
 
