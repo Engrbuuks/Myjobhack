@@ -19,6 +19,7 @@ export function CampaignComposer({ niches }: { niches: { id: string; label: stri
   const [audience, setAudience] = useState("all_talent");
   const [nicheId, setNicheId] = useState("");
   const [emailList, setEmailList] = useState("");
+  const [scheduleAt, setScheduleAt] = useState("");
 
   async function call(body: Record<string, any>, tag: string) {
     setBusy(tag); setErr(null); setNote(null);
@@ -44,6 +45,17 @@ export function CampaignComposer({ niches }: { niches: { id: string; label: stri
     const json = await call({ mode: "test", draft }, "test");
     if (json?.ok) setNote("Test sent to your inbox ✓");
   }
+  async function scheduleCampaign() {
+    if (!scheduleAt) { setErr("Pick a date & time first."); return; }
+    const json = await call({ mode: "schedule", draft, audience, niche_id: nicheId, email_list: emailList,
+      scheduled_at: new Date(scheduleAt).toISOString() }, "schedule");
+    if (json?.ok) {
+      setNote(`Scheduled ✓ — fires ${new Date(scheduleAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}.`);
+      setScheduleAt("");
+      window.location.reload();
+    }
+  }
+
   async function sendCampaign() {
     if (!window.confirm("Send this campaign to the selected audience?")) return;
     const json = await call({ mode: "send", draft, audience, niche_id: nicheId, email_list: emailList }, "send");
@@ -138,7 +150,14 @@ export function CampaignComposer({ niches }: { niches: { id: string; label: stri
                 {busy === "test" ? "Sending…" : "Send test to me"}
               </button>
               <button className="btn-coral !h-11" onClick={sendCampaign} disabled={busy !== null}>
-                {busy === "send" ? "Sending…" : "Send campaign →"}
+                {busy === "send" ? "Sending…" : "Send now →"}
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-line">
+              <input type="datetime-local" className="input !h-11 !w-auto text-sm"
+                value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+              <button className="btn-ghost !h-11" onClick={scheduleCampaign} disabled={busy !== null || !scheduleAt}>
+                {busy === "schedule" ? "Scheduling…" : "🗓 Schedule for later"}
               </button>
               {note && <span className="text-sm text-muted">{note}</span>}
             </div>

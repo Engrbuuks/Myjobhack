@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { geminiJson } from "@/lib/gemini";
 import { renderEmail } from "@/lib/email";
+import { renderCampaign as renderStored, resolveAudience, dispatchCampaign } from "@/lib/campaigns";
 import { sendBatch, sendEmail } from "@/lib/resend";
 
 export const runtime = "nodejs";
@@ -77,38 +78,59 @@ Respond with ONLY this JSON:
     return NextResponse.json({ ok: !res.error, detail: res });
   }
 
-  // ---------- SEND ----------
+  // ---------- SEND (immediate) ----------
   if (b.mode === "send") {
     const admin = createAdminClient();
-    let emails: string[] = [];
-    if (b.audience === "all_talent") {
-      const { data } = await admin.from("profiles").select("email").in("role", ["job_seeker", "elite_member"]);
-      emails = (data ?? []).map((p) => p.email).filter(Boolean);
-    } else if (b.audience === "elite") {
-      const { data } = await admin.from("profiles").select("email").eq("role", "elite_member");
-      emails = (data ?? []).map((p) => p.email).filter(Boolean);
-    } else if (b.audience === "niche" && b.niche_id) {
-      const { data: tps } = await admin.from("talent_profiles").select("profile_id").eq("niche_id", b.niche_id);
-      const ids = (tps ?? []).map((t) => t.profile_id);
-      if (ids.length) {
-        const { data } = await admin.from("profiles").select("email").in("id", ids);
-        emails = (data ?? []).map((p) => p.email).filter(Boolean);
-      }
-    } else if (b.audience === "list") {
-      emails = String(b.email_list ?? "").split(/[\s,;]+/).filter((e: string) => e.includes("@"));
-    }
-    emails = Array.from(new Set(emails));
+    const emails = await resolveAudience(admin, b.audience, b.niche_id, b.email_list);
     if (emails.length === 0) return NextResponse.json({ error: "No recipients resolved." }, { status: 400 });
 
     const html = renderCampaign(b.draft);
     const results = await sendBatch(emails.map((to) => ({ to, subject: b.draft.subject, html })));
     const sent = results.filter((r) => !r.error).length;
 
+    await admin.from("campaigns").insert({
+      created_by: (auth as any).user.id, subject: b.draft.subject, draft: b.draft,
+      audience: b.audience, niche_id: b.niche_id ?? null, email_list: b.email_list ?? null,
+      status: "sent", sent_at: new Date().toISOString(),
+      recipients: emails.length, sent_count: sent
+    });
     await admin.from("activity_log").insert({
       actor_id: (auth as any).user.id, action: "Marketing campaign sent", entity: "campaign",
       meta: { subject: b.draft.subject, audience: b.audience, recipients: emails.length, sent }
     });
     return NextResponse.json({ ok: true, recipients: emails.length, sent, failed: emails.length - sent });
+  }
+
+  // ---------- SCHEDULE ----------
+  if (b.mode === "schedule") {
+    if (!b.draft?.hook || !b.draft?.subject)
+      return NextResponse.json({ error: "Draft the email first." }, { status: 400 });
+    const when = new Date(b.scheduled_at);
+    if (!b.scheduled_at || isNaN(when.getTime()) || when.getTime() < Date.now() + 60_000)
+      return NextResponse.json({ error: "Pick a future date & time." }, { status: 400 });
+    const admin = createAdminClient();
+    const { data, error } = await admin.from("campaigns").insert({
+      created_by: (auth as any).user.id, subject: b.draft.subject, draft: b.draft,
+      audience: b.audience, niche_id: b.niche_id ?? null, email_list: b.email_list ?? null,
+      status: "scheduled", scheduled_at: when.toISOString()
+    }).select("id").single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, id: data.id });
+  }
+
+  // ---------- CANCEL ----------
+  if (b.mode === "cancel") {
+    const admin = createAdminClient();
+    await admin.from("campaigns").update({ status: "cancelled" }).eq("id", b.id).eq("status", "scheduled");
+    return NextResponse.json({ ok: true });
+  }
+
+  // ---------- SEND NOW (a scheduled one) ----------
+  if (b.mode === "send_now") {
+    const admin = createAdminClient();
+    const r = await dispatchCampaign(admin, b.id);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    return NextResponse.json({ ok: true, sent: r.sent, recipients: r.recipients });
   }
 
   return NextResponse.json({ error: "Unknown mode" }, { status: 400 });

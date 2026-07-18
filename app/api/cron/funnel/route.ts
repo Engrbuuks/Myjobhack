@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { dispatchDue } from "@/lib/campaigns";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -121,5 +122,7 @@ export async function GET(request: Request) {
       if (!res.error) sent++;
     }
   }
-  return NextResponse.json({ ok: true, sent });
+  // scheduled campaigns due by now ride the same daily train
+  const campaignsFired = await dispatchDue(admin);
+  return NextResponse.json({ ok: true, sent, campaignsFired });
 }
