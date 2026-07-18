@@ -13,6 +13,12 @@ export default async function EliteDashboard() {
   const { data: chapter } = em?.chapter_id
     ? await supabase.from("chapters").select("city, country").eq("id", em.chapter_id).single()
     : { data: null as any };
+  const [{ data: latestTopics }, { count: myConns }] = await Promise.all([
+    supabase.from("forum_topics").select("id, title, category, created_at")
+      .order("created_at", { ascending: false }).limit(3),
+    supabase.from("dm_connections").select("*", { count: "exact", head: true })
+      .or(`requester_id.eq.${user!.id},recipient_id.eq.${user!.id}`).eq("status", "accepted")
+  ]);
   const { count: peers } = em?.chapter_id
     ? await supabase.from("elite_memberships").select("*", { count: "exact", head: true })
         .eq("chapter_id", em.chapter_id).eq("status", "verified")
@@ -67,10 +73,31 @@ export default async function EliteDashboard() {
             <StatCard label="Chapter" value={chapter?.city ?? "—"} hint={chapter?.country ?? "Assigned on verification"} />
             <StatCard label="Chapter peers" value={peers ?? 0} hint="Verified members in your city" />
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/portal/elite/chapter" className="btn-coral">My chapter →</Link>
-            <Link href="/portal/elite/community" className="btn-ghost">Continental directory</Link>
+          <div className="flex flex-wrap gap-3 mb-8">
+            <Link href="/portal/elite/commons" className="btn-coral">The Commons →</Link>
+            <Link href="/portal/elite/community" className="btn-ghost">Directory</Link>
+            <Link href="/portal/elite/messages" className="btn-ghost">Messages{(myConns ?? 0) > 0 ? ` · ${myConns}` : ""}</Link>
             <Link href="/portal/seeker/jobs" className="btn-ghost">Priority roles</Link>
+          </div>
+
+          <div className="relative overflow-hidden rounded-card bg-ink text-white border border-white/10 p-6">
+            <div className="pointer-events-none absolute -top-14 -right-10 w-48 h-48 rounded-full bg-coral/[.14] blur-3xl" />
+            <div className="relative">
+              <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-4">Live from The Commons</div>
+              {(latestTopics ?? []).length === 0 ? (
+                <p className="text-sm text-white/45">The room is quiet — <Link href="/portal/elite/commons" className="text-coral font-semibold">start the first conversation</Link>.</p>
+              ) : (
+                <div className="space-y-3">
+                  {(latestTopics ?? []).map((t) => (
+                    <Link key={t.id} href={`/portal/elite/commons/${t.id}`}
+                      className="flex items-center gap-3 group">
+                      <span className="w-1.5 h-1.5 rounded-full bg-coral shrink-0" />
+                      <span className="text-sm font-medium truncate group-hover:text-coral transition">{t.title}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
