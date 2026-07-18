@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { COUNTRIES } from "@/lib/geo";
 
 type Org = { id?: string; name: string; website: string; sector_id: string | null; country: string };
 
@@ -47,7 +48,10 @@ export function CompanySetup({ org, sectors }: {
           <div><label className="label">Website</label>
             <input className="input" placeholder="https://…" value={o.website} onChange={(e) => set("website", e.target.value)} /></div>
           <div><label className="label">Country</label>
-            <input className="input" value={o.country} onChange={(e) => set("country", e.target.value)} /></div>
+            <select className="input" value={o.country} onChange={(e) => set("country", e.target.value)}>
+              <option value="">Select country…</option>
+              {COUNTRIES.map((cn) => <option key={cn} value={cn}>{cn}</option>)}
+            </select></div>
         </div>
         <div><label className="label">Sector</label>
           <select className="input" value={o.sector_id ?? ""} onChange={(e) => set("sector_id", e.target.value || null)}>

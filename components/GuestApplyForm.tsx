@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { LocationPicker } from "@/components/LocationPicker";
 
 type Field = { id: string; label: string; field_type: string; required: boolean; options: string[] | null };
 
@@ -8,6 +9,8 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [country, setCountry] = useState("Nigeria");
+  const [city, setCity] = useState("");
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [resume, setResume] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -20,7 +23,8 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
     setBusy(true); setErr(null);
     const fd = new FormData();
     fd.append("job_id", jobId); fd.append("name", name); fd.append("email", email);
-    fd.append("phone", phone); fd.append("answers", JSON.stringify(answers));
+    fd.append("phone", phone); fd.append("country", country); fd.append("city", city);
+    fd.append("answers", JSON.stringify(answers));
     fd.append("website", ""); // honeypot
     if (resume) fd.append("resume", resume);
     const res = await fetch("/api/public/apply", { method: "POST", body: fd });
@@ -67,6 +71,7 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
           <input className="gin" placeholder="Full name *" value={name} onChange={(e) => setName(e.target.value)} />
           <input className="gin" type="email" placeholder="Email *" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input className="gin" placeholder="Phone / WhatsApp" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <LocationPicker dark labels={false} country={country} city={city} onCountry={setCountry} onCity={setCity} />
         </div>
 
         {fields.map((f) => (

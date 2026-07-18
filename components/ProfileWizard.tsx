@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { LocationPicker } from "@/components/LocationPicker";
 
 type Tax = { id: string; kind: string; label: string };
 type Props = {
@@ -168,12 +169,7 @@ export function ProfileWizard(p: Props) {
               <input className="input" type="number" min={0} max={50} value={years}
                 onChange={(e) => setYears(Number(e.target.value))} /></div>
           </div>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div><label className="label">Country</label>
-              <input className="input" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Nigeria" /></div>
-            <div><label className="label">City</label>
-              <input className="input" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Lagos" /></div>
-          </div>
+          <LocationPicker country={country} city={city} onCountry={setCountry} onCity={setCity} />
           <div><label className="label">Professional headline</label>
             <input className="input" value={headline} onChange={(e) => setHeadline(e.target.value)}
               placeholder="e.g. Chartered accountant · audit & reporting" /></div>

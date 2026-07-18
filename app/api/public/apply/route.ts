@@ -13,6 +13,8 @@ export async function POST(request: Request) {
   const name = String(fd.get("name") ?? "").trim();
   const email = String(fd.get("email") ?? "").trim().toLowerCase();
   const phone = String(fd.get("phone") ?? "").trim();
+  const country = String(fd.get("country") ?? "").trim();
+  const city = String(fd.get("city") ?? "").trim();
   const answersRaw = String(fd.get("answers") ?? "{}");
   const resume = fd.get("resume") as File | null;
 
@@ -58,8 +60,9 @@ export async function POST(request: Request) {
   const status = !hasRules ? "submitted" : verdict.passed ? "shortlisted" : "rules_failed";
 
   const { data: app, error } = await admin.from("applications").insert({
-    job_id, talent_id: null, answers, status,
+    job_id, talent_id: null, status,
     guest_name: name, guest_email: email, guest_phone: phone || null,
+    answers: { ...answers, _location: [city, country].filter(Boolean).join(", ") },
     guest_resume_path: path
   }).select("id").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

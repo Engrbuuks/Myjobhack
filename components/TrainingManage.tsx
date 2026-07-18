@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { DeleteButton } from "@/components/DeleteButton";
 
 export function TrainingSettings({ training, courses, trainers }: {
-  training: { id: string; status: string; course_id: string | null; delivery: string; starts_at: string | null; location_or_link: string | null; trainer_id?: string | null; price_ngn?: number; price_usd?: number };
+  training: { id: string; status: string; course_id: string | null; delivery: string; starts_at: string | null; location_or_link: string | null; trainer_id?: string | null; price_ngn?: number; price_usd?: number; is_public?: boolean };
   courses: { id: string; title: string }[];
   trainers?: { id: string; full_name: string }[];
 }) {
@@ -18,6 +18,7 @@ export function TrainingSettings({ training, courses, trainers }: {
   const [trainerId, setTrainerId] = useState(training.trainer_id ?? "");
   const [priceNgn, setPriceNgn] = useState(String(training.price_ngn ?? 0));
   const [priceUsd, setPriceUsd] = useState(String(training.price_usd ?? 0));
+  const [isPublic, setIsPublic] = useState(!!training.is_public);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -28,6 +29,7 @@ export function TrainingSettings({ training, courses, trainers }: {
       trainer_id: trainerId || null,
       price_ngn: Number(priceNgn) || 0,
       price_usd: Number(priceUsd) || 0,
+      is_public: isPublic,
       starts_at: startsAt ? new Date(startsAt).toISOString() : null,
       location_or_link: where
     }).eq("id", training.id);
@@ -59,6 +61,13 @@ export function TrainingSettings({ training, courses, trainers }: {
             </select></div>
         )}
       </div>
+      <label className="flex items-start gap-3 rounded-xl border border-line p-4 mb-5 cursor-pointer hover:border-coral transition">
+        <input type="checkbox" className="mt-1" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+        <span>
+          <span className="block text-sm font-semibold">List publicly on the Academy page</span>
+          <span className="block text-xs text-muted-2 mt-0.5">Visible to the world at /trainings with a register-interest form. Leave off for invite-only cohorts.</span>
+        </span>
+      </label>
       <div className="grid sm:grid-cols-2 gap-4 mb-5">
         <div><label className="label">Price ₦ (0 = free)</label>
           <input className="input" type="number" value={priceNgn} onChange={(e) => setPriceNgn(e.target.value)} /></div>
