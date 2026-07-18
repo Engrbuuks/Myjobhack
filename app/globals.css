@@ -18,3 +18,8 @@ body { @apply bg-paper text-ink font-sans antialiased; }
 .btn-ghost { @apply inline-flex items-center gap-2 rounded-pill border border-line bg-white text-ink font-semibold text-sm px-5 h-11 transition hover:border-ink; }
 .input { @apply w-full h-12 rounded-2xl border border-line bg-white px-4 text-sm outline-none transition focus:border-coral focus:ring-4 focus:ring-coral/10; }
 .label { @apply block text-xs font-bold uppercase tracking-widest text-muted mb-2; }
+
+
+/* horizontal chip rows without a visible scrollbar */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
