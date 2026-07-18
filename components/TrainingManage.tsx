@@ -33,6 +33,12 @@ export function TrainingSettings({ training, courses, trainers }: {
       starts_at: startsAt ? new Date(startsAt).toISOString() : null,
       location_or_link: where
     }).eq("id", training.id);
+    try {
+      await fetch("/api/revalidate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ training_id: training.id })
+      });
+    } catch {}
     setBusy(false); setNote(error ? error.message : "Saved ✓");
     router.refresh();
   }

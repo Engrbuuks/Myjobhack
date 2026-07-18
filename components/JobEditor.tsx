@@ -38,16 +38,35 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       employment_type: j.employment_type as any, salary_note: j.salary_note,
       niche_id: j.niche_id, status: j.status as any,
       closes_at: j.closes_at || null, external_url: j.external_url || null,
-      published_at: j.status === "published" ? new Date().toISOString() : null
     };
     if (j.id) {
-      const { error } = await supabase.from("jobs").update(payload).eq("id", j.id);
+      // set published_at the first time it goes live; never overwrite it afterwards
+      const { data: existing } = await supabase.from("jobs").select("published_at").eq("id", j.id).single();
+      const updatePayload: any = { ...payload };
+      if (j.status === "published" && !existing?.published_at) {
+        updatePayload.published_at = new Date().toISOString();
+      } else if (j.status !== "published") {
+        updatePayload.published_at = null;
+      }
+      const { error } = await supabase.from("jobs").update(updatePayload).eq("id", j.id);
       if (error) { setErr(error.message); setBusy(false); return; }
+      try {
+        await fetch("/api/revalidate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: j.id })
+        });
+      } catch {}
       router.refresh(); setBusy(false);
     } else {
       const { data, error } = await supabase.from("jobs")
-        .insert({ ...payload, posted_by: user!.id, org_id: orgId ?? null }).select("id").single();
+        .insert({ ...payload, published_at: j.status === "published" ? new Date().toISOString() : null, posted_by: user!.id, org_id: orgId ?? null }).select("id").single();
       if (error) { setErr(error.message); setBusy(false); return; }
+      try {
+        await fetch("/api/revalidate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: data.id })
+        });
+      } catch {}
       router.push(`${basePath}/${data.id}`);
     }
   }

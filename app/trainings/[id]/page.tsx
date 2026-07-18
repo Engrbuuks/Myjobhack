@@ -6,7 +6,7 @@ import { currencyFromRequest, formatMoney } from "@/lib/currency";
 import { FormattedJD } from "@/components/FormattedJD";
 import { TrainingInterest } from "@/components/TrainingInterest";
 
-export const revalidate = 300;
+export const revalidate = 60;
 
 const FORMAT_LABEL: Record<string, string> = { lms: "Self-paced course", virtual: "Live virtual session", physical: "In-person training" };
 

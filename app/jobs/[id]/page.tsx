@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { FormattedJD } from "@/components/FormattedJD";
 import { GuestApplyForm } from "@/components/GuestApplyForm";
 
-export const revalidate = 300;
+export const revalidate = 60;
 
 async function getJob(id: string) {
   const admin = createAdminClient();

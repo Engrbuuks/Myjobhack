@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
-export const revalidate = 300;
+export const revalidate = 60;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600"
+  "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120"
 };
 
 export async function OPTIONS() {
