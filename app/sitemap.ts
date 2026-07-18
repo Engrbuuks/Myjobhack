@@ -6,6 +6,8 @@ export const revalidate = 3600;
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = "https://app.myjobhack.co";
   const entries: MetadataRoute.Sitemap = [
+    { url: `${base}/join`, changeFrequency: "weekly", priority: 1.0 },
+    { url: `${base}/roles`, changeFrequency: "daily", priority: 0.9 },
     { url: `${base}/signup`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/login`, changeFrequency: "monthly", priority: 0.3 }
   ];

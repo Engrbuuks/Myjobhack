@@ -16,10 +16,11 @@ export default function SignupPage() {
     e.preventDefault();
     setBusy(true); setErr(null);
     const supabase = createClient();
+    const refTag = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("ref") : null;
     const { error } = await supabase.auth.signUp({
       email, password,
       options: {
-        data: { full_name: fullName, role },
+        data: { full_name: fullName, role, ...(refTag ? { ref: refTag } : {}) },
         emailRedirectTo: `${window.location.origin}/auth/callback`
       }
     });
