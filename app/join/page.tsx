@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { denominate } from "@/lib/currency";
 
 export const revalidate = 300;
 

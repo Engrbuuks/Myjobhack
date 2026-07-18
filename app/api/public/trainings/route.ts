@@ -4,12 +4,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { currencyFromRequest, formatMoney } from "@/lib/currency";
 
 export const runtime = "nodejs";
-export const revalidate = 60;
+export const revalidate = 30;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120"
+  "Cache-Control": "public, s-maxage=30, stale-while-revalidate=0, must-revalidate"
 };
 
 export async function OPTIONS() {

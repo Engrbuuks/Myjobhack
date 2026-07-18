@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { denominate } from "@/lib/currency";
 import { FormattedJD } from "@/components/FormattedJD";
 import { GuestApplyForm } from "@/components/GuestApplyForm";
 
@@ -9,7 +10,7 @@ export const revalidate = 60;
 async function getJob(id: string) {
   const admin = createAdminClient();
   const { data: job } = await admin.from("jobs")
-    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, status, published_at, org_id, form_id")
+    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, salary_currency, status, published_at, org_id, form_id")
     .eq("id", id).maybeSingle();
   if (!job || job.status !== "published") return null;
   let company = "MYJOBHACK";

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { denominate } from "@/lib/currency";
 
 export const revalidate = 60;
 
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 export default async function RolesPage({ searchParams }: { searchParams: { q?: string; mode?: string } }) {
   const admin = createAdminClient();
   const { data: allJobs } = await admin.from("jobs")
-    .select("id, title, location, work_mode, role_level, employment_type, salary_note, org_id, published_at")
+    .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, org_id, published_at")
     .eq("status", "published").order("published_at", { ascending: false }).limit(80);
 
   const orgIds = Array.from(new Set((allJobs ?? []).map((j) => j.org_id).filter(Boolean))) as string[];
@@ -106,7 +107,7 @@ export default async function RolesPage({ searchParams }: { searchParams: { q?: 
                     ))}
                 </div>
                 <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-                  <span className="text-sm font-semibold text-white/80 truncate">{j.salary_note || "\u00A0"}</span>
+                  <span className="text-sm font-semibold text-white/80 truncate">{denominate(j.salary_note, j.salary_currency) || "\u00A0"}</span>
                   <span className="text-coral font-bold text-sm shrink-0">Apply →</span>
                 </div>
               </Link>

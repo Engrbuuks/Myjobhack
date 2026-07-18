@@ -15,6 +15,7 @@ export async function POST(request: Request) {
   revalidatePath("/roles");
   revalidatePath("/join");
   revalidatePath("/api/public/jobs");
+  revalidatePath("/api/public/trainings");
   if (job_id) revalidatePath(`/jobs/${job_id}`);
 
   if (training_id) {

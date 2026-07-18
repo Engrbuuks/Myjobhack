@@ -8,7 +8,7 @@ type Tax = { id: string; label: string };
 type Job = {
   id?: string; title: string; description: string; location: string;
   work_mode: string | null; role_level: string | null; employment_type: string;
-  salary_note: string; niche_id: string | null; status: string;
+  salary_note: string; salary_currency?: string; niche_id: string | null; status: string;
   closes_at: string | null; external_url: string | null;
 };
 
@@ -20,7 +20,7 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
   const router = useRouter();
   const [j, setJ] = useState<Job>(job ?? {
     title: "", description: "", location: "", work_mode: null, role_level: null,
-    employment_type: "full_time", salary_note: "", niche_id: null,
+    employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null,
     status: "draft", closes_at: null, external_url: null
   });
   const [busy, setBusy] = useState(false);
@@ -35,7 +35,7 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
     const payload = {
       title: j.title, description: j.description, location: j.location,
       work_mode: j.work_mode as any, role_level: j.role_level as any,
-      employment_type: j.employment_type as any, salary_note: j.salary_note,
+      employment_type: j.employment_type as any, salary_note: j.salary_note, salary_currency: j.salary_currency || "NGN",
       niche_id: j.niche_id, status: j.status as any,
       closes_at: j.closes_at || null, external_url: j.external_url || null,
     };
@@ -91,7 +91,21 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
           <div><label className="label">Location</label>
             <input className="input" placeholder="Lagos · Nigeria" value={j.location} onChange={(e) => set("location", e.target.value)} /></div>
           <div><label className="label">Salary note</label>
-            <input className="input" placeholder="₦450k–₦600k / month" value={j.salary_note} onChange={(e) => set("salary_note", e.target.value)} /></div>
+            <div className="flex gap-2">
+              <select className="input !w-28 shrink-0" value={j.salary_currency || "NGN"}
+                onChange={(e) => set("salary_currency", e.target.value)}>
+                <option value="NGN">₦ NGN</option>
+                <option value="USD">$ USD</option>
+                <option value="GBP">£ GBP</option>
+                <option value="EUR">€ EUR</option>
+                <option value="GHS">GH₵ GHS</option>
+                <option value="KES">KSh KES</option>
+                <option value="ZAR">R ZAR</option>
+              </select>
+              <input className="input" placeholder="450k–600k / month" value={j.salary_note}
+                onChange={(e) => set("salary_note", e.target.value)} />
+            </div>
+            <p className="text-xs text-muted-2 mt-1">The symbol is added automatically — just type the figures.</p></div>
         </div>
         <div className="grid sm:grid-cols-3 gap-4">
           <div><label className="label">Work mode</label>{sel("work_mode", MODES, "Select…")}</div>
