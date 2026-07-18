@@ -25,23 +25,23 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
   const signupHref = searchParams.ref ? `/signup?ref=${encodeURIComponent(searchParams.ref)}` : "/signup";
 
   return (
-    <div className="min-h-screen bg-ink text-white">
+    <div className="min-h-screen bg-ink text-white overflow-x-hidden">
       <header className="border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between gap-3">
           <a href="https://myjobhack.co" className="font-bold text-lg tracking-tight">myjob<span className="text-coral">hack</span></a>
           <Link href="/login" className="text-sm font-semibold text-white/60 hover:text-white transition">Sign in</Link>
         </div>
       </header>
 
       <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute -top-40 right-[5%] w-[560px] h-[560px] rounded-full bg-coral/[.14] blur-3xl" />
-        <div className="pointer-events-none absolute top-60 -left-32 w-80 h-80 rounded-full bg-coral/[.07] blur-3xl" />
-        <div className="relative max-w-6xl mx-auto px-6 pt-16 pb-14 grid lg:grid-cols-[1.1fr_.9fr] gap-14 items-center">
+        <div className="pointer-events-none absolute -top-40 right-[5%] w-[80vw] max-w-[560px] aspect-square rounded-full bg-coral/[.14] blur-3xl" />
+        <div className="pointer-events-none absolute top-60 -left-32 w-[55vw] max-w-80 aspect-square rounded-full bg-coral/[.07] blur-3xl" />
+        <div className="relative max-w-6xl mx-auto px-5 sm:px-6 pt-10 sm:pt-16 pb-10 sm:pb-14 grid lg:grid-cols-[1.1fr_.9fr] gap-10 lg:gap-14 items-center">
           <div>
             <div className="text-[11px] font-extrabold uppercase tracking-[.26em] text-[#FFB4AC] mb-5">
               Free forever · Two minutes
             </div>
-            <h1 className="font-display font-semibold text-[clamp(34px,6vw,60px)] leading-[1.03] mb-6">
+            <h1 className="font-display font-semibold text-[clamp(30px,7.5vw,60px)] leading-[1.03] mb-6">
               Your next role is <span className="text-coral">looking for you.</span>
             </h1>
             <p className="text-white/60 text-lg leading-relaxed max-w-lg mb-8">
@@ -82,7 +82,7 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
       </section>
 
       {(jobs ?? []).length > 0 && (
-        <section className="max-w-6xl mx-auto px-6 py-14 border-t border-white/10">
+        <section className="max-w-6xl mx-auto px-5 sm:px-6 py-10 sm:py-14 border-t border-white/10">
           <div className="text-[11px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-6">Hiring right now</div>
           <div className="grid sm:grid-cols-2 gap-4 mb-8">
             {(jobs ?? []).map((j) => (
@@ -102,7 +102,7 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
         </section>
       )}
 
-      <section className="max-w-6xl mx-auto px-6 py-16 border-t border-white/10">
+      <section className="max-w-6xl mx-auto px-5 sm:px-6 py-12 sm:py-16 border-t border-white/10">
         <div className="grid sm:grid-cols-3 gap-8">
           {[["01", "Build your profile", "Niche, experience, resume. Two minutes, once."],
             ["02", "Get matched", "Roles and trainings find you — apply in one click when they fit."],

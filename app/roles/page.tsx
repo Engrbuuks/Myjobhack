@@ -24,9 +24,9 @@ export default async function RolesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-ink text-white">
+    <div className="min-h-screen bg-ink text-white overflow-x-hidden">
       <header className="border-b border-white/10">
-        <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between gap-3">
           <a href="https://myjobhack.co" className="font-bold text-lg tracking-tight">myjob<span className="text-coral">hack</span></a>
           <div className="flex items-center gap-5 text-sm font-semibold">
             <Link href="/login" className="text-white/60 hover:text-white transition">Sign in</Link>
@@ -36,16 +36,16 @@ export default async function RolesPage() {
       </header>
 
       <div className="relative overflow-hidden">
-        <div className="pointer-events-none absolute -top-32 right-[8%] w-[460px] h-[460px] rounded-full bg-coral/[.12] blur-3xl" />
-        <div className="relative max-w-5xl mx-auto px-6 pt-14 pb-10">
+        <div className="pointer-events-none absolute -top-32 right-[8%] w-[75vw] max-w-[460px] aspect-square rounded-full bg-coral/[.12] blur-3xl" />
+        <div className="relative max-w-5xl mx-auto px-5 sm:px-6 pt-10 sm:pt-14 pb-8 sm:pb-10">
           <div className="text-[11px] font-extrabold uppercase tracking-[.26em] text-[#FFB4AC] mb-4">Open roles</div>
-          <h1 className="font-display font-semibold text-[clamp(30px,5vw,48px)] leading-tight mb-3">
+          <h1 className="font-display font-semibold text-[clamp(26px,7vw,48px)] leading-tight mb-3">
             {(jobs ?? []).length} {(jobs ?? []).length === 1 ? "role" : "roles"} hiring now.
           </h1>
           <p className="text-white/55 max-w-xl">Apply in two minutes — no account needed. Meet the requirements and you're shortlisted instantly.</p>
         </div>
 
-        <div className="relative max-w-5xl mx-auto px-6 pb-16">
+        <div className="relative max-w-5xl mx-auto px-5 sm:px-6 pb-12 sm:pb-16">
           {(jobs ?? []).length === 0 ? (
             <div className="rounded-card border border-white/10 p-12 text-center">
               <div className="font-display font-semibold text-2xl mb-2">No open roles this moment.</div>

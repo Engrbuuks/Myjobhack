@@ -32,7 +32,7 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
 
   if (done) {
     return (
-      <div className="relative overflow-hidden rounded-card bg-ink text-white border border-white/10 p-7">
+      <div className="relative overflow-hidden rounded-card bg-ink text-white border border-white/10 p-6 sm:p-7 min-w-0">
         <div className="pointer-events-none absolute -top-16 -right-12 w-56 h-56 rounded-full bg-coral/[.16] blur-3xl" />
         <div className="relative">
           <div className="w-12 h-12 rounded-full bg-coral grid place-items-center text-xl mb-4">✓</div>
@@ -57,8 +57,8 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
   }
 
   return (
-    <div className="relative overflow-hidden rounded-card bg-ink text-white border border-white/10 p-6">
-      <div className="pointer-events-none absolute -top-16 -right-12 w-56 h-56 rounded-full bg-coral/[.14] blur-3xl" />
+    <div className="relative overflow-hidden rounded-card bg-ink text-white border border-white/10 p-5 sm:p-6 min-w-0">
+      <div className="pointer-events-none absolute -top-16 -right-12 w-[60vw] max-w-56 aspect-square rounded-full bg-coral/[.14] blur-3xl" />
       <div className="relative">
         <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-1">Apply now</div>
         <div className="font-display font-semibold text-xl mb-5">No account needed.</div>
@@ -129,7 +129,7 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
       </div>
       <style jsx>{`
         .gin {
-          width: 100%; height: 46px; border-radius: 14px;
+          width: 100%; max-width: 100%; box-sizing: border-box; height: 46px; border-radius: 14px;
           background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
           padding: 0 16px; font-size: 14px; color: #fff; outline: none;
           transition: border-color .2s;

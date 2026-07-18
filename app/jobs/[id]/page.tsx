@@ -61,11 +61,11 @@ export default async function PublicJobPage({ params }: { params: { id: string }
   };
 
   return (
-    <div className="min-h-screen bg-ink text-white">
+    <div className="min-h-screen bg-ink text-white overflow-x-hidden">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
       <header className="border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between gap-3">
           <a href="https://myjobhack.co" className="font-bold text-lg tracking-tight">myjob<span className="text-coral">hack</span></a>
           <nav className="flex items-center gap-5 text-sm font-semibold">
             <Link href="/login" className="text-white/60 hover:text-white transition">Sign in</Link>
@@ -75,31 +75,31 @@ export default async function PublicJobPage({ params }: { params: { id: string }
       </header>
 
       <div className="relative overflow-hidden">
-        <div className="pointer-events-none absolute -top-32 right-[10%] w-[480px] h-[480px] rounded-full bg-coral/[.13] blur-3xl" />
-        <div className="pointer-events-none absolute top-40 -left-24 w-72 h-72 rounded-full bg-coral/[.07] blur-3xl" />
+        <div className="pointer-events-none absolute -top-32 right-[10%] w-[70vw] max-w-[480px] aspect-square rounded-full bg-coral/[.13] blur-3xl" />
+        <div className="pointer-events-none absolute top-40 -left-16 w-[50vw] max-w-72 aspect-square rounded-full bg-coral/[.07] blur-3xl" />
 
-        <div className="relative max-w-6xl mx-auto px-6 pt-14 pb-10">
+        <div className="relative max-w-6xl mx-auto px-5 sm:px-6 pt-10 sm:pt-14 pb-8 sm:pb-10">
           <div className="text-[11px] font-extrabold uppercase tracking-[.26em] text-[#FFB4AC] mb-4">
             {job.company} · is hiring
           </div>
-          <h1 className="font-display font-semibold text-[clamp(30px,5.4vw,54px)] leading-[1.05] max-w-3xl mb-6">
+          <h1 className="font-display font-semibold text-[clamp(26px,7vw,54px)] leading-[1.08] max-w-3xl mb-5 sm:mb-6 break-words hyphens-auto">
             {job.title}
           </h1>
           <div className="flex flex-wrap gap-2">
             {[job.location, job.work_mode, job.employment_type?.replace(/_/g, " "), job.role_level, job.salary_note]
               .filter(Boolean).map((m) => (
-                <span key={m as string} className="px-3.5 py-1.5 rounded-pill border border-white/15 text-[13px] text-white/75 capitalize">{m}</span>
+                <span key={m as string} className="px-3 sm:px-3.5 py-1.5 rounded-pill border border-white/15 text-xs sm:text-[13px] text-white/75 capitalize break-words">{m}</span>
               ))}
           </div>
         </div>
 
-        <div className="relative max-w-6xl mx-auto px-6 pb-20 grid lg:grid-cols-[1fr_420px] gap-10 items-start">
+        <div className="relative max-w-6xl mx-auto px-5 sm:px-6 pb-16 sm:pb-20 grid lg:grid-cols-[minmax(0,1fr)_420px] gap-8 lg:gap-10 items-start">
           {/* JD — editorial column */}
           <article className="min-w-0">
             <div className="h-px w-16 bg-coral mb-8" />
             <FormattedJD dark text={job.description || "Full details are shared during the process — apply and the team takes it from there."} />
 
-            <div className="mt-12 rounded-card border border-white/10 bg-white/[.04] p-6">
+            <div className="mt-10 sm:mt-12 rounded-card border border-white/10 bg-white/[.04] p-5 sm:p-6">
               <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-3">How hiring works here</div>
               <div className="grid sm:grid-cols-3 gap-5 text-sm">
                 {[["01", "Apply in two minutes", "No account needed — name, email, resume, done."],
@@ -116,7 +116,7 @@ export default async function PublicJobPage({ params }: { params: { id: string }
           </article>
 
           {/* Apply — sticky rail */}
-          <aside className="lg:sticky lg:top-6">
+          <aside className="lg:sticky lg:top-6 min-w-0">
             <GuestApplyForm jobId={job.id} fields={job.fields as any} />
           </aside>
         </div>
