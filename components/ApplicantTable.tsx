@@ -7,7 +7,7 @@ import { InterviewScheduler } from "@/components/InterviewScheduler";
 type Row = {
   id: string; status: string; rules_passed: boolean | null;
   ai_fit_score: number | null; ai_summary: string | null;
-  created_at: string; name: string; email: string;
+  created_at: string; name: string; email: string; guest?: boolean;
   answers: { label: string; value: string }[];
   resumeUrl: string | null;
 };
@@ -44,7 +44,7 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex-1 min-w-48">
               <div className="font-semibold text-sm">{r.name}</div>
-              <div className="text-xs text-muted-2">{r.email} · {new Date(r.created_at).toLocaleDateString()}</div>
+              <div className="text-xs text-muted-2">{r.email} · {new Date(r.created_at).toLocaleDateString()}{r.guest && <span className="ml-2 px-1.5 py-0.5 rounded bg-paper-2 text-[10px] font-bold uppercase tracking-wider">Guest</span>}</div>
             </div>
             {r.ai_fit_score != null && (
               <div className="text-center">
@@ -67,10 +67,10 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
                 <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
               ))}
             </select>
-            <button className="text-sm font-semibold text-ink hover:text-coral transition"
+            {!r.guest ? <button className="text-sm font-semibold text-ink hover:text-coral transition"
               onClick={() => setScheduling(scheduling === r.id ? null : r.id)}>
               {scheduling === r.id ? "Close" : "🗓 Interview"}
-            </button>
+            </button> : <a href={`mailto:${r.email}`} className="btn-ghost !h-9 text-xs">📧 Email</a>}
             <button className="text-coral text-sm font-semibold" onClick={() => setOpen(open === r.id ? null : r.id)}>
               {open === r.id ? "Close" : "Details"}
             </button>

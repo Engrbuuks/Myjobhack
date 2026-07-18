@@ -28,7 +28,10 @@ export default async function EmployerApplicants({ params }: { params: { id: str
     (apps ?? []).map(async (a) => {
       const { data: prof } = await admin.from("profiles").select("full_name, email").eq("id", a.talent_id).single();
       let resumeUrl: string | null = null;
-      if (a.resume_document_id) {
+      if (a.guest_resume_path) {
+        const { data: gs } = await admin.storage.from("documents").createSignedUrl(a.guest_resume_path, 3600);
+        resumeUrl = gs?.signedUrl ?? null;
+      } else if (a.resume_document_id) {
         const { data: doc } = await admin.from("documents").select("bucket, path").eq("id", a.resume_document_id).single();
         if (doc) {
           const { data: s } = await admin.storage.from(doc.bucket).createSignedUrl(doc.path, 3600);
@@ -41,8 +44,8 @@ export default async function EmployerApplicants({ params }: { params: { id: str
       return {
         id: a.id, status: a.status, rules_passed: a.rules_passed,
         ai_fit_score: a.ai_fit_score, ai_summary: a.ai_summary,
-        created_at: a.created_at, name: prof?.full_name ?? "—",
-        email: prof?.email ?? "", answers, resumeUrl
+        created_at: a.created_at, name: prof?.full_name ?? a.guest_name ?? "—", guest: !a.talent_id,
+        email: prof?.email ?? a.guest_email ?? "", answers, resumeUrl
       };
     })
   );

@@ -1,3 +1,4 @@
+import { FormattedJD } from "@/components/FormattedJD";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { DynamicApplicationForm } from "@/components/DynamicApplicationForm";
@@ -24,7 +25,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
       <div className="grid lg:grid-cols-[1fr_400px] gap-6 items-start">
         <div className="card p-6">
           <div className="text-xs font-bold uppercase tracking-widest text-muted mb-3">About the role</div>
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">{job.description || "Details shared during the process."}</p>
+          <FormattedJD text={job.description ?? ""} />
         </div>
         {existing ? (
           <div className="card p-6 text-sm">

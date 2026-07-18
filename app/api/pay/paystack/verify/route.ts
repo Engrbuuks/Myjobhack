@@ -40,8 +40,8 @@ export async function GET(request: Request) {
     entity: "subscription", entity_id: subId, meta: { reference }
   });
   await admin.from("notifications").insert({
-    profile_id: profileId, title: "AI toolkit unlocked 🎉",
-    body: "Your subscription is active — all AI tools are now available.",
+    profile_id: profileId, title: "Career Toolkit unlocked 🎉",
+    body: "Your subscription is active — all toolkit are now available.",
     link: "/portal/seeker/ai-tools"
   });
   return NextResponse.redirect(`${appUrl}/portal/seeker/subscription?status=success`);

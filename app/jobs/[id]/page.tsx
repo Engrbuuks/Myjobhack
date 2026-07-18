@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { FormattedJD } from "@/components/FormattedJD";
+import { GuestApplyForm } from "@/components/GuestApplyForm";
 
 export const revalidate = 300;
 
 async function getJob(id: string) {
   const admin = createAdminClient();
   const { data: job } = await admin.from("jobs")
-    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, status, published_at, org_id")
+    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, status, published_at, org_id, form_id")
     .eq("id", id).maybeSingle();
   if (!job || job.status !== "published") return null;
   let company = "MYJOBHACK";
@@ -15,13 +17,16 @@ async function getJob(id: string) {
     const { data: org } = await admin.from("organizations").select("name").eq("id", job.org_id).single();
     if (org?.name) company = org.name;
   }
-  return { ...job, company };
+  const { data: fields } = job.form_id
+    ? await admin.from("form_fields").select("id, label, field_type, required, options").eq("form_id", job.form_id).order("sort")
+    : { data: [] as any[] };
+  return { ...job, company, fields: fields ?? [] };
 }
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const job = await getJob(params.id);
   if (!job) return { title: "Role unavailable — MYJOBHACK", robots: { index: false } };
-  const desc = `${job.company} is hiring: ${job.title}${job.location ? ` in ${job.location}` : ""}. Apply on MYJOBHACK — qualified candidates are shortlisted automatically.`;
+  const desc = `${job.company} is hiring: ${job.title}${job.location ? ` in ${job.location}` : ""}. Apply in two minutes — no account required.`;
   return {
     title: `${job.title} at ${job.company} — MYJOBHACK`,
     description: desc,
@@ -35,10 +40,10 @@ export default async function PublicJobPage({ params }: { params: { id: string }
 
   if (!job) {
     return (
-      <div className="min-h-screen bg-paper grid place-items-center p-6">
+      <div className="min-h-screen bg-ink text-white grid place-items-center p-6">
         <div className="text-center">
           <div className="font-display font-semibold text-3xl mb-2">This role is no longer open.</div>
-          <p className="text-muted text-sm mb-6">But new roles land constantly — build your profile and let them find you.</p>
+          <p className="text-white/50 text-sm mb-6">But new roles land constantly — build your profile and let them find you.</p>
           <Link href="/signup" className="btn-coral">Join MYJOBHACK free →</Link>
         </div>
       </div>
@@ -56,49 +61,70 @@ export default async function PublicJobPage({ params }: { params: { id: string }
   };
 
   return (
-    <div className="min-h-screen bg-paper">
+    <div className="min-h-screen bg-ink text-white">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
-      <header className="bg-ink text-white">
-        <div className="max-w-3xl mx-auto px-6 py-5 flex items-center justify-between">
-          <a href="https://myjobhack.co" className="font-bold text-lg">myjob<span className="text-coral">hack</span></a>
-          <Link href="/login" className="text-sm font-semibold text-white/70 hover:text-coral transition">Sign in</Link>
-        </div>
-        <div className="relative overflow-hidden max-w-3xl mx-auto px-6 pb-12 pt-6">
-          <div className="pointer-events-none absolute -top-20 -right-16 w-72 h-72 rounded-full bg-coral/[.16] blur-3xl" />
-          <div className="relative">
-            <div className="text-[11px] font-extrabold uppercase tracking-[.24em] text-[#FFB4AC] mb-3">{job.company} is hiring</div>
-            <h1 className="font-display font-semibold text-[clamp(28px,5vw,44px)] leading-tight mb-4">{job.title}</h1>
-            <div className="flex flex-wrap gap-2 text-sm">
-              {[job.location, job.work_mode, job.employment_type?.replace(/_/g, " "), job.role_level, job.salary_note]
-                .filter(Boolean).map((m) => (
-                  <span key={m as string} className="px-3 py-1.5 rounded-pill bg-white/10 capitalize">{m}</span>
-                ))}
-            </div>
-          </div>
+
+      <header className="border-b border-white/10">
+        <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
+          <a href="https://myjobhack.co" className="font-bold text-lg tracking-tight">myjob<span className="text-coral">hack</span></a>
+          <nav className="flex items-center gap-5 text-sm font-semibold">
+            <Link href="/login" className="text-white/60 hover:text-white transition">Sign in</Link>
+            <Link href="/signup" className="px-4 h-9 inline-flex items-center rounded-pill bg-coral text-white hover:opacity-90 transition">Join free</Link>
+          </nav>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
-        <div className="card p-7 mb-8">
-          <div className="text-xs font-bold uppercase tracking-widest text-muted mb-4">About the role</div>
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">{job.description || "Full details shared during the process."}</p>
-        </div>
-        <div className="relative overflow-hidden card p-8 bg-ink text-white border-ink text-center">
-          <div className="pointer-events-none absolute -top-16 -left-12 w-56 h-56 rounded-full bg-coral/[.14] blur-3xl" />
-          <div className="relative">
-            <div className="font-display font-semibold text-2xl mb-2">Ready to apply?</div>
-            <p className="text-white/55 text-sm mb-6 max-w-md mx-auto">
-              Create your free MYJOBHACK profile (two minutes) — your resume attaches automatically, and if you meet the requirements you're shortlisted instantly.
-            </p>
-            <div className="flex flex-wrap gap-3 justify-center">
-              <Link href="/signup" className="btn-coral !h-12">Create free profile & apply →</Link>
-              <Link href="/login" className="inline-flex items-center px-6 h-12 rounded-pill border border-white/20 text-sm font-bold hover:border-coral transition">
-                I have an account
-              </Link>
-            </div>
+      <div className="relative overflow-hidden">
+        <div className="pointer-events-none absolute -top-32 right-[10%] w-[480px] h-[480px] rounded-full bg-coral/[.13] blur-3xl" />
+        <div className="pointer-events-none absolute top-40 -left-24 w-72 h-72 rounded-full bg-coral/[.07] blur-3xl" />
+
+        <div className="relative max-w-6xl mx-auto px-6 pt-14 pb-10">
+          <div className="text-[11px] font-extrabold uppercase tracking-[.26em] text-[#FFB4AC] mb-4">
+            {job.company} · is hiring
+          </div>
+          <h1 className="font-display font-semibold text-[clamp(30px,5.4vw,54px)] leading-[1.05] max-w-3xl mb-6">
+            {job.title}
+          </h1>
+          <div className="flex flex-wrap gap-2">
+            {[job.location, job.work_mode, job.employment_type?.replace(/_/g, " "), job.role_level, job.salary_note]
+              .filter(Boolean).map((m) => (
+                <span key={m as string} className="px-3.5 py-1.5 rounded-pill border border-white/15 text-[13px] text-white/75 capitalize">{m}</span>
+              ))}
           </div>
         </div>
-      </main>
+
+        <div className="relative max-w-6xl mx-auto px-6 pb-20 grid lg:grid-cols-[1fr_420px] gap-10 items-start">
+          {/* JD — editorial column */}
+          <article className="min-w-0">
+            <div className="h-px w-16 bg-coral mb-8" />
+            <FormattedJD dark text={job.description || "Full details are shared during the process — apply and the team takes it from there."} />
+
+            <div className="mt-12 rounded-card border border-white/10 bg-white/[.04] p-6">
+              <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-3">How hiring works here</div>
+              <div className="grid sm:grid-cols-3 gap-5 text-sm">
+                {[["01", "Apply in two minutes", "No account needed — name, email, resume, done."],
+                  ["02", "The machine is fair", "Meet the requirements and you're shortlisted instantly — no black hole."],
+                  ["03", "The team reaches out", "Interviews are scheduled directly with shortlisted candidates."]].map(([n, t, d]) => (
+                  <div key={n}>
+                    <div className="font-display font-semibold text-coral text-lg mb-1">{n}</div>
+                    <div className="font-semibold mb-1">{t}</div>
+                    <div className="text-white/50 text-[13px] leading-relaxed">{d}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </article>
+
+          {/* Apply — sticky rail */}
+          <aside className="lg:sticky lg:top-6">
+            <GuestApplyForm jobId={job.id} fields={job.fields as any} />
+          </aside>
+        </div>
+      </div>
+
+      <footer className="border-t border-white/10 py-8 text-center text-xs text-white/35">
+        MYJOBHACK — Africa's workforce, transformed. <a href="https://myjobhack.co" className="text-coral font-semibold">myjobhack.co</a>
+      </footer>
     </div>
   );
 }

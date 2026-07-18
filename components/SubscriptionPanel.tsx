@@ -93,10 +93,10 @@ export function SubscriptionPanel({ plans, bankNgn, bankUsd }: Props) {
           <div className="text-xs font-bold uppercase tracking-widest text-[#FFB4AC] mb-3">Plan active</div>
           <div className="font-display font-semibold text-3xl mb-2">{plan.name}</div>
           <p className="text-white/60 text-sm mb-5">
-            {plan.tools == null ? "Every AI tool unlocked" : "This tool is unlocked"} until{" "}
+            {plan.tools == null ? "Every tool unlocked" : "This tool is unlocked"} until{" "}
             <b className="text-white">{new Date(plan.activeUntil!).toLocaleDateString("en-GB", { dateStyle: "long" })}</b>.
           </p>
-          <a href="/portal/seeker/ai-tools" className="btn-coral">Open AI tools →</a>
+          <a href="/portal/seeker/ai-tools" className="btn-coral">Open my toolkit →</a>
         </div>
       </div>
     );
@@ -107,7 +107,7 @@ export function SubscriptionPanel({ plans, bankNgn, bankUsd }: Props) {
       {picker}
       <div className="max-w-xl">
         {cbStatus === "success" && (
-          <div className="card p-4 mb-5 border-ink bg-ink text-white text-sm">Payment confirmed — your tools are unlocked. 🎉</div>
+          <div className="card p-4 mb-5 border-ink bg-ink text-white text-sm">Payment confirmed — your toolkit is unlocked. 🎉</div>
         )}
         {cbStatus === "failed" && (
           <div className="card p-4 mb-5 text-sm text-coral">Payment didn&rsquo;t complete: {sp.get("msg") ?? "try again."}</div>

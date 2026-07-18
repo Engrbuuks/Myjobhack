@@ -276,7 +276,7 @@ export function ProfileWizard(p: Props) {
             )}
           </label>
           <p className="text-muted text-xs mt-4">
-            Your resume powers matching today and the AI Resume Review once you unlock the toolkit.
+            Your resume powers matching today and the Resume Review once you unlock the Career Toolkit.
           </p>
         </div>
       )}

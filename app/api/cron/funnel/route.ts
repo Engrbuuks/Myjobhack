@@ -59,9 +59,9 @@ const DRIPS: Drip[] = [
     email: (first) => ({
       subject: "The unfair advantage, from ₦2,000",
       html: renderEmail({
-        kicker: "AI Career Toolkit",
+        kicker: "The Career Toolkit",
         heading: "Most CVs have loopholes. Find yours.",
-        paragraphs: [`${first}, the AI toolkit is what separates applying from applying well:`],
+        paragraphs: [`${first}, the Career Toolkit is what separates applying from applying well:`],
         bullets: ["Resume review that hunts weaknesses recruiters see", "Interview prep built from YOUR actual resume", "Skills gap analysis with a 6-month plan", "Single tools from ₦2,000 — or the full kit"],
         cta: { label: "See the toolkit", url: `${APP()}/portal/seeker/subscription` }
       })

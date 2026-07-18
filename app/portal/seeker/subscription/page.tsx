@@ -21,8 +21,8 @@ export default async function SubscriptionPage() {
   return (
     <>
       <PageHeader
-        title="AI Career Toolkit"
-        sub="Unlock the full toolkit — or pick just the tool you need. Every plan runs 30 days."
+        title="Career Toolkit"
+        sub="Precision instruments for the job hunt — unlock the full toolkit, or just the tool you need. Every plan runs 30 days."
       />
       <SubscriptionPanel
         plans={(plans ?? []).map((p) => ({

@@ -50,8 +50,8 @@ export async function POST(request: Request) {
     }).eq("id", paymentId);
   }
   await admin.from("notifications").insert({
-    profile_id: profileId, title: "AI toolkit unlocked 🎉",
-    body: "Your subscription is active — all AI tools are now available.",
+    profile_id: profileId, title: "Career Toolkit unlocked 🎉",
+    body: "Your subscription is active — all toolkit are now available.",
     link: "/portal/seeker/ai-tools"
   });
   await admin.from("activity_log").insert({
@@ -61,8 +61,8 @@ export async function POST(request: Request) {
   const { data: prof } = await admin.from("profiles").select("email, full_name").eq("id", profileId).single();
   if (prof?.email) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
-    await sendEmail(prof.email, "Your AI toolkit is unlocked 🎉", renderEmail({
-      preheader: "Payment received — all AI tools are now active on your account.",
+    await sendEmail(prof.email, "Your Career Toolkit is unlocked 🎉", renderEmail({
+      preheader: "Payment received — all toolkit are now active on your account.",
       kicker: "Payment confirmed",
       heading: "The toolkit is yours.",
       paragraphs: [
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
         "AI Resume Review, the Interview Preparer, Skills Gap Analysis — and every tool we add next — are all unlocked."
       ],
       details: [["Reference", String(reference ?? "")]],
-      cta: { label: "Open AI tools", url: `${appUrl}/portal/seeker/ai-tools` }
+      cta: { label: "Open toolkit", url: `${appUrl}/portal/seeker/ai-tools` }
     }));
   }
   return NextResponse.json({ received: true });

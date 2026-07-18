@@ -33,7 +33,7 @@ export default async function SeekerDashboard() {
   const tiles = [
     { href: "/portal/seeker/jobs", title: "Open roles", desc: "Auto-shortlisting works for you", icon: "◎" },
     { href: "/portal/seeker/trainings", title: "Trainings", desc: "Invites that match your skills", icon: "✦" },
-    { href: "/portal/seeker/ai-tools", title: "AI toolkit", desc: sub.data ? "Unlocked — all tools active" : "Subscribe to unlock", icon: "⌁" }
+    { href: "/portal/seeker/ai-tools", title: "Career Toolkit", desc: sub.data ? "Unlocked — all tools active" : "Subscribe to unlock", icon: "⌁" }
   ];
 
   return (
@@ -53,7 +53,7 @@ export default async function SeekerDashboard() {
       <div className="grid sm:grid-cols-3 gap-5 mb-8">
         <StatCard label="Applications" value={appCount ?? 0} hint="Across all roles" />
         <StatCard label="Training invites" value={inviteCount ?? 0} hint="Selected for your skills" />
-        <StatCard label="AI toolkit" value={sub.data ? "Active" : "Locked"} accent={!!sub.data}
+        <StatCard label="Career Toolkit" value={sub.data ? "Active" : "Locked"} accent={!!sub.data}
           hint={sub.data ? "All tools unlocked" : "Subscribe to unlock all tools"} />
       </div>
 

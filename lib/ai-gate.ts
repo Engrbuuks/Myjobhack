@@ -30,6 +30,6 @@ export async function requireSubscriber(tool?: string) {
   if (!ok)
     return { user, supabase, error: tool
       ? "This tool isn't on your current plan — unlock it individually or grab the full toolkit."
-      : "Subscription required — unlock the AI toolkit to use this tool.", status: 402 as const };
+      : "Subscription required — unlock the Career Toolkit to use this tool.", status: 402 as const };
   return { user, supabase, error: null, status: 200 as const };
 }

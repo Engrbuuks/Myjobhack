@@ -60,7 +60,9 @@ Respond with ONLY this JSON:
  "cta_label": "2-4 words",
  "cta_url": "${b.cta_url || "https://app.myjobhack.co"}"}`;
     const r = await geminiJson(prompt);
-    if (!r.data?.hook) return NextResponse.json({ error: "Draft failed — try again or add more clues." }, { status: 500 });
+    if (!r.data?.hook) return NextResponse.json({
+      error: `Draft failed. ${r.error ?? "The model returned an incomplete draft — add a few more clues and retry."}`
+    }, { status: 500 });
     return NextResponse.json({ draft: r.data, html: renderCampaign(r.data) });
   }
 

@@ -20,10 +20,14 @@ export default async function Applicants({ params }: { params: { id: string } })
 
   const rows = await Promise.all(
     (apps ?? []).map(async (a) => {
-      const { data: prof } = await supabase
-        .from("profiles").select("full_name, email").eq("id", a.talent_id).single();
+      const { data: prof } = a.talent_id
+        ? await supabase.from("profiles").select("full_name, email").eq("id", a.talent_id).maybeSingle()
+        : { data: null as any };
       let resumeUrl: string | null = null;
-      if (a.resume_document_id) {
+      if (a.guest_resume_path) {
+        const { data: gs } = await supabase.storage.from("documents").createSignedUrl(a.guest_resume_path, 3600);
+        resumeUrl = gs?.signedUrl ?? null;
+      } else if (a.resume_document_id) {
         const { data: doc } = await supabase
           .from("documents").select("bucket, path").eq("id", a.resume_document_id).single();
         if (doc) {
@@ -37,8 +41,8 @@ export default async function Applicants({ params }: { params: { id: string } })
       return {
         id: a.id, status: a.status, rules_passed: a.rules_passed,
         ai_fit_score: a.ai_fit_score, ai_summary: a.ai_summary,
-        created_at: a.created_at, name: prof?.full_name ?? "—",
-        email: prof?.email ?? "", answers, resumeUrl
+        created_at: a.created_at, name: prof?.full_name ?? a.guest_name ?? "—", guest: !a.talent_id,
+        email: prof?.email ?? a.guest_email ?? "", answers, resumeUrl
       };
     })
   );

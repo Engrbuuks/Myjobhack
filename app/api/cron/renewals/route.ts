@@ -28,12 +28,12 @@ export async function GET(request: Request) {
     const { data: prof } = await admin.from("profiles").select("email, full_name").eq("id", sub.profile_id).single();
     const ends = new Date(sub.current_period_end).toLocaleDateString("en-GB", { dateStyle: "long" });
     await admin.from("notifications").insert({
-      profile_id: sub.profile_id, title: "Your AI toolkit renews soon",
+      profile_id: sub.profile_id, title: "Your Career Toolkit renews soon",
       body: `Your subscription runs until ${ends}. Renew to keep every tool unlocked.`,
       link: "/portal/seeker/subscription"
     });
     if (prof?.email) {
-      await sendEmail(prof.email, "Your AI toolkit — 3 days left", renderEmail({
+      await sendEmail(prof.email, "Your Career Toolkit — 3 days left", renderEmail({
         kicker: "Renewal reminder",
         heading: "Keep the toolkit working.",
         paragraphs: [
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     await admin.from("subscriptions").update({ status: "expired" }).eq("id", sub.id);
     await admin.from("notifications").insert({
       profile_id: sub.profile_id, title: "Subscription ended",
-      body: "Your AI toolkit is paused. Renew any time — your history and profile are untouched.",
+      body: "Your Career Toolkit is paused. Renew any time — your history and profile are untouched.",
       link: "/portal/seeker/subscription"
     });
   }

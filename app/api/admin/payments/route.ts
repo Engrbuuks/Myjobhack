@@ -62,8 +62,8 @@ export async function POST(request: Request) {
     confirmed_by: user.id, confirmed_at: new Date().toISOString()
   }).eq("id", payment_id);
   await admin.from("notifications").insert({
-    profile_id: payment.profile_id, title: "AI toolkit unlocked 🎉",
-    body: "Your transfer is confirmed — all AI tools are now available.",
+    profile_id: payment.profile_id, title: "Career Toolkit unlocked 🎉",
+    body: "Your transfer is confirmed — all toolkit are now available.",
     link: "/portal/seeker/ai-tools"
   });
   await admin.from("activity_log").insert({
@@ -74,8 +74,8 @@ export async function POST(request: Request) {
   if (okProf?.email) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
     const sym = payment.currency === "NGN" ? "₦" : "$";
-    await sendEmail(okProf.email, "Your AI toolkit is unlocked 🎉", renderEmail({
-      preheader: "Payment confirmed — all AI tools are now active on your account.",
+    await sendEmail(okProf.email, "Your Career Toolkit is unlocked 🎉", renderEmail({
+      preheader: "Payment confirmed — all toolkit are now active on your account.",
       kicker: "Payment confirmed",
       heading: "The toolkit is yours.",
       paragraphs: [
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
         ["Method", payment.method.replace(/_/g, " ")],
         ["Active until", new Date(Date.now() + 30 * 864e5).toLocaleDateString("en-GB", { dateStyle: "long" })]
       ],
-      cta: { label: "Open AI tools", url: `${appUrl}/portal/seeker/ai-tools` }
+      cta: { label: "Open toolkit", url: `${appUrl}/portal/seeker/ai-tools` }
     }));
   }
   return NextResponse.json({ ok: true, action: "confirmed" });

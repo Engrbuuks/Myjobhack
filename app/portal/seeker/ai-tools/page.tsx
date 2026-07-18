@@ -4,7 +4,7 @@ import { hasActiveSubscription } from "@/lib/subscription";
 import { PageHeader } from "@/components/PageHeader";
 
 const TOOLS = [
-  { href: "/portal/seeker/ai-tools/resume-review", icon: "⌖", title: "AI Resume Review",
+  { href: "/portal/seeker/ai-tools/resume-review", icon: "⌖", title: "Resume Review",
     body: "A brutally honest scan of your resume — every loophole, gap, and weakness employers will see. Diagnosis only; the fixing stays yours." },
   { href: "/portal/seeker/ai-tools/interview-prep", icon: "❝", title: "Interview Preparer",
     body: "Company, role, JD in — a complete prep kit out: your introduction, likely questions with answers, and smart questions to ask back." },
@@ -20,7 +20,7 @@ export default async function AiToolsHub() {
   return (
     <>
       <PageHeader
-        title="AI tools"
+        title="toolkit"
         sub={active ? "All tools unlocked. Every run is saved to your history." : "One subscription unlocks everything below — and every tool we add next."}
         action={!active ? <Link href="/portal/seeker/subscription" className="btn-coral">Unlock the toolkit →</Link> : undefined}
       />
