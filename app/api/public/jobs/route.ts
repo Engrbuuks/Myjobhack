@@ -37,7 +37,7 @@ export async function GET() {
       employment_type: j.employment_type, salary_note: j.salary_note,
       company: j.org_id ? orgNames.get(j.org_id) ?? "MYJOBHACK" : "MYJOBHACK",
       published_at: j.published_at,
-      apply_url: `${appUrl}/portal/seeker/jobs/${j.id}`
+      apply_url: `${appUrl}/jobs/${j.id}`
     }))
   }, { headers: CORS });
 }
