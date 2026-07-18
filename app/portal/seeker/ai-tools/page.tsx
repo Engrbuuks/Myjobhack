@@ -38,6 +38,9 @@ export default async function AiToolsHub() {
           </div>
         ))}
       </div>
+      <p className="text-xs text-muted-2 mt-10 max-w-xl leading-relaxed">
+        Fair use: the Toolkit is personal — every tool runs on the resume and profile of the signed-in member, with daily allowances per tool. Accounts operating as review or prep services for others are suspended.
+      </p>
     </>
   );
 }

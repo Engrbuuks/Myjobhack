@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
+import { ToolAllowance } from "@/components/ToolAllowance";
 import { AiToolRunner } from "@/components/AiToolRunner";
 
 export default function InterviewPrepPage() {
@@ -15,6 +16,7 @@ export default function InterviewPrepPage() {
         title="Interview Preparer"
         sub="Everything needed to ace the room — your introduction, their likely questions with strong answers, and the questions that impress when you ask them."
       />
+      <ToolAllowance slug="interview-prep" />
       <AiToolRunner
         endpoint="/api/ai/interview-prep"
         runLabel="Prepare me →"

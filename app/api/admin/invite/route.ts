@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { querySegment, SegmentFilters } from "@/lib/segment";
 import { sendBatch, inviteEmailHtml } from "@/lib/resend";
+import { renderEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
 
   const body = await request.json();
+  const message = body.message ?? null;
   const { training, filters }: {
     training: { id?: string; title: string; description: string; delivery: string; starts_at: string | null; location_or_link: string };
     filters: SegmentFilters;
@@ -76,15 +78,29 @@ export async function POST(request: Request) {
   const when = training.starts_at
     ? new Date(training.starts_at).toLocaleString("en-GB", { dateStyle: "full", timeStyle: "short" })
     : "Date to be announced";
+  const useCustom = message && (message.opening || (message.bullets ?? []).length);
   const results = await sendBatch(
     fresh.map((t) => ({
       to: t.email,
-      subject: `You're invited: ${training.title}`,
-      html: inviteEmailHtml({
-        name: t.name.split(" ")[0], trainingTitle: training.title,
-        description: training.description ?? "",
-        when, where: training.location_or_link || "Details in your portal", appUrl
-      })
+      subject: useCustom && message.subject ? message.subject : `You're invited: ${training.title}`,
+      html: useCustom
+        ? renderEmail({
+            kicker: "You're invited",
+            heading: message.hook || training.title,
+            paragraphs: [
+              `Hi ${t.name.split(" ")[0]},`,
+              ...(message.opening ? [message.opening] : []),
+              ...(message.closing ? [message.closing] : [])
+            ],
+            bullets: (message.bullets ?? []).filter(Boolean),
+            details: [["When", when], ["Where", training.location_or_link || "Details in your portal"]],
+            cta: { label: message.cta_label || "Accept my invite", url: `${appUrl}/portal/seeker/trainings` }
+          })
+        : inviteEmailHtml({
+            name: t.name.split(" ")[0], trainingTitle: training.title,
+            description: training.description ?? "",
+            when, where: training.location_or_link || "Details in your portal", appUrl
+          })
     }))
   );
 

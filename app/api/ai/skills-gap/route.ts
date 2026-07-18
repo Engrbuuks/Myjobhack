@@ -48,7 +48,7 @@ Include 4-6 gaps ordered by priority.`;
 
   await supabase.from("ai_runs").insert({
     profile_id: user!.id, tool: "skills_gap",
-    input: { niche, goal }, output: r.data, model: "gemini-1.5-flash"
+    input: { niche, goal }, output: r.data, model: (r as any).model ?? "gemini"
   });
   return NextResponse.json({ result: r.data });
 }

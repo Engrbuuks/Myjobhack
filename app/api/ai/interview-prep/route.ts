@@ -49,7 +49,7 @@ Include 8-10 likely_questions (mix behavioural, technical for the role, and situ
 
   await supabase.from("ai_runs").insert({
     profile_id: user!.id, tool: "interview_prep",
-    input: { company, role, has_jd: !!jd }, output: r.data, model: "gemini-1.5-flash"
+    input: { company, role, has_jd: !!jd }, output: r.data, model: (r as any).model ?? "gemini"
   });
   return NextResponse.json({ result: r.data });
 }

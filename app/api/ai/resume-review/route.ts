@@ -19,11 +19,16 @@ export async function POST() {
   const ex = await extractDocumentText(supabase, talent.resume_document_id);
   if (!ex.text) return NextResponse.json({ error: ex.error }, { status: 400 });
 
-  const prompt = `You are a brutally honest African recruitment expert reviewing a resume.
-Identify ONLY the loopholes, gaps, and weaknesses — do NOT rewrite the resume, do NOT provide corrected text.
-For each issue: what it is, where it appears, why it hurts the candidate with employers, and severity.
+  const prompt = `You are an elite African recruitment expert reviewing a candidate's resume. Be honest AND constructive — every problem you find must come with the exact fix.
+For each issue: what it is, where it appears, why it hurts with employers, severity, a CONCRETE instruction for what to change, and a rewritten EXAMPLE line the candidate can adapt (use their real details from the resume, never placeholders like [Company]).
+Then list what's MISSING: things strong resumes in this market have that this one lacks — each with why it matters and an example of what to add.
+Finish with the three moves that would most improve this resume, in priority order.
 Respond with ONLY this JSON:
-{"overall_impression":"one honest sentence","score":0-100,"issues":[{"title":"...","location":"section/line hint","why_it_hurts":"...","severity":"critical|major|minor"}],"missing_elements":["things strong resumes in this market have that this one lacks"]}
+{"overall_impression":"one honest sentence",
+ "score":0-100,
+ "issues":[{"title":"...","location":"section/line hint","why_it_hurts":"...","severity":"critical|major|minor","fix":"exactly what to change","example":"a rewritten line using their real details"}],
+ "additions":[{"what":"the missing element","why":"why employers expect it","example":"a sample line/section they could add"}],
+ "top_moves":["#1 priority action","#2","#3"]}
 
 RESUME TEXT:
 ${ex.text}`;
@@ -33,7 +38,7 @@ ${ex.text}`;
 
   await supabase.from("ai_runs").insert({
     profile_id: user!.id, tool: "resume_review",
-    input: { resume: ex.name }, output: r.data, model: "gemini-1.5-flash"
+    input: { resume: ex.name, resume_document_id: talent.resume_document_id }, output: r.data, model: (r as any).model ?? "gemini"
   });
   return NextResponse.json({ result: r.data });
 }

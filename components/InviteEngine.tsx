@@ -8,6 +8,14 @@ export function InviteEngine({ matched, trainings }: { matched: number; training
   const sp = useSearchParams();
   const [existingId, setExistingId] = useState("");
   const [deliveryFilter, setDeliveryFilter] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailHook, setEmailHook] = useState("");
+  const [emailOpening, setEmailOpening] = useState("");
+  const [emailBullets, setEmailBullets] = useState("");
+  const [emailClosing, setEmailClosing] = useState("");
+  const [emailCta, setEmailCta] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [delivery, setDelivery] = useState("external");
@@ -25,6 +33,11 @@ export function InviteEngine({ matched, trainings }: { matched: number; training
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         filters,
+        message: (emailOpening || emailBullets)
+          ? { subject: emailSubject, hook: emailHook, opening: emailOpening,
+              bullets: emailBullets.split("\n").map((b) => b.trim()).filter(Boolean),
+              closing: emailClosing, cta_label: emailCta }
+          : null,
         training: existingId
           ? { id: existingId, title: trainings.find((t) => t.id === existingId)?.title ?? "Training", description, delivery, starts_at: startsAt || null, location_or_link: where }
           : { title, description, delivery, starts_at: startsAt || null, location_or_link: where }
@@ -37,6 +50,31 @@ export function InviteEngine({ matched, trainings }: { matched: number; training
   }
 
   const canFire = matched > 0 && (existingId || title.trim().length > 2) && !busy;
+
+  async function draftInviteEmail() {
+    setAiBusy(true); setAiErr(null);
+    const t = existingId ? trainings.find((x) => x.id === existingId) : null;
+    const clues = [
+      `Training invitation: ${t?.title ?? title}`,
+      description && `About: ${description}`,
+      startsAt && `Happens: ${new Date(startsAt).toLocaleString()}`,
+      where && `Where: ${where}`,
+      `Audience: ${matched} matched talent selected by skill/niche filters`,
+      `Goal: get them to accept the invitation in their MYJOBHACK portal`
+    ].filter(Boolean).join(". ");
+    const res = await fetch("/api/admin/campaign", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "draft", clues, tone: "confident and warm",
+        cta_url: "https://app.myjobhack.co/portal/seeker/trainings" })
+    });
+    const json = await res.json();
+    setAiBusy(false);
+    if (!res.ok) { setAiErr(json.error); return; }
+    const d = json.draft;
+    setEmailSubject(d.subject ?? ""); setEmailHook(d.hook ?? "");
+    setEmailOpening(d.opening ?? ""); setEmailBullets((d.bullets ?? []).join("\n"));
+    setEmailClosing(d.closing ?? ""); setEmailCta(d.cta_label ?? "Accept my invite");
+  }
 
   return (
     <div className="card p-6 max-w-2xl">
@@ -89,6 +127,26 @@ export function InviteEngine({ matched, trainings }: { matched: number; training
         </div>
       </div>
 
+            <div className="rounded-xl border border-line p-4 mb-4">
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-[11px] font-extrabold uppercase tracking-[.18em] text-muted">Invitation email</div>
+          <button type="button" className="btn-ghost !h-9 text-xs" onClick={draftInviteEmail} disabled={aiBusy}>
+            {aiBusy ? "Drafting…" : "✦ Draft with AI"}
+          </button>
+        </div>
+        <p className="text-[11px] text-muted-2 mb-3">Leave empty to send the standard invite — or let the AI write it from this training&rsquo;s details, then edit.</p>
+        {(emailOpening || emailBullets || emailSubject) && (
+          <div className="space-y-2">
+            <input className="input !h-10 text-sm" placeholder="Subject" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+            <input className="input !h-10 text-sm" placeholder="Hook (email heading)" value={emailHook} onChange={(e) => setEmailHook(e.target.value)} />
+            <input className="input !h-10 text-sm" placeholder="Opening line" value={emailOpening} onChange={(e) => setEmailOpening(e.target.value)} />
+            <textarea className="input !h-auto py-2.5 text-sm" rows={3} placeholder="Value bullets — one per line" value={emailBullets} onChange={(e) => setEmailBullets(e.target.value)} />
+            <input className="input !h-10 text-sm" placeholder="Closing line (optional)" value={emailClosing} onChange={(e) => setEmailClosing(e.target.value)} />
+            <input className="input !h-10 text-sm !w-56" placeholder="CTA label" value={emailCta} onChange={(e) => setEmailCta(e.target.value)} />
+          </div>
+        )}
+        {aiErr && <p className="text-coral text-xs mt-2">{aiErr}</p>}
+      </div>
       <button className="btn-coral w-full justify-center !h-14 text-base" disabled={!canFire} onClick={fire}>
         {busy ? "Sending…" : `Send invites to ${matched} talent →`}
       </button>
