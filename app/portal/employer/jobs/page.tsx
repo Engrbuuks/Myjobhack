@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CloneJobButton } from "@/components/CloneJobButton";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { getMyOrg } from "@/lib/org";
@@ -45,6 +46,7 @@ export default async function EmployerJobs() {
               </span>
               <div className="font-display font-semibold text-lg">{counts.get(j.id) ?? 0}</div>
               <Link href={`/portal/employer/jobs/${j.id}/applicants`} className="text-ink font-semibold text-sm">Applicants</Link>
+              <CloneJobButton jobId={j.id} basePath="/portal/employer/jobs" />
               <Link href={`/portal/employer/jobs/${j.id}`} className="text-coral font-semibold text-sm">Edit →</Link>
             </div>
           ))}

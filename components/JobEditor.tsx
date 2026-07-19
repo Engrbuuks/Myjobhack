@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { CloneJobButton } from "@/components/CloneJobButton";
 import { createClient } from "@/lib/supabase/client";
 import { DeleteButton } from "@/components/DeleteButton";
 
@@ -180,7 +181,8 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
         </button>
         {err && <span className="text-coral text-sm">{err}</span>}
         {j.id && (
-          <span className="ml-auto">
+          <span className="ml-auto flex items-center gap-4">
+            <CloneJobButton jobId={j.id} basePath={basePath} />
             <DeleteButton action="delete_job" id={j.id} label="Delete job"
               confirmLabel="Delete job + applications" redirect={basePath} />
           </span>

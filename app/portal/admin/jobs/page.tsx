@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
+import { CloneJobButton } from "@/components/CloneJobButton";
 
 export default async function AdminJobs() {
   const supabase = createClient();
@@ -45,6 +46,7 @@ export default async function AdminJobs() {
                   <td className="px-5 py-3 font-display font-semibold text-lg">{counts.get(j.id) ?? 0}</td>
                   <td className="px-5 py-3 text-right space-x-4 whitespace-nowrap">
                     <Link href={`/portal/admin/jobs/${j.id}/applicants`} className="text-ink font-semibold">Applicants</Link>
+                    <CloneJobButton jobId={j.id} />
                     <Link href={`/portal/admin/jobs/${j.id}`} className="text-coral font-semibold">Edit →</Link>
                   </td>
                 </tr>

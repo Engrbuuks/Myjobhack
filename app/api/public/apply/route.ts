@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { MAX_FILE_BYTES, ALLOWED_DOC_TYPES, humanBytes, logUpload } from "@/lib/storage";
 import { evaluateRules } from "@/lib/rules";
 
 export const runtime = "nodejs";
@@ -37,12 +38,18 @@ export async function POST(request: Request) {
   if (dup) return NextResponse.json({ error: "You've already applied to this role with this email." }, { status: 409 });
 
   // store resume
+  if (resume.size > MAX_FILE_BYTES)
+    return NextResponse.json({ error: `Resume is too large. Maximum ${humanBytes(MAX_FILE_BYTES)}.` }, { status: 400 });
+  if (resume.type && !ALLOWED_DOC_TYPES.includes(resume.type))
+    return NextResponse.json({ error: "Resume must be a PDF or Word document." }, { status: 400 });
+
   const safe = (resume.name || "resume.pdf").replace(/[^\w.\-]+/g, "_").slice(-80);
-  const path = `guest-resumes/${crypto.randomUUID()}-${safe}`;
+  const path = `${new Date().getFullYear()}/${crypto.randomUUID()}-${safe}`;
   const buf = Buffer.from(await resume.arrayBuffer());
-  const { error: upErr } = await admin.storage.from("documents")
+  const { error: upErr } = await admin.storage.from("guest-uploads")
     .upload(path, buf, { contentType: resume.type || "application/pdf" });
   if (upErr) return NextResponse.json({ error: `Resume upload failed: ${upErr.message}` }, { status: 500 });
+  await logUpload({ bucket: "guest-uploads", path, profileId: null, kind: "guest_resume", bytes: resume.size });
 
   // required answers + auto-shortlisting rules — guests get the same fair machine
   let answers: Record<string, any> = {};
@@ -63,7 +70,8 @@ export async function POST(request: Request) {
     job_id, talent_id: null, status,
     guest_name: name, guest_email: email, guest_phone: phone || null,
     answers: { ...answers, _location: [city, country].filter(Boolean).join(", ") },
-    guest_resume_path: path
+    guest_resume_path: path,
+    guest_resume_bucket: "guest-uploads"
   }).select("id").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
