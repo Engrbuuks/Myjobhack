@@ -32,6 +32,20 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
   const [err, setErr] = useState<string | null>(null);
   const set = (k: keyof Job, v: any) => setJ((cur) => ({ ...cur, [k]: v }));
 
+  // datetime-local needs local time, not UTC — this was silently shifting dates
+  const toLocalInput = (iso: string) => {
+    const d = new Date(iso);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  const humanUntil = (iso: string) => {
+    const ms = new Date(iso).getTime() - Date.now();
+    if (ms <= 0) return "already past";
+    const days = Math.floor(ms / 86400000);
+    const hrs = Math.floor((ms % 86400000) / 3600000);
+    return days > 0 ? `${days} day${days === 1 ? "" : "s"} ${hrs}h` : `${hrs} hour${hrs === 1 ? "" : "s"}`;
+  };
+  const deadlinePast = !!j.closes_at && new Date(j.closes_at) <= new Date();
+
   function applyDraft(d: ComposedJob, opts: { questions: boolean }) {
     setJ((cur) => ({
       ...cur,
@@ -53,6 +67,11 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
   }
 
   async function save() {
+    // A deadline already behind us would hide the role the moment it publishes.
+    if (j.closes_at && new Date(j.closes_at) <= new Date()) {
+      setErr("That application deadline is already in the past — the role would be hidden immediately. Pick a future date, or clear the field for no deadline.");
+      return;
+    }
     if (!j.title.trim()) { setErr("Title is required"); return; }
     setBusy(true); setErr(null);
     const supabase = createClient();
@@ -167,13 +186,31 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
 
           <div className="sm:col-span-2">
             <label className="label">Application deadline</label>
-            <input className="input" type="datetime-local"
-              value={j.closes_at ? new Date(j.closes_at).toISOString().slice(0, 16) : ""}
-              onChange={(e) => set("closes_at", e.target.value ? new Date(e.target.value).toISOString() : null)} />
-            <p className="text-xs text-muted-2 mt-1">
-              A live countdown shows on the job card. When it expires the role leaves all listings automatically —
-              extend the date here and it returns immediately. Leave blank for no deadline.
-            </p>
+            <div className="flex gap-2">
+              <input className={`input ${deadlinePast ? "!border-coral" : ""}`} type="datetime-local"
+                min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                value={j.closes_at ? toLocalInput(j.closes_at) : ""}
+                onChange={(e) => set("closes_at", e.target.value ? new Date(e.target.value).toISOString() : null)} />
+              {j.closes_at && (
+                <button type="button" className="btn-ghost !h-11 !px-4 shrink-0"
+                  onClick={() => set("closes_at", null)}>Clear</button>
+              )}
+            </div>
+            {deadlinePast ? (
+              <p className="text-xs text-coral mt-1.5 font-semibold">
+                ⚠ This date has already passed — the role would be hidden from every listing straight away.
+                Pick a future date or clear it.
+              </p>
+            ) : j.closes_at ? (
+              <p className="text-xs text-muted-2 mt-1.5">
+                Closes {new Date(j.closes_at).toLocaleString("en-GB", { dateStyle: "full", timeStyle: "short" })} —
+                that's {humanUntil(j.closes_at)} from now. A live countdown shows on the card.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-2 mt-1.5">
+                No deadline — the role stays listed until you close it. Set one and a countdown appears on the card.
+              </p>
+            )}
           </div>
         </div>
         <div className="grid sm:grid-cols-3 gap-4">

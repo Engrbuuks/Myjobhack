@@ -7,7 +7,7 @@ export default async function AdminJobs() {
   const supabase = createClient();
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("id, title, location, status, employment_type, created_at, form_id")
+    .select("id, title, location, status, employment_type, created_at, form_id, closes_at")
     .order("created_at", { ascending: false });
 
   const counts = new Map<string, number>();
@@ -37,10 +37,19 @@ export default async function AdminJobs() {
                     <div className="text-xs text-muted-2">{j.location || "—"} · {j.employment_type.replace(/_/g, " ")}</div>
                   </td>
                   <td className="px-5 py-3">
-                    <span className={`px-2.5 py-1 rounded-pill text-xs font-bold capitalize ${
-                      j.status === "published" ? "bg-ink text-white" :
-                      j.status === "draft" ? "bg-coral-soft text-coral" : "bg-paper-2 text-muted"
-                    }`}>{j.status}</span>
+                    {j.status === "published" && j.closes_at && new Date(j.closes_at) <= new Date() ? (
+                      <span className="inline-flex flex-col gap-1">
+                        <span className="px-2.5 py-1 rounded-pill text-xs font-bold bg-coral text-white">Hidden — expired</span>
+                        <span className="text-[11px] text-coral">
+                          Deadline was {new Date(j.closes_at).toLocaleDateString("en-GB", { dateStyle: "medium" })}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className={`px-2.5 py-1 rounded-pill text-xs font-bold capitalize ${
+                        j.status === "published" ? "bg-ink text-white" :
+                        j.status === "draft" ? "bg-coral-soft text-coral" : "bg-paper-2 text-muted"
+                      }`}>{j.status}</span>
+                    )}
                   </td>
                   <td className="px-5 py-3 text-xs">{j.form_id ? "Custom ✓" : "Default"}</td>
                   <td className="px-5 py-3 font-display font-semibold text-lg">{counts.get(j.id) ?? 0}</td>
