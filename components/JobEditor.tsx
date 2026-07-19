@@ -98,7 +98,16 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       } else if (j.status !== "published") {
         updatePayload.published_at = null;
       }
-      const { error } = await supabase.from("jobs").update(updatePayload).eq("id", j.id);
+      const { data: updated, error } = await supabase.from("jobs")
+        .update(updatePayload).eq("id", j.id).select("id, closes_at, title");
+
+      // An RLS policy without WITH CHECK can silently match zero rows:
+      // the request succeeds but nothing changes. Catch that explicitly.
+      if (!error && (!updated || updated.length === 0)) {
+        setErr("Nothing was saved — the database rejected the change. This usually means a permissions policy is blocking the update. Run migration 0016 in Supabase, then try again.");
+        setBusy(false);
+        return;
+      }
       if (error) { setErr(error.message); setBusy(false); return; }
       if (pendingQuestions?.length) {
         try {
