@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CloneJobButton } from "@/components/CloneJobButton";
 import { LogoUpload } from "@/components/LogoUpload";
+import { JobComposer, type ComposedJob } from "@/components/JobComposer";
 import { createClient } from "@/lib/supabase/client";
 import { DeleteButton } from "@/components/DeleteButton";
 
@@ -26,8 +27,30 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
     status: "draft", closes_at: null, external_url: null
   });
   const [busy, setBusy] = useState(false);
+  const [pendingQuestions, setPendingQuestions] = useState<any[] | null>(null);
+  const [aiNote, setAiNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const set = (k: keyof Job, v: any) => setJ((cur) => ({ ...cur, [k]: v }));
+
+  function applyDraft(d: ComposedJob, opts: { questions: boolean }) {
+    setJ((cur) => ({
+      ...cur,
+      description: d.description || cur.description,
+      key_requirements: (d.key_requirements ?? []).filter(Boolean),
+      role_level: d.role_level || cur.role_level,
+      employment_type: d.employment_type || cur.employment_type,
+      work_mode: d.work_mode || cur.work_mode,
+      niche_id: d.niche_id ?? cur.niche_id,
+      salary_note: d.salary_note || cur.salary_note,
+      salary_currency: d.salary_currency || cur.salary_currency || "NGN"
+    }));
+    setPendingQuestions(opts.questions ? (d.screening_questions ?? []) : null);
+    setAiNote(
+      opts.questions && (d.screening_questions ?? []).length
+        ? `Draft applied. ${d.screening_questions.length} screening questions will be added to the application form when you save.`
+        : "Draft applied — review the fields below, then save."
+    );
+  }
 
   async function save() {
     if (!j.title.trim()) { setErr("Title is required"); return; }
@@ -58,6 +81,15 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       }
       const { error } = await supabase.from("jobs").update(updatePayload).eq("id", j.id);
       if (error) { setErr(error.message); setBusy(false); return; }
+      if (pendingQuestions?.length) {
+        try {
+          await fetch("/api/jobs/apply-draft", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: j.id, questions: pendingQuestions, title: j.title })
+          });
+          setPendingQuestions(null);
+        } catch {}
+      }
       try {
         await fetch("/api/revalidate", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -69,6 +101,14 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       const { data, error } = await supabase.from("jobs")
         .insert({ ...payload, published_at: j.status === "published" ? new Date().toISOString() : null, posted_by: user!.id, org_id: orgId ?? null }).select("id").single();
       if (error) { setErr(error.message); setBusy(false); return; }
+      if (pendingQuestions?.length) {
+        try {
+          await fetch("/api/jobs/apply-draft", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: data.id, questions: pendingQuestions, title: j.title })
+          });
+        } catch {}
+      }
       try {
         await fetch("/api/revalidate", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -91,6 +131,16 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       <div className="space-y-4">
         <div><label className="label">Job title *</label>
           <input className="input" value={j.title} onChange={(e) => set("title", e.target.value)} /></div>
+
+        <JobComposer title={j.title} company={j.company_name} location={j.location} onApply={applyDraft} />
+        {aiNote && (
+          <div className="rounded-xl bg-ink text-white px-4 py-3 text-sm flex items-start gap-3">
+            <span className="text-coral">✦</span>
+            <span className="flex-1">{aiNote}</span>
+            <button type="button" className="text-white/40 hover:text-white" onClick={() => setAiNote(null)}>✕</button>
+          </div>
+        )}
+
         <div><label className="label">Description / JD</label>
           <textarea className="input !h-auto py-3" rows={8}
             placeholder="Paste the full job description — this powers the AI fit scoring."
