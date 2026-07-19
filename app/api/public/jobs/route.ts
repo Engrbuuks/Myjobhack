@@ -15,13 +15,26 @@ export async function OPTIONS() {
   return new NextResponse(null, { headers: CORS });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const params = new URL(request.url).searchParams;
+  const onlyFeatured = params.get("featured") === "1";
+  const limitParam = Math.min(Math.max(Number(params.get("limit") ?? 0) || 0, 0), 50);
+
   const admin = createAdminClient();
-  const { data: jobs } = await admin.from("jobs")
-    .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, published_at, org_id")
+  let query = admin.from("jobs")
+    .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, published_at, closes_at, key_requirements, is_featured, featured_rank, org_id")
     .eq("status", "published")
-    .order("published_at", { ascending: false })
-    .limit(50);
+    .or(`closes_at.is.null,closes_at.gt.${new Date().toISOString()}`);
+
+  if (onlyFeatured) {
+    query = query.eq("is_featured", true)
+      .order("featured_rank", { ascending: true, nullsFirst: false })
+      .order("published_at", { ascending: false });
+  } else {
+    query = query.order("published_at", { ascending: false });
+  }
+
+  const { data: jobs } = await query.limit(limitParam || 50);
 
   const orgIds = Array.from(new Set((jobs ?? []).map((j) => j.org_id).filter(Boolean))) as string[];
   const orgNames = new Map<string, string>();
@@ -38,6 +51,10 @@ export async function GET() {
       employment_type: j.employment_type,
       salary_note: denominate(j.salary_note, j.salary_currency || "NGN"),
       salary_currency: j.salary_currency || "NGN",
+      closes_at: j.closes_at,
+      key_requirements: j.key_requirements ?? [],
+      is_featured: !!j.is_featured,
+      featured_rank: j.featured_rank ?? null,
       company: j.org_id ? orgNames.get(j.org_id) ?? "MYJOBHACK" : "MYJOBHACK",
       published_at: j.published_at,
       apply_url: `${appUrl}/jobs/${j.id}`

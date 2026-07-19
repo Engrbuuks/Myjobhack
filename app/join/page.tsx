@@ -21,7 +21,9 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
   const [{ count: talentCount }, { data: jobs }] = await Promise.all([
     admin.from("profiles").select("*", { count: "exact", head: true }).in("role", ["job_seeker", "elite_member"]),
     admin.from("jobs").select("id, title, location, work_mode, org_id")
-      .eq("status", "published").order("published_at", { ascending: false }).limit(4)
+      .eq("status", "published")
+      .or(`closes_at.is.null,closes_at.gt.${new Date().toISOString()}`)
+      .order("published_at", { ascending: false }).limit(4)
   ]);
   const signupHref = searchParams.ref ? `/signup?ref=${encodeURIComponent(searchParams.ref)}` : "/signup";
 

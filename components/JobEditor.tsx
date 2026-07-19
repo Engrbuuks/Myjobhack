@@ -8,7 +8,7 @@ type Tax = { id: string; label: string };
 type Job = {
   id?: string; title: string; description: string; location: string;
   work_mode: string | null; role_level: string | null; employment_type: string;
-  salary_note: string; salary_currency?: string; niche_id: string | null; status: string;
+  salary_note: string; salary_currency?: string; niche_id: string | null; status: string; key_requirements?: string[]; is_featured?: boolean; featured_rank?: number | null;
   closes_at: string | null; external_url: string | null;
 };
 
@@ -20,7 +20,7 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
   const router = useRouter();
   const [j, setJ] = useState<Job>(job ?? {
     title: "", description: "", location: "", work_mode: null, role_level: null,
-    employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null,
+    employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null, key_requirements: [], is_featured: false, featured_rank: null,
     status: "draft", closes_at: null, external_url: null
   });
   const [busy, setBusy] = useState(false);
@@ -36,6 +36,9 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       title: j.title, description: j.description, location: j.location,
       work_mode: j.work_mode as any, role_level: j.role_level as any,
       employment_type: j.employment_type as any, salary_note: j.salary_note, salary_currency: j.salary_currency || "NGN",
+      key_requirements: (j.key_requirements ?? []).filter((r: string) => r.trim()),
+      is_featured: !!j.is_featured,
+      featured_rank: j.featured_rank ?? null,
       niche_id: j.niche_id, status: j.status as any,
       closes_at: j.closes_at || null, external_url: j.external_url || null,
     };
@@ -106,6 +109,17 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
                 onChange={(e) => set("salary_note", e.target.value)} />
             </div>
             <p className="text-xs text-muted-2 mt-1">The symbol is added automatically — just type the figures.</p></div>
+
+          <div className="sm:col-span-2">
+            <label className="label">Application deadline</label>
+            <input className="input" type="datetime-local"
+              value={j.closes_at ? new Date(j.closes_at).toISOString().slice(0, 16) : ""}
+              onChange={(e) => set("closes_at", e.target.value ? new Date(e.target.value).toISOString() : null)} />
+            <p className="text-xs text-muted-2 mt-1">
+              A live countdown shows on the job card. When it expires the role leaves all listings automatically —
+              extend the date here and it returns immediately. Leave blank for no deadline.
+            </p>
+          </div>
         </div>
         <div className="grid sm:grid-cols-3 gap-4">
           <div><label className="label">Work mode</label>{sel("work_mode", MODES, "Select…")}</div>
@@ -121,6 +135,36 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
           <div><label className="label">Closes</label>
             <input className="input" type="date" value={j.closes_at?.slice(0, 10) ?? ""}
               onChange={(e) => set("closes_at", e.target.value || null)} /></div>
+          <div className="sm:col-span-2">
+            <label className="label">Key requirements <span className="text-muted-2 font-normal">— the non-negotiables</span></label>
+            <div className="space-y-2">
+              {(j.key_requirements ?? []).map((req, i) => (
+                <div key={i} className="flex gap-2">
+                  <input className="input" value={req} placeholder="e.g. 3+ years managing paid social campaigns"
+                    onChange={(e) => set("key_requirements", (j.key_requirements ?? []).map((r, ri) => ri === i ? e.target.value : r))} />
+                  <button className="btn-ghost !h-11 !px-3 shrink-0"
+                    onClick={() => set("key_requirements", (j.key_requirements ?? []).filter((_, ri) => ri !== i))}>✕</button>
+                </div>
+              ))}
+            </div>
+            <button className="btn-ghost !h-9 text-xs mt-2"
+              onClick={() => set("key_requirements", [...(j.key_requirements ?? []), ""])}>＋ Add requirement</button>
+            <p className="text-xs text-muted-2 mt-1">Shown prominently on the job card and page. Keep them to what genuinely disqualifies.</p>
+          </div>
+
+          <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-line p-4 cursor-pointer hover:border-coral transition">
+            <input type="checkbox" className="mt-1" checked={!!j.is_featured}
+              onChange={(e) => set("is_featured", e.target.checked)} />
+            <span className="flex-1">
+              <span className="block text-sm font-semibold">Feature on the website homepage</span>
+              <span className="block text-xs text-muted-2 mt-0.5">Only featured roles appear in the homepage strip. Everything published still shows on the Jobs page and /roles.</span>
+            </span>
+            {j.is_featured && (
+              <input className="input !w-20 !h-9 shrink-0" type="number" placeholder="#" title="Order"
+                value={j.featured_rank ?? ""} onChange={(e) => set("featured_rank", e.target.value ? Number(e.target.value) : null)} />
+            )}
+          </label>
+
           <div><label className="label">Status</label>
             <select className="input" value={j.status} onChange={(e) => set("status", e.target.value)}>
               <option value="draft">draft</option>

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { denominate } from "@/lib/currency";
 import { FormattedJD } from "@/components/FormattedJD";
+import { Countdown } from "@/components/Countdown";
 import { GuestApplyForm } from "@/components/GuestApplyForm";
 
 export const revalidate = 60;
@@ -10,9 +11,10 @@ export const revalidate = 60;
 async function getJob(id: string) {
   const admin = createAdminClient();
   const { data: job } = await admin.from("jobs")
-    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, salary_currency, status, published_at, org_id, form_id")
+    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, status, published_at, org_id, form_id")
     .eq("id", id).maybeSingle();
   if (!job || job.status !== "published") return null;
+  if (job.closes_at && new Date(job.closes_at) < new Date()) return { ...job, _closed: true } as any;
   let company = "MYJOBHACK";
   if (job.org_id) {
     const { data: org } = await admin.from("organizations").select("name").eq("id", job.org_id).single();
@@ -86,7 +88,8 @@ export default async function PublicJobPage({ params }: { params: { id: string }
           <h1 className="font-display font-semibold text-[clamp(26px,7vw,54px)] leading-[1.08] max-w-3xl mb-5 sm:mb-6 break-words hyphens-auto">
             {job.title}
           </h1>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
+            <Countdown to={job.closes_at} />
             {[job.location, job.work_mode, job.employment_type?.replace(/_/g, " "), job.role_level, job.salary_note]
               .filter(Boolean).map((m) => (
                 <span key={m as string} className="px-3 sm:px-3.5 py-1.5 rounded-pill border border-white/15 text-xs sm:text-[13px] text-white/75 capitalize break-words">{m}</span>
@@ -98,6 +101,21 @@ export default async function PublicJobPage({ params }: { params: { id: string }
           {/* JD — editorial column */}
           <article className="min-w-0">
             <div className="h-px w-16 bg-coral mb-8" />
+            {(job.key_requirements ?? []).length > 0 && (
+              <div className="mb-9 rounded-card border border-coral/25 bg-coral/[.07] p-5 sm:p-6">
+                <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-coral mb-4">
+                  Key requirements — read before applying
+                </div>
+                <ul className="space-y-3">
+                  {(job.key_requirements ?? []).map((r: string, i: number) => (
+                    <li key={i} className="flex gap-3 text-[15px] leading-relaxed">
+                      <span className="w-5 h-5 rounded-full bg-coral text-white grid place-items-center text-[11px] font-extrabold shrink-0 mt-0.5">{i + 1}</span>
+                      <span className="text-white/85">{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <FormattedJD dark text={job.description || "Full details are shared during the process — apply and the team takes it from there."} />
 
             <div className="mt-10 sm:mt-12 rounded-card border border-white/10 bg-white/[.04] p-5 sm:p-6">

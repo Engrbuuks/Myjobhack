@@ -9,7 +9,8 @@ export default async function SeekerJobs() {
   const [{ data: jobs }, { data: myApps }] = await Promise.all([
     supabase.from("jobs")
       .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, created_at")
-      .eq("status", "published").order("published_at", { ascending: false }),
+      .eq("status", "published")
+    .or(`closes_at.is.null,closes_at.gt.${new Date().toISOString()}`).order("published_at", { ascending: false }),
     supabase.from("applications").select("job_id").eq("talent_id", user!.id)
   ]);
   const applied = new Set((myApps ?? []).map((a) => a.job_id));
