@@ -15,16 +15,17 @@ export const metadata: Metadata = {
 export default async function RolesPage({ searchParams }: { searchParams: { q?: string; mode?: string } }) {
   const admin = createAdminClient();
   const { data: allJobs } = await admin.from("jobs")
-    .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, org_id, published_at")
+    .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, org_id, company_name, company_logo_path, published_at")
     .eq("status", "published")
     .or(`closes_at.is.null,closes_at.gt.${new Date().toISOString()}`)
     .order("published_at", { ascending: false }).limit(80);
 
   const orgIds = Array.from(new Set((allJobs ?? []).map((j) => j.org_id).filter(Boolean))) as string[];
   const orgNames = new Map<string, string>();
+  const orgLogos = new Map<string, string>();
   if (orgIds.length) {
-    const { data: orgs } = await admin.from("organizations").select("id, name").in("id", orgIds);
-    (orgs ?? []).forEach((o) => orgNames.set(o.id, o.name));
+    const { data: orgs } = await admin.from("organizations").select("id, name, logo_path").in("id", orgIds);
+    (orgs ?? []).forEach((o) => { orgNames.set(o.id, o.name); if (o.logo_path) orgLogos.set(o.id, o.logo_path); });
   }
 
   const q = (searchParams.q ?? "").toLowerCase().trim();
@@ -35,6 +36,12 @@ export default async function RolesPage({ searchParams }: { searchParams: { q?: 
     const hay = `${j.title} ${j.location ?? ""} ${j.role_level ?? ""} ${j.org_id ? orgNames.get(j.org_id) ?? "" : ""}`.toLowerCase();
     return hay.includes(q);
   });
+
+  const logoFor = (j: any) => {
+    const path = j.company_logo_path || (j.org_id ? orgLogos.get(j.org_id) : null);
+    return path ? admin.storage.from("company-logos").getPublicUrl(path).data.publicUrl : null;
+  };
+  const nameFor = (j: any) => j.company_name || (j.org_id ? orgNames.get(j.org_id) ?? "MYJOBHACK" : "MYJOBHACK");
 
   const isNew = (d: string | null) => d ? (Date.now() - new Date(d).getTime()) < 5 * 864e5 : false;
   const MODES = [["", "All"], ["remote", "Remote"], ["hybrid", "Hybrid"], ["onsite", "On-site"]] as const;
@@ -90,13 +97,16 @@ export default async function RolesPage({ searchParams }: { searchParams: { q?: 
               <Link key={j.id} href={`/jobs/${j.id}`}
                 className="group relative rounded-2xl border border-white/10 hover:border-coral/60 bg-white/[.03] hover:bg-white/[.06] transition p-4 sm:p-5 flex flex-col min-w-0">
                 <div className="flex items-start gap-3 mb-3">
-                  <span className="w-10 h-10 rounded-xl bg-coral grid place-items-center font-display font-semibold shrink-0">
-                    {(j.org_id ? orgNames.get(j.org_id) ?? "M" : "M")[0]}
+                  <span className="w-10 h-10 rounded-xl bg-white/10 border border-white/10 grid place-items-center font-display font-semibold shrink-0 overflow-hidden">
+                    {logoFor(j)
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      ? <img src={logoFor(j)!} alt="" className="w-full h-full object-contain p-1" />
+                      : nameFor(j)[0]}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold leading-snug group-hover:text-coral transition line-clamp-2">{j.title}</div>
                     <div className="text-xs text-white/45 truncate mt-0.5">
-                      {j.org_id ? orgNames.get(j.org_id) ?? "MYJOBHACK" : "MYJOBHACK"}
+                      {nameFor(j)}
                     </div>
                   </div>
                   {isNew(j.published_at) && (

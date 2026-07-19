@@ -11,19 +11,28 @@ export const revalidate = 60;
 async function getJob(id: string) {
   const admin = createAdminClient();
   const { data: job } = await admin.from("jobs")
-    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, status, published_at, org_id, form_id")
+    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, company_name, company_logo_path, company_website, status, published_at, org_id, form_id")
     .eq("id", id).maybeSingle();
   if (!job || job.status !== "published") return null;
   if (job.closes_at && new Date(job.closes_at) < new Date()) return { ...job, _closed: true } as any;
   let company = "MYJOBHACK";
+  let companyLogo: string | null = null;
+  let companyWebsite: string | null = null;
   if (job.org_id) {
-    const { data: org } = await admin.from("organizations").select("name").eq("id", job.org_id).single();
+    const { data: org } = await admin.from("organizations").select("name, logo_path, website").eq("id", job.org_id).single();
     if (org?.name) company = org.name;
+    if (org?.logo_path) companyLogo = admin.storage.from("company-logos").getPublicUrl(org.logo_path).data.publicUrl;
+    if (org?.website) companyWebsite = org.website;
   }
   const { data: fields } = job.form_id
     ? await admin.from("form_fields").select("id, label, field_type, required, options").eq("form_id", job.form_id).order("sort")
     : { data: [] as any[] };
-  return { ...job, company, fields: fields ?? [] };
+  // a job may name its own client company, overriding the organisation
+  if (job.company_name) company = job.company_name;
+  if (job.company_logo_path) companyLogo = admin.storage.from("company-logos").getPublicUrl(job.company_logo_path).data.publicUrl;
+  if (job.company_website) companyWebsite = job.company_website;
+
+  return { ...job, company, companyLogo, companyWebsite, fields: fields ?? [] };
 }
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
@@ -58,7 +67,7 @@ export default async function PublicJobPage({ params }: { params: { id: string }
     title: job.title, description: job.description || job.title,
     datePosted: job.published_at,
     employmentType: (job.employment_type || "").toUpperCase(),
-    hiringOrganization: { "@type": "Organization", name: job.company },
+    hiringOrganization: { "@type": "Organization", name: job.company, ...(job.companyLogo ? { logo: job.companyLogo } : {}), ...(job.companyWebsite ? { sameAs: job.companyWebsite } : {}) },
     jobLocation: { "@type": "Place", address: { "@type": "PostalAddress", addressLocality: job.location || "Nigeria" } },
     ...(job.work_mode === "remote" ? { jobLocationType: "TELECOMMUTE" } : {})
   };

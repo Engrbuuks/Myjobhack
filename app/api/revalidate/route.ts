@@ -23,6 +23,7 @@ export async function POST(request: Request) {
     revalidatePath("/api/public/trainings");
     revalidatePath(`/trainings/${training_id}`);
   }
+  revalidatePath("/trainings");
   revalidatePath("/sitemap.xml");
   return NextResponse.json({ ok: true });
 }

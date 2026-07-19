@@ -3,14 +3,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { COUNTRIES } from "@/lib/geo";
+import { LogoUpload } from "@/components/LogoUpload";
 
-type Org = { id?: string; name: string; website: string; sector_id: string | null; country: string };
+type Org = { id?: string; name: string; website: string; sector_id: string | null; country: string; logo_path?: string | null };
 
 export function CompanySetup({ org, sectors }: {
   org: Org | null; sectors: { id: string; label: string }[];
 }) {
   const router = useRouter();
-  const [o, setO] = useState<Org>(org ?? { name: "", website: "", sector_id: null, country: "Nigeria" });
+  const [o, setO] = useState<Org>(org ?? { name: "", website: "", sector_id: null, country: "Nigeria", logo_path: null });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -23,13 +24,13 @@ export function CompanySetup({ org, sectors }: {
     const { data: { user } } = await supabase.auth.getUser();
     if (o.id) {
       const { error } = await supabase.from("organizations")
-        .update({ name: o.name, website: o.website, sector_id: o.sector_id, country: o.country })
+        .update({ name: o.name, website: o.website, sector_id: o.sector_id, country: o.country, logo_path: o.logo_path ?? null })
         .eq("id", o.id);
       if (error) { setErr(error.message); setBusy(false); return; }
       setNote("Saved ✓"); setBusy(false); router.refresh();
     } else {
       const { data: created, error } = await supabase.from("organizations")
-        .insert({ name: o.name, website: o.website, sector_id: o.sector_id, country: o.country, created_by: user!.id })
+        .insert({ name: o.name, website: o.website, sector_id: o.sector_id, country: o.country, logo_path: o.logo_path ?? null, created_by: user!.id })
         .select("id").single();
       if (error) { setErr(error.message); setBusy(false); return; }
       const { error: mErr } = await supabase.from("org_members")

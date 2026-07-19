@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CloneJobButton } from "@/components/CloneJobButton";
+import { LogoUpload } from "@/components/LogoUpload";
 import { createClient } from "@/lib/supabase/client";
 import { DeleteButton } from "@/components/DeleteButton";
 
@@ -9,7 +10,7 @@ type Tax = { id: string; label: string };
 type Job = {
   id?: string; title: string; description: string; location: string;
   work_mode: string | null; role_level: string | null; employment_type: string;
-  salary_note: string; salary_currency?: string; niche_id: string | null; status: string; key_requirements?: string[]; is_featured?: boolean; featured_rank?: number | null;
+  salary_note: string; salary_currency?: string; niche_id: string | null; status: string; key_requirements?: string[]; is_featured?: boolean; featured_rank?: number | null; company_name?: string | null; company_logo_path?: string | null; company_website?: string | null;
   closes_at: string | null; external_url: string | null;
 };
 
@@ -21,7 +22,7 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
   const router = useRouter();
   const [j, setJ] = useState<Job>(job ?? {
     title: "", description: "", location: "", work_mode: null, role_level: null,
-    employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null, key_requirements: [], is_featured: false, featured_rank: null,
+    employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null, key_requirements: [], is_featured: false, featured_rank: null, company_name: null, company_logo_path: null, company_website: null,
     status: "draft", closes_at: null, external_url: null
   });
   const [busy, setBusy] = useState(false);
@@ -38,6 +39,9 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       work_mode: j.work_mode as any, role_level: j.role_level as any,
       employment_type: j.employment_type as any, salary_note: j.salary_note, salary_currency: j.salary_currency || "NGN",
       key_requirements: (j.key_requirements ?? []).filter((r: string) => r.trim()),
+      company_name: j.company_name || null,
+      company_logo_path: j.company_logo_path || null,
+      company_website: j.company_website || null,
       is_featured: !!j.is_featured,
       featured_rank: j.featured_rank ?? null,
       niche_id: j.niche_id, status: j.status as any,
@@ -136,6 +140,26 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
           <div><label className="label">Closes</label>
             <input className="input" type="date" value={j.closes_at?.slice(0, 10) ?? ""}
               onChange={(e) => set("closes_at", e.target.value || null)} /></div>
+          <div className="sm:col-span-2 rounded-xl border border-line p-4">
+            <div className="text-xs font-bold uppercase tracking-widest text-muted-2 mb-3">Hiring company</div>
+            <div className="grid sm:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="label">Company name</label>
+                <input className="input" placeholder="Leave blank to use your organisation"
+                  value={j.company_name ?? ""} onChange={(e) => set("company_name", e.target.value || null)} />
+              </div>
+              <div>
+                <label className="label">Company website</label>
+                <input className="input" placeholder="https://…"
+                  value={j.company_website ?? ""} onChange={(e) => set("company_website", e.target.value || null)} />
+              </div>
+            </div>
+            <LogoUpload value={j.company_logo_path ?? null} onChange={(p) => set("company_logo_path", p)} />
+            <p className="text-xs text-muted-2 mt-2">
+              Set these when posting on behalf of a client that has no account yet. Otherwise your organisation's name and logo are used.
+            </p>
+          </div>
+
           <div className="sm:col-span-2">
             <label className="label">Key requirements <span className="text-muted-2 font-normal">— the non-negotiables</span></label>
             <div className="space-y-2">

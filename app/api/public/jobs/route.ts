@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 
   const admin = createAdminClient();
   let query = admin.from("jobs")
-    .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, published_at, closes_at, key_requirements, is_featured, featured_rank, org_id")
+    .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, published_at, closes_at, key_requirements, is_featured, featured_rank, org_id, company_name, company_logo_path, company_website")
     .eq("status", "published")
     .or(`closes_at.is.null,closes_at.gt.${new Date().toISOString()}`);
 
@@ -38,11 +38,19 @@ export async function GET(request: Request) {
 
   const orgIds = Array.from(new Set((jobs ?? []).map((j) => j.org_id).filter(Boolean))) as string[];
   const orgNames = new Map<string, string>();
+  const orgLogos = new Map<string, string>();
+  const orgSites = new Map<string, string>();
   if (orgIds.length) {
-    const { data: orgs } = await admin.from("organizations").select("id, name").in("id", orgIds);
-    (orgs ?? []).forEach((o) => orgNames.set(o.id, o.name));
+    const { data: orgs } = await admin.from("organizations").select("id, name, logo_path, website").in("id", orgIds);
+    (orgs ?? []).forEach((o) => {
+      orgNames.set(o.id, o.name);
+      if (o.logo_path) orgLogos.set(o.id, o.logo_path);
+      if (o.website) orgSites.set(o.id, o.website);
+    });
   }
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+  const logoUrl = (path: string | null | undefined) =>
+    path ? admin.storage.from("company-logos").getPublicUrl(path).data.publicUrl : null;
 
   return NextResponse.json({
     jobs: (jobs ?? []).map((j) => ({
@@ -53,9 +61,11 @@ export async function GET(request: Request) {
       salary_currency: j.salary_currency || "NGN",
       closes_at: j.closes_at,
       key_requirements: j.key_requirements ?? [],
+      company: j.company_name || (j.org_id ? orgNames.get(j.org_id) ?? "MYJOBHACK" : "MYJOBHACK"),
+      company_logo: logoUrl(j.company_logo_path || (j.org_id ? orgLogos.get(j.org_id) : null)),
+      company_website: j.company_website || (j.org_id ? orgSites.get(j.org_id) ?? null : null),
       is_featured: !!j.is_featured,
       featured_rank: j.featured_rank ?? null,
-      company: j.org_id ? orgNames.get(j.org_id) ?? "MYJOBHACK" : "MYJOBHACK",
       published_at: j.published_at,
       apply_url: `${appUrl}/jobs/${j.id}`
     }))
