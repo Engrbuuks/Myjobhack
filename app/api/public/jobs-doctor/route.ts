@@ -9,8 +9,10 @@ export const dynamic = "force-dynamic";
  * Open https://app.myjobhack.co/api/public/jobs-doctor in a browser.
  * It reports every job and the exact reason each is or isn't public.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const admin = createAdminClient();
+  const url = new URL(request.url);
+  const fix = url.searchParams.get("fix") === "1";
   const now = new Date();
   const report: any = { checked_at: now.toISOString(), schema: {}, jobs: [], summary: {} };
 
@@ -33,6 +35,35 @@ export async function GET() {
   }
 
   // ---- every job, with a verdict ----
+  // ?fix=1 — clear deadlines already in the past, using the service role.
+  // This bypasses row-level security, so it also proves whether RLS was the blocker.
+  if (fix) {
+    const { data: expired } = await admin.from("jobs")
+      .select("id, title, closes_at")
+      .eq("status", "published")
+      .not("closes_at", "is", null)
+      .lt("closes_at", now.toISOString());
+
+    const repairs: any[] = [];
+    for (const e of expired ?? []) {
+      const { data: after, error: upErr } = await admin.from("jobs")
+        .update({ closes_at: null }).eq("id", e.id).select("id, closes_at");
+      repairs.push({
+        title: e.title,
+        was: e.closes_at,
+        rows_changed: after?.length ?? 0,
+        now: after?.[0]?.closes_at ?? "unchanged",
+        error: upErr?.message ?? null
+      });
+    }
+    report.repair = repairs.length
+      ? repairs
+      : "No expired deadlines found to clear.";
+    report.repair_note =
+      "rows_changed of 0 with no error means the write was blocked or the row did not match. " +
+      "rows_changed of 1 with now:null means it is fixed.";
+  }
+
   const { data: all, error } = await admin.from("jobs")
     .select("*").order("created_at", { ascending: false }).limit(40);
 
