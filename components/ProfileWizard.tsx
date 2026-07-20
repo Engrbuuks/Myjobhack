@@ -93,7 +93,36 @@ export function ProfileWizard(p: Props) {
     );
   }
 
+  // Every field required. Each step must be complete before advancing.
+  function stepError(s: number): string | null {
+    if (s === 0) {
+      if (!fullName.trim()) return "Full name is required.";
+      if (!phone.trim()) return "Phone number is required.";
+      if (!country.trim()) return "Country is required.";
+      if (!city.trim()) return "City / State is required.";
+      if (!years && years !== 0) return "Years of experience is required.";
+      if (!headline.trim()) return "Professional headline is required.";
+    }
+    if (s === 1) {
+      if (!nicheId) return "Please select your niche.";
+      if (!goalId) return "Please select your career goal.";
+      if (expertise.length === 0) return "Select at least one area of expertise.";
+    }
+    if (s === 2) {
+      if (!salMin || !salMax) return "Expected salary range is required.";
+      if (!level) return "Expected role level is required.";
+      if (!mode) return "Preferred work mode is required.";
+    }
+    if (s === 3) {
+      if (!resumeId) return "Please upload your resume.";
+    }
+    return null;
+  }
+
   async function save(finish: boolean) {
+    const ve = stepError(step);
+    if (ve) { setErr(ve); return; }
+
     setBusy(true); setErr(null);
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -160,17 +189,17 @@ export function ProfileWizard(p: Props) {
 
       {step === 0 && (
         <div className="space-y-4">
-          <div><label className="label">Full name</label>
+          <div><label className="label">Full name <span className="text-coral">*</span></label>
             <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
           <div className="grid sm:grid-cols-2 gap-4">
-            <div><label className="label">Phone (WhatsApp)</label>
+            <div><label className="label">Phone (WhatsApp) <span className="text-coral">*</span></label>
               <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+234…" /></div>
-            <div><label className="label">Years of experience</label>
+            <div><label className="label">Years of experience <span className="text-coral">*</span></label>
               <input className="input" type="number" min={0} max={50} value={years}
                 onChange={(e) => setYears(Number(e.target.value))} /></div>
           </div>
-          <LocationPicker country={country} city={city} onCountry={setCountry} onCity={setCity} />
-          <div><label className="label">Professional headline</label>
+          <LocationPicker country={country} city={city} onCountry={setCountry} onCity={setCity} required />
+          <div><label className="label">Professional headline <span className="text-coral">*</span></label>
             <input className="input" value={headline} onChange={(e) => setHeadline(e.target.value)}
               placeholder="e.g. Chartered accountant · audit & reporting" /></div>
         </div>
@@ -179,7 +208,7 @@ export function ProfileWizard(p: Props) {
       {step === 1 && (
         <div className="space-y-8">
           <div>
-            <label className="label">Your niche — where you work</label>
+            <label className="label">Your niche — where you work <span className="text-coral">*</span></label>
             <div className="flex flex-wrap gap-2">
               {niches.map((n) => (
                 <button key={n.id} type="button" className={chip(nicheId === n.id)}
@@ -188,7 +217,7 @@ export function ProfileWizard(p: Props) {
             </div>
           </div>
           <div>
-            <label className="label">Your career goal — where you&rsquo;re going</label>
+            <label className="label">Your career goal — where you&rsquo;re going <span className="text-coral">*</span></label>
             <div className="flex flex-wrap gap-2">
               {goals.map((g) => (
                 <button key={g.id} type="button" className={chip(goalId === g.id)}
@@ -197,7 +226,7 @@ export function ProfileWizard(p: Props) {
             </div>
           </div>
           <div>
-            <label className="label">Areas of expertise — pick up to 6</label>
+            <label className="label">Areas of expertise — pick up to 6 <span className="text-coral">*</span></label>
             <div className="flex flex-wrap gap-2">
               {skills.map((s) => (
                 <button key={s.id} type="button" className={chip(expertise.includes(s.id))}
@@ -211,7 +240,7 @@ export function ProfileWizard(p: Props) {
       {step === 2 && (
         <div className="space-y-8">
           <div>
-            <label className="label">Expected salary range ({currency}, monthly)</label>
+            <label className="label">Expected salary range ({currency}, monthly) <span className="text-coral">*</span></label>
             <div className="grid grid-cols-[1fr_1fr_120px] gap-3">
               <input className="input" type="number" placeholder="Min" value={salMin}
                 onChange={(e) => setSalMin(e.target.value)} />
@@ -223,7 +252,7 @@ export function ProfileWizard(p: Props) {
             </div>
           </div>
           <div>
-            <label className="label">Role level you&rsquo;re targeting</label>
+            <label className="label">Role level you&rsquo;re targeting <span className="text-coral">*</span></label>
             <div className="flex flex-wrap gap-2">
               {LEVELS.map((l) => (
                 <button key={l} type="button" className={chip(level === l)}
@@ -232,7 +261,7 @@ export function ProfileWizard(p: Props) {
             </div>
           </div>
           <div>
-            <label className="label">Preferred work mode</label>
+            <label className="label">Preferred work mode <span className="text-coral">*</span></label>
             <div className="flex flex-wrap gap-2">
               {MODES.map((m) => (
                 <button key={m} type="button" className={chip(mode === m)}
@@ -282,11 +311,11 @@ export function ProfileWizard(p: Props) {
           <button className="btn-ghost" onClick={() => setStep(step - 1)} disabled={busy}>← Back</button>
         )}
         {step < 3 ? (
-          <button className="btn-coral" onClick={() => save(false)} disabled={busy}>
+          <button className="btn-coral" onClick={() => save(false)} disabled={busy || !!stepError(step)}>
             {busy ? "Saving…" : "Save & continue →"}
           </button>
         ) : (
-          <button className="btn-coral" onClick={() => save(true)} disabled={busy}>
+          <button className="btn-coral" onClick={() => save(true)} disabled={busy || !!stepError(step)}>
             {busy ? "Saving…" : "Finish — take me to my dashboard →"}
           </button>
         )}

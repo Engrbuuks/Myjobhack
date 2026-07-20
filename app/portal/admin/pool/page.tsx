@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { SegmentFilterBar } from "@/components/SegmentFilterBar";
+import { RequestCredentialsButton } from "@/components/RequestCredentialsButton";
 import { filtersFromSearchParams, querySegment } from "@/lib/segment";
 
 export default async function PoolPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
@@ -74,9 +75,10 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
                     }`}>{r.profile_completion}%</span>
                   </td>
                   <td className="px-5 py-3 text-right">
-                    <Link href={`/portal/admin/pool/${r.profile_id}`} className="text-coral font-semibold">
-                      View →
-                    </Link>
+                    <span className="inline-flex items-center gap-3">
+                      <RequestCredentialsButton profileId={r.profile_id} compact />
+                      <Link href={`/portal/admin/pool/${r.profile_id}`} className="text-coral font-semibold">View →</Link>
+                    </span>
                   </td>
                 </tr>
               ))}
