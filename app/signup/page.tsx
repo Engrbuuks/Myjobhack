@@ -12,20 +12,59 @@ export default function SignupPage() {
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  /** Turn anything thrown — Error, Supabase error, or a bare object — into readable text. */
+  function describe(e: any): string {
+    if (!e) return "Unknown error.";
+    if (typeof e === "string") return e;
+    if (e.message && typeof e.message === "string" && e.message.trim()) return e.message;
+    if (e.error_description) return String(e.error_description);
+    if (e.error) return String(e.error);
+    if (e.msg) return String(e.msg);
+    try {
+      const json = JSON.stringify(e);
+      if (json && json !== "{}") return json;
+    } catch { /* fall through */ }
+    return "The signup service could not be reached. Check your connection and try again.";
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setErr(null);
-    const supabase = createClient();
-    const refTag = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("ref") : null;
-    const { error } = await supabase.auth.signUp({
-      email, password,
-      options: {
-        data: { full_name: fullName, role, ...(refTag ? { ref: refTag } : {}) },
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+
+    // basic checks before we call out, so failures are self-explanatory
+    if (!fullName.trim()) { setErr("Please enter your full name."); setBusy(false); return; }
+    if (!email.trim() || !email.includes("@")) { setErr("Please enter a valid email address."); setBusy(false); return; }
+    if (password.length < 6) { setErr("Password must be at least 6 characters."); setBusy(false); return; }
+
+    try {
+      const supabase = createClient();
+      const refTag = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("ref") : null;
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: { full_name: fullName.trim(), role, ...(refTag ? { ref: refTag } : {}) },
+          emailRedirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+
+      if (error) {
+        console.error("signUp error:", error);
+        setErr(describe(error));
+        setBusy(false);
+        return;
       }
-    });
-    if (error) { setErr(error.message); setBusy(false); return; }
-    setDone(true);
+      if (!data?.user) {
+        setErr("Registration did not complete. Please try again, or contact us if it persists.");
+        setBusy(false);
+        return;
+      }
+      setDone(true);
+    } catch (thrown: any) {
+      console.error("signUp threw:", thrown);
+      setErr(describe(thrown));
+      setBusy(false);
+    }
   }
 
   return (
