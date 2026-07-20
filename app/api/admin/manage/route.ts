@@ -130,7 +130,8 @@ export async function POST(request: Request) {
       case "update_plan": {
         if (!isAdmin) return deny();
         await admin.from("plans").update({
-          name: data.name, price_ngn: data.price_ngn, price_usd: data.price_usd, active: data.active
+          name: data.name, price_ngn: data.price_ngn, price_usd: data.price_usd,
+          interval: data.interval, features: data.features, active: data.active
         }).eq("id", id);
         return NextResponse.json({ ok: true });
       }

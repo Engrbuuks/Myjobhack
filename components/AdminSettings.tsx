@@ -182,7 +182,7 @@ export function ChapterManager({ chapters }: { chapters: Chapter[] }) {
   );
 }
 
-type Plan = { id: string; name: string; price_ngn: number; price_usd: number; active: boolean };
+type Plan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; features: string[]; active: boolean };
 export function PlanManager({ plans }: { plans: Plan[] }) {
   const router = useRouter();
   const [rows, setRows] = useState<Plan[]>(plans);
@@ -194,7 +194,7 @@ export function PlanManager({ plans }: { plans: Plan[] }) {
     setNote(null);
     const res = await fetch("/api/admin/manage", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "update_plan", id: p.id, data: { name: p.name, price_ngn: p.price_ngn, price_usd: p.price_usd, active: p.active } })
+      body: JSON.stringify({ action: "update_plan", id: p.id, data: { name: p.name, price_ngn: p.price_ngn, price_usd: p.price_usd, interval: p.interval, features: p.features, active: p.active } })
     });
     setNote(res.ok ? "Saved ✓ — new subscribers pay the new price immediately." : "Save failed");
     router.refresh();
@@ -205,17 +205,35 @@ export function PlanManager({ plans }: { plans: Plan[] }) {
       <div className="text-xs font-bold uppercase tracking-widest text-muted mb-4">Subscription plans</div>
       <div className="space-y-3">
         {rows.map((p) => (
-          <div key={p.id} className="grid sm:grid-cols-[1fr_120px_110px_auto_auto] gap-3 items-end border border-line rounded-xl p-4">
-            <div><label className="label">Plan name</label>
-              <input className="input !h-10" value={p.name} onChange={(e) => upd(p.id, { name: e.target.value })} /></div>
-            <div><label className="label">₦ / month</label>
-              <input className="input !h-10" type="number" value={p.price_ngn} onChange={(e) => upd(p.id, { price_ngn: Number(e.target.value) })} /></div>
-            <div><label className="label">$ / month</label>
-              <input className="input !h-10" type="number" value={p.price_usd} onChange={(e) => upd(p.id, { price_usd: Number(e.target.value) })} /></div>
-            <label className="flex items-center gap-2 text-xs font-semibold h-10">
-              <input type="checkbox" className="accent-[#FC5647]" checked={p.active} onChange={(e) => upd(p.id, { active: e.target.checked })} /> active
-            </label>
-            <button className="btn-coral !h-10" onClick={() => save(p)}>Save</button>
+          <div key={p.id} className="border border-line rounded-xl p-4 space-y-3">
+            <div className="grid sm:grid-cols-[1fr_110px_110px_140px] gap-3 items-end">
+              <div><label className="label">Plan name</label>
+                <input className="input !h-10" value={p.name} onChange={(e) => upd(p.id, { name: e.target.value })} /></div>
+              <div><label className="label">Price ₦</label>
+                <input className="input !h-10" type="number" value={p.price_ngn} onChange={(e) => upd(p.id, { price_ngn: Number(e.target.value) })} /></div>
+              <div><label className="label">Price $</label>
+                <input className="input !h-10" type="number" value={p.price_usd} onChange={(e) => upd(p.id, { price_usd: Number(e.target.value) })} /></div>
+              <div><label className="label">Billing period</label>
+                <select className="input !h-10" value={p.interval} onChange={(e) => upd(p.id, { interval: e.target.value })}>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="biannual">Every 6 months</option>
+                  <option value="yearly">Yearly</option>
+                </select></div>
+            </div>
+            <div>
+              <label className="label">Features (one per line)</label>
+              <textarea className="input !h-24 !py-2 font-mono text-xs"
+                value={(p.features ?? []).join("\n")}
+                onChange={(e) => upd(p.id, { features: e.target.value.split("\n").map((f) => f.trim()).filter(Boolean) })}
+                placeholder={"Unlimited applications\nVerified badge\nPriority matching"} />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs font-semibold">
+                <input type="checkbox" className="accent-[#FC5647]" checked={p.active} onChange={(e) => upd(p.id, { active: e.target.checked })} /> Active (shown to subscribers)
+              </label>
+              <button className="btn-coral !h-10" onClick={() => save(p)}>Save plan</button>
+            </div>
           </div>
         ))}
       </div>

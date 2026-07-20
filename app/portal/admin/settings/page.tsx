@@ -10,7 +10,7 @@ export default async function AdminSettingsPage() {
     supabase.from("app_settings").select("value").eq("key", "bank_transfer_usd").maybeSingle(),
     supabase.from("taxonomies").select("*").order("sort"),
     supabase.from("chapters").select("id, city, country, active").order("city"),
-    supabase.from("plans").select("id, name, price_ngn, price_usd, active").order("created_at")
+    supabase.from("plans").select("id, name, price_ngn, price_usd, interval, features, active, sort").order("sort")
   ]);
   const empty = { bank: "", account_name: "", account_number: "" };
 
