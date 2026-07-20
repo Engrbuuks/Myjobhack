@@ -62,7 +62,7 @@ export default async function PoolInsights({
         <Kpi label="Total talent pool" value={t.total_pool.toLocaleString()} sub={`${t.talent} members + ${t.total_pool - t.talent} guest applicants`} />
         <Kpi label="Registered members" value={t.talent.toLocaleString()} sub={`${t.elite} elite · ${t.employers} employers`} />
         <Kpi label="Verified" value={t.verified.toLocaleString()} sub={t.talent ? `${Math.round((t.verified / t.talent) * 100)}% of talent` : "—"} />
-        <Kpi label="Reachable contacts" value={t.marketing_contacts.toLocaleString()} sub={`${t.applied_at_least_once} have applied`} />
+        <Kpi label="Missing location" value={t.missing_location.toLocaleString()} sub={t.missing_location > 0 ? "talent haven't set country/state" : "everyone has a location"} />
       </div>
 
       <PoolFilterBar niches={niches ?? []} current={filters} countries={countries} states={states} />

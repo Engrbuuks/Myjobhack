@@ -71,8 +71,22 @@ function shell(inner: string, accentLabel: string, accentColor: string) {
   .foot .val{font-size:13px;color:#3A3D46;line-height:1.7}
   .notes{margin-top:20px;font-size:13px;color:#6B6E7B;line-height:1.6}
   .thanks{margin-top:22px;font-size:15px;font-weight:700;color:#0C0D11}
-  @media print{body{background:#fff;padding:0}.doc{box-shadow:none;border-radius:0;max-width:100%}}
-</style></head><body><div class="doc">${inner}</div></body></html>`;
+  @media print{body{background:#fff;padding:0}.doc{box-shadow:none;border-radius:0;max-width:100%}.noprint{display:none!important}}
+  .noprint{position:fixed;top:20px;right:20px;display:flex;gap:10px;z-index:99}
+  .noprint button{font-family:inherit;font-weight:700;font-size:13px;border:0;border-radius:999px;padding:11px 20px;cursor:pointer}
+  .dl{background:#FC5647;color:#fff}
+  .pr{background:#0C0D11;color:#fff}
+</style></head><body>
+  <div class="noprint">
+    <button class="pr" onclick="window.print()">Print</button>
+    <button class="dl" onclick="window.print()">Download PDF ⤓</button>
+  </div>
+  <div class="doc">${inner}</div>
+  <script>
+    // Nudge mobile users toward the share sheet / print-to-PDF
+    document.querySelector('.dl').addEventListener('click', function(){ setTimeout(function(){ window.print(); }, 50); });
+  </script>
+</body></html>`;
 }
 
 export function renderInvoiceHTML(inv: InvoiceDoc): string {

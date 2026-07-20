@@ -4,7 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/auth", "/jobs", "/join", "/roles", "/trainings", "/api/public", "/j/", "/invoice/", "/logo-mark.png", "/robots.txt", "/sitemap.xml"];
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  const reqHeaders = new Headers(request.headers);
+  reqHeaders.set("x-pathname", request.nextUrl.pathname);
+  let response = NextResponse.next({ request: { headers: reqHeaders } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +16,7 @@ export async function middleware(request: NextRequest) {
         getAll() { return request.cookies.getAll(); },
         setAll(cookiesToSet: { name: string; value: string; options?: object }[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
+          response = NextResponse.next({ request: { headers: reqHeaders } });
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
           );
@@ -30,7 +32,7 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  if (user && ((isPublic && !path.startsWith("/jobs") && !path.startsWith("/roles") && !path.startsWith("/join") && !path.startsWith("/trainings") && !path.startsWith("/api/public") && !path.startsWith("/api/auth")) || path === "/")) {
+  if (user && ((isPublic && !path.startsWith("/jobs") && !path.startsWith("/roles") && !path.startsWith("/join") && !path.startsWith("/trainings") && !path.startsWith("/api/public") && !path.startsWith("/api/auth") && !path.startsWith("/invoice/") && !path.startsWith("/j/") && !path.startsWith("/logo-mark")) || path === "/")) {
     const { data: profile } = await supabase
       .from("profiles").select("role").eq("id", user.id).single();
     const dest: Record<string, string> = {

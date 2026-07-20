@@ -52,11 +52,35 @@ export async function POST(request: Request) {
       details.push(["Pay to", `${bank.bank} · ${bank.account_name}`]);
       details.push(["Account", bank.account_number]);
     }
-    const html = renderInvoiceHTML({
-      number: inv.number, client_name: inv.client_name, client_email: inv.client_email,
-      currency: inv.currency, items: inv.items as any, total: Number(inv.total),
-      amount_paid: Number(inv.amount_paid ?? 0), status: "sent", notes: inv.notes ?? "",
-      issued_date: inv.issued_date, due_date: inv.due_date
+    const sym2 = inv.currency === "USD" ? "$" : inv.currency === "GBP" ? "£" : "₦";
+    const money2 = (n: number) => `${sym2}${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+    const balance = Math.max(0, Number(inv.total) - Number(inv.amount_paid ?? 0));
+
+    // A designed summary in the body — a few line items, then totals — plus a download button.
+    const summaryRows: [string, string][] = (inv.items as any[]).slice(0, 6).map((i) => [
+      `${i.description}${Number(i.qty) > 1 ? ` × ${i.qty}` : ""}`,
+      money2(Number(i.amount) * (Number(i.qty) || 1))
+    ]);
+    if ((inv.items as any[]).length > 6) summaryRows.push(["…and more", ""]);
+    if (Number(inv.amount_paid) > 0) {
+      summaryRows.push(["Paid so far", `− ${money2(Number(inv.amount_paid))}`]);
+      summaryRows.push([balance > 0 ? "BALANCE DUE" : "TOTAL", money2(balance > 0 ? balance : Number(inv.total))]);
+    } else {
+      summaryRows.push(["TOTAL DUE", money2(Number(inv.total))]);
+    }
+
+    const html = renderEmail({
+      preheader: `${money2(balance > 0 ? balance : Number(inv.total))} — invoice ${inv.number}`,
+      kicker: `Invoice ${inv.number}`,
+      heading: `Invoice for ${inv.client_name}`,
+      paragraphs: [
+        "Thank you for working with MYJOBHACK. Here's a summary of your invoice — tap the button below to view or download the full invoice.",
+        ...(inv.notes ? [inv.notes] : [])
+      ],
+      details: summaryRows,
+      cta: { label: "View & download invoice", url: `${appUrl}/invoice/${inv.id}` },
+      footNote: "Kindly use the invoice number as your transfer reference."
     });
     const res = await sendEmail(inv.client_email, `Invoice ${inv.number} — MYJOBHACK`, html);
     if (res.error) return NextResponse.json({ error: `Email failed: ${res.error}` }, { status: 500 });

@@ -23,6 +23,7 @@ export type PoolStats = {
     applied_at_least_once: number;
     marketing_contacts: number;
     total_pool: number;            // members + distinct guest applicants
+    missing_location: number;      // talent with no country or no city/state
   };
   by_niche: Bucket[];
   by_country: Bucket[];
@@ -61,6 +62,31 @@ function yearsBuckets(rows: any[]): Bucket[] {
   ];
 }
 
+/** Fetch ALL rows past Supabase's 1000-row cap, page by page. */
+async function fetchAll(admin: any, table: string, columns: string): Promise<any[]> {
+  const out: any[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin.from(table).select(columns).range(from, from + PAGE - 1);
+    if (error) {
+      // A missing optional column (e.g. state before migration) shouldn't zero the dashboard.
+      // Retry once without the optional columns.
+      if (columns.includes("state") || columns.includes("years_experience")) {
+        const safe = columns.split(",").map((c) => c.trim())
+          .filter((c) => c !== "state" && c !== "years_experience").join(", ");
+        const { data: d2 } = await admin.from(table).select(safe).range(from, from + PAGE - 1);
+        if (d2?.length) out.push(...d2);
+        if (!d2 || d2.length < PAGE) break;
+        continue;
+      }
+      break;
+    }
+    if (data?.length) out.push(...data);
+    if (!data || data.length < PAGE) break;
+  }
+  return out;
+}
+
 export async function getPoolStats(filters: PoolFilters = {}): Promise<PoolStats> {
   const admin = createAdminClient();
 
@@ -69,18 +95,12 @@ export async function getPoolStats(filters: PoolFilters = {}): Promise<PoolStats
   const nicheLabel = new Map<string,string>((tax ?? []).map((t: any) => [t.id, t.label]));
 
   // All profiles (role + geography + created_at)
-  const { data: profiles } = await admin
-    .from("profiles")
-    .select("id, role, country, state, created_at");
-
-  const allProfiles = profiles ?? [];
+  const allProfiles = await fetchAll(admin, "profiles", "id, role, country, state, city, created_at");
   const talentProfiles = allProfiles.filter((p) => ["job_seeker", "elite_member"].includes(p.role));
 
   // Talent detail (niche, verification, work mode, level, resume)
-  const { data: tp } = await admin
-    .from("talent_profiles")
-    .select("profile_id, niche_id, verification, preferred_work_mode, expected_role_level, resume_document_id, years_experience");
-  const tpById = new Map((tp ?? []).map((t: any) => [t.profile_id, t]));
+  const tp = await fetchAll(admin, "talent_profiles", "profile_id, niche_id, verification, preferred_work_mode, expected_role_level, resume_document_id, years_experience");
+  const tpById = new Map(tp.map((t: any) => [t.profile_id, t]));
 
   // Merge talent profile detail onto each talent record
   const talent = talentProfiles.map((p) => {
@@ -109,18 +129,17 @@ export async function getPoolStats(filters: PoolFilters = {}): Promise<PoolStats
   });
 
   // Applications — distinct applicants
-  const { data: apps } = await admin.from("applications").select("talent_id, guest_email");
+  const apps = await fetchAll(admin, "applications", "talent_id, guest_email");
   const applicantSet = new Set<string>();
-  (apps ?? []).forEach((a: any) => {
+  apps.forEach((a: any) => {
     if (a.talent_id) applicantSet.add(a.talent_id);
     else if (a.guest_email) applicantSet.add(`guest:${a.guest_email}`);
   });
 
   // Marketing contacts (with geography, so guests count in maps)
-  const { data: mc } = await admin
-    .from("marketing_contacts")
-    .select("email, country, state, profile_id");
-  const mcCount = (mc ?? []).length;
+  let mc: any[] = [];
+  try { mc = await fetchAll(admin, "marketing_contacts", "email, country, state, profile_id"); } catch { mc = []; }
+  const mcCount = mc.length;
 
   // Combined pool = distinct members + guest applicants not already members
   const memberEmails = new Set(allProfiles.map((p: any) => p.id));
@@ -148,7 +167,8 @@ export async function getPoolStats(filters: PoolFilters = {}): Promise<PoolStats
       with_resume: talent.filter((t: any) => !!t.resume_document_id).length,
       applied_at_least_once: applicantSet.size,
       marketing_contacts: mcCount ?? 0,
-      total_pool: totalPool
+      total_pool: totalPool,
+      missing_location: talent.filter((t: any) => !(t.country ?? "").trim() || !(t.state ?? "").trim() && !(t.city ?? "").trim()).length
     },
     by_niche: tally(filtered, "niche_id", nicheLabel).slice(0, 12),
     by_country: tally(filtered, "country").slice(0, 12),

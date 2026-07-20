@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/Sidebar";
 
@@ -6,8 +7,16 @@ export default async function Layout({ children }: { children: React.ReactNode }
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: profile } = await supabase.from("profiles").select("role, full_name").eq("id", user.id).single();
+  const { data: profile } = await supabase.from("profiles").select("role, full_name, country, city").eq("id", user.id).single();
   if (!["job_seeker", "elite_member", "admin"].includes(profile?.role ?? "")) redirect("/");
+
+  // Location is compulsory. Anyone missing country or city/state is sent to
+  // complete their profile before they can use the rest of the portal.
+  const missingLocation = profile?.role !== "admin" && (!profile?.country?.trim() || !profile?.city?.trim());
+  const path = headers().get("x-pathname") || headers().get("x-invoke-path") || "";
+  if (missingLocation && !path.includes("/portal/seeker/profile")) {
+    redirect("/portal/seeker/profile?complete=location");
+  }
   return (
     <>
       <Sidebar

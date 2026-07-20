@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { ProfileWizard } from "@/components/ProfileWizard";
 
-export default async function ProfilePage() {
+export default async function ProfilePage({ searchParams }: { searchParams: { complete?: string } }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -27,6 +27,12 @@ export default async function ProfilePage() {
         title="Your profile"
         sub="Four things drive your matching: your niche, your goal, your expertise, and your expectations. Complete them all and our team goes to work."
       />
+      {searchParams.complete === "location" && (
+        <div className="mb-6 rounded-xl border border-coral/30 bg-coral-soft px-5 py-4">
+          <p className="font-semibold text-ink text-sm">Please add your country and city/state to continue.</p>
+          <p className="text-sm text-muted-2 mt-1">Employers filter candidates by location — it's required before you can use the rest of your dashboard.</p>
+        </div>
+      )}
       <ProfileWizard
         profile={profile!}
         talent={talent!}
