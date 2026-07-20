@@ -14,7 +14,23 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const fix = url.searchParams.get("fix") === "1";
   const now = new Date();
-  const report: any = { checked_at: now.toISOString(), schema: {}, jobs: [], summary: {} };
+  // Which database is this app actually talking to? Only the project ref is
+  // exposed — never the keys — so this is safe to read in a browser.
+  const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const projectRef = rawUrl.replace(/^https?:\/\//, "").split(".")[0] || "NOT SET";
+  const hasAnon = !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const hasService = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const report: any = {
+    checked_at: now.toISOString(),
+    connection: {
+      project_ref: projectRef,
+      anon_key_present: hasAnon,
+      service_key_present: hasService,
+      compare_with: "The project ref in your Supabase dashboard URL. If these differ, the app is reading a different database than the one you edit."
+    },
+    schema: {}, jobs: [], summary: {}
+  };
 
   // ---- which columns actually exist ----
   const probes: Record<string, string> = {
