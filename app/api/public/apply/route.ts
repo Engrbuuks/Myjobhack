@@ -86,5 +86,10 @@ export async function POST(request: Request) {
       });
     }
   }
+  // Add the applicant to the marketing database (consented via apply).
+  await admin.rpc("upsert_marketing_contact", {
+    p_email: email, p_name: name, p_source: "application", p_job_id: job_id, p_profile: null
+  });
+
   return NextResponse.json({ ok: true, shortlisted: status === "shortlisted" });
 }

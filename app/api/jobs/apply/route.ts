@@ -39,6 +39,9 @@ export async function POST(request: Request) {
   }
   const evalResult = evaluateRules(fields, answers ?? {});
 
+  const admin2 = createAdminClient();
+  const { data: me } = await admin2.from("profiles").select("email, full_name").eq("id", user.id).maybeSingle();
+
   const { data: app, error: insErr } = await supabase.from("applications").insert({
     job_id, talent_id: user.id,
     answers: answers ?? {}, resume_document_id: talent.resume_document_id,

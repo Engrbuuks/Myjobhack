@@ -28,6 +28,18 @@ export async function resolveAudience(admin: any, audience: string, nicheId?: st
       const { data } = await admin.from("profiles").select("email").in("id", ids);
       emails = (data ?? []).map((p: any) => p.email).filter(Boolean);
     }
+  } else if (audience === "applicants") {
+    // Everyone who has applied to any role — the marketing database.
+    const { data } = await admin.from("marketing_contacts")
+      .select("email").eq("consent", true).is("unsubscribed_at", null);
+    emails = (data ?? []).map((m: any) => m.email).filter(Boolean);
+  } else if (audience === "all_contacts") {
+    // Members + applicants combined, consented only.
+    const { data: mc } = await admin.from("marketing_contacts")
+      .select("email").eq("consent", true).is("unsubscribed_at", null);
+    const { data: pf } = await admin.from("profiles")
+      .select("email").in("role", ["job_seeker", "elite_member"]);
+    emails = [...(mc ?? []), ...(pf ?? [])].map((r: any) => r.email).filter(Boolean);
   } else if (audience === "list") {
     emails = String(emailList ?? "").split(/[\s,;]+/).filter((e) => e.includes("@"));
   }

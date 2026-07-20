@@ -19,7 +19,7 @@ export async function OPTIONS() {
 /** Columns added by later migrations. If a migration hasn't run yet we must
  *  still serve jobs rather than silently returning an empty list. */
 const CORE = "id, title, location, work_mode, role_level, employment_type, salary_note, published_at, org_id";
-const EXTRA = "salary_currency, closes_at, key_requirements, is_featured, featured_rank, company_name, company_logo_path, company_website";
+const EXTRA = "salary_currency, closes_at, key_requirements, is_featured, featured_rank, company_name, company_logo_path, company_website, locations, is_multi_location";
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -111,13 +111,20 @@ export async function GET(request: Request) {
       salary_currency: j.salary_currency || "NGN",
       closes_at: j.closes_at ?? null,
       key_requirements: j.key_requirements ?? [],
+      locations: j.locations ?? [],
+      location_label: j.is_multi_location
+        ? `${(j.locations ?? []).length} locations`
+        : (j.location || ((j.locations ?? [])[0]
+            ? ((j.locations[0].state ? j.locations[0].state + ", " : "") + j.locations[0].country)
+            : "")),
       is_featured: !!j.is_featured,
       featured_rank: j.featured_rank ?? null,
       company: j.company_name || (j.org_id ? orgNames.get(j.org_id) ?? "MYJOBHACK" : "MYJOBHACK"),
       company_logo: logoUrl(j.company_logo_path || (j.org_id ? orgLogos.get(j.org_id) : null)),
       company_website: j.company_website || (j.org_id ? orgSites.get(j.org_id) ?? null : null),
       published_at: j.published_at,
-      apply_url: `${appUrl}/jobs/${j.id}`
+      apply_url: `${appUrl}/jobs/${j.id}`,
+      short_url: `${appUrl}/j/${j.id.replace(/-/g, "").slice(0, 8)}`
     }))
   };
 

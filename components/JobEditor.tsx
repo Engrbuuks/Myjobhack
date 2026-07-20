@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CloneJobButton } from "@/components/CloneJobButton";
 import { LogoUpload } from "@/components/LogoUpload";
+import { MultiLocationPicker, type JobLocation } from "@/components/MultiLocationPicker";
 import { JobComposer, type ComposedJob } from "@/components/JobComposer";
 import { createClient } from "@/lib/supabase/client";
 import { DeleteButton } from "@/components/DeleteButton";
@@ -11,7 +12,7 @@ type Tax = { id: string; label: string };
 type Job = {
   id?: string; title: string; description: string; location: string;
   work_mode: string | null; role_level: string | null; employment_type: string;
-  salary_note: string; salary_currency?: string; niche_id: string | null; status: string; key_requirements?: string[]; is_featured?: boolean; featured_rank?: number | null; company_name?: string | null; company_logo_path?: string | null; company_website?: string | null;
+  salary_note: string; salary_currency?: string; niche_id: string | null; status: string; key_requirements?: string[]; is_featured?: boolean; featured_rank?: number | null; company_name?: string | null; company_logo_path?: string | null; company_website?: string | null; locations?: JobLocation[]; is_multi_location?: boolean;
   closes_at: string | null; external_url: string | null;
 };
 
@@ -23,7 +24,7 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
   const router = useRouter();
   const [j, setJ] = useState<Job>(job ?? {
     title: "", description: "", location: "", work_mode: null, role_level: null,
-    employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null, key_requirements: [], is_featured: false, featured_rank: null, company_name: null, company_logo_path: null, company_website: null,
+    employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null, key_requirements: [], is_featured: false, featured_rank: null, company_name: null, company_logo_path: null, company_website: null, locations: [], is_multi_location: false,
     status: "draft", closes_at: null, external_url: null
   });
   const [busy, setBusy] = useState(false);
@@ -84,6 +85,8 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       company_name: j.company_name || null,
       company_logo_path: j.company_logo_path || null,
       company_website: j.company_website || null,
+      locations: j.locations ?? [],
+      is_multi_location: (j.locations ?? []).length > 1,
       is_featured: !!j.is_featured,
       featured_rank: j.featured_rank ?? null,
       niche_id: j.niche_id, status: j.status as any,
@@ -195,8 +198,13 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
             placeholder="Paste the full job description — this powers the AI fit scoring."
             value={j.description} onChange={(e) => set("description", e.target.value)} /></div>
         <div className="grid sm:grid-cols-2 gap-4">
-          <div><label className="label">Location</label>
-            <input className="input" placeholder="Lagos · Nigeria" value={j.location} onChange={(e) => set("location", e.target.value)} /></div>
+          <div><label className="label">Location (display label)</label>
+            <input className="input" placeholder="Lagos · Nigeria, or Multiple locations" value={j.location} onChange={(e) => set("location", e.target.value)} />
+            <p className="text-xs text-muted-2 mt-1">Short label shown on cards. Add the specific coverage below.</p></div>
+
+          <div className="sm:col-span-2">
+            <MultiLocationPicker value={j.locations ?? []} onChange={(v) => set("locations", v)} />
+          </div>
           <div><label className="label">Salary note</label>
             <div className="flex gap-2">
               <select className="input !w-28 shrink-0" value={j.salary_currency || "NGN"}
