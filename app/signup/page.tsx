@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
   const [role, setRole] = useState<"job_seeker" | "employer">("job_seeker");
@@ -37,31 +36,22 @@ export default function SignupPage() {
     if (password.length < 6) { setErr("Password must be at least 6 characters."); setBusy(false); return; }
 
     try {
-      const supabase = createClient();
       const refTag = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("ref") : null;
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: { full_name: fullName.trim(), role, ...(refTag ? { ref: refTag } : {}) },
-          emailRedirectTo: `${window.location.origin}/auth/callback`
-        }
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password, full_name: fullName.trim(), role, ref: refTag })
       });
-
-      if (error) {
-        console.error("signUp error:", error);
-        setErr(describe(error));
+      const json = await res.json();
+      if (!res.ok) {
+        setErr(describe(json?.error ?? json));
         setBusy(false);
         return;
       }
-      if (!data?.user) {
-        setErr("Registration did not complete. Please try again, or contact us if it persists.");
-        setBusy(false);
-        return;
-      }
+      if (json.warning) console.warn(json.warning);
       setDone(true);
     } catch (thrown: any) {
-      console.error("signUp threw:", thrown);
+      console.error("register threw:", thrown);
       setErr(describe(thrown));
       setBusy(false);
     }
