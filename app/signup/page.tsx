@@ -42,9 +42,19 @@ export default function SignupPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password, full_name: fullName.trim(), role, ref: refTag })
       });
-      const json = await res.json();
+
+      // Read as text first — an empty body would break res.json() outright.
+      const raw = await res.text();
+      let json: any = {};
+      if (raw) { try { json = JSON.parse(raw); } catch { json = { error: raw }; } }
+
       if (!res.ok) {
-        setErr(describe(json?.error ?? json));
+        setErr(describe(json?.error ?? json) || `Server error (${res.status}). Please try again.`);
+        setBusy(false);
+        return;
+      }
+      if (!raw) {
+        setErr("The registration service returned nothing — the endpoint may not be deployed yet. Please try again shortly.");
         setBusy(false);
         return;
       }

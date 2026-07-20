@@ -10,6 +10,7 @@ export const runtime = "nodejs";
  * and deliver it through Resend (the same path campaign email already uses).
  */
 export async function POST(request: Request) {
+ try {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Bad request" }, { status: 400 }); }
 
@@ -89,4 +90,11 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ ok: true });
+ } catch (e: any) {
+   console.error("register route crashed:", e);
+   return NextResponse.json(
+     { error: e?.message || "Registration failed on the server. Please try again." },
+     { status: 500 }
+   );
+ }
 }
