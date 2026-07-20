@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { currencyFromRequest, formatMoney } from "@/lib/currency";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Trainings & courses — MYJOBHACK Academy",
   description: "Skill programmes, live sessions, and self-paced courses that make African talent employable — with certificates that employers trust.",

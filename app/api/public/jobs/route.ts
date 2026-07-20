@@ -3,12 +3,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { denominate } from "@/lib/currency";
 
 export const runtime = "nodejs";
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Cache-Control": "public, s-maxage=30, stale-while-revalidate=0, must-revalidate"
+  "Cache-Control": "no-store, no-cache, must-revalidate"
 };
 
 export async function OPTIONS() {

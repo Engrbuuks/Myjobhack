@@ -6,7 +6,7 @@ import { FormattedJD } from "@/components/FormattedJD";
 import { Countdown } from "@/components/Countdown";
 import { GuestApplyForm } from "@/components/GuestApplyForm";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 async function getJob(id: string) {
   const admin = createAdminClient();

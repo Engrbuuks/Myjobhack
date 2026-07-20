@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { denominate } from "@/lib/currency";
 import { Countdown } from "@/components/Countdown";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Open roles — MYJOBHACK",
