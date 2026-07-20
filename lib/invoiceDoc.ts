@@ -65,7 +65,16 @@ function shell(inner: string, accentLabel: string, accentColor: string) {
   .totals .row.grand{border-top:2px solid #0C0D11;margin-top:8px;padding-top:14px;font-size:19px;font-weight:800;color:#0C0D11}
   .totals .row.due{color:${accentColor};font-weight:800}
   .pill{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:5px 12px;border-radius:999px}
-  .foot{padding:26px 44px 40px;margin-top:14px;background:#FAFAF8;border-top:1px solid #EFEFF2}
+  .paybox{margin:24px 44px 0;background:#0C0D11;border-radius:16px;padding:24px 26px;color:#fff;position:relative;overflow:hidden}
+  .paybox:after{content:"";position:absolute;top:-40px;right:-30px;width:180px;height:180px;background:radial-gradient(circle,rgba(252,86,71,.35),transparent 65%)}
+  .paybox .ph{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#FFB4AC;margin-bottom:14px;position:relative;z-index:1}
+  .paygrid{display:flex;gap:34px;flex-wrap:wrap;position:relative;z-index:1}
+  .paygrid .cell .k{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#8A8C96;margin-bottom:4px}
+  .paygrid .cell .v{font-size:16px;font-weight:700;color:#fff}
+  .paygrid .cell .v.acct{font-size:22px;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+  .payref{margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.12);font-size:12.5px;color:#C9CAD0;position:relative;z-index:1}
+  .payref b{color:#FFB4AC}
+  .foot{padding:24px 44px 40px;margin-top:20px;background:#FAFAF8;border-top:1px solid #EFEFF2}
   .foot .cols{display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap}
   .foot .lbl{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#A0A3AD;margin-bottom:6px}
   .foot .val{font-size:13px;color:#3A3D46;line-height:1.7}
@@ -133,9 +142,17 @@ export function renderInvoiceHTML(inv: InvoiceDoc): string {
       <div class="row grand"><span>Total</span><span>${money(inv.total, cur)}</span></div>
       ${due > 0 && inv.amount_paid > 0 ? `<div class="row due"><span>Balance due</span><span>${money(due, cur)}</span></div>` : ""}
     </div></div>
+    <div class="paybox">
+      <div class="ph">${due > 0 ? `Pay ${money(due, cur)} to` : "Payment details"}</div>
+      <div class="paygrid">
+        <div class="cell"><div class="k">Bank</div><div class="v">${COMPANY.bank}</div></div>
+        <div class="cell"><div class="k">Account name</div><div class="v">${COMPANY.acct}</div></div>
+        <div class="cell"><div class="k">Account number</div><div class="v acct">${COMPANY.acctno}</div></div>
+      </div>
+      <div class="payref">Please use <b>${inv.number}</b> as your transfer reference so we can match your payment.</div>
+    </div>
     <div class="foot">
       <div class="cols">
-        <div><div class="lbl">Payment</div><div class="val">${COMPANY.bank}<br>${COMPANY.acct}<br>${COMPANY.acctno}</div></div>
         <div><div class="lbl">From</div><div class="val">${COMPANY.name}<br>${COMPANY.email}<br>${COMPANY.site}</div></div>
       </div>
       ${inv.notes ? `<div class="notes">${escapeHtml(inv.notes)}</div>` : ""}
