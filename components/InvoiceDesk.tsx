@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 type Item = { description: string; qty: number; amount: number };
 type Invoice = {
   id: string; number: string; client_name: string; client_email: string;
-  currency: string; total: number; status: string; created_at: string;
+  currency: string; total: number; amount_paid?: number; status: string; created_at: string;
 };
+
+function sym0(c: string) { return c === "USD" ? "$" : c === "GBP" ? "£" : "₦"; }
 
 export function InvoiceDesk({ invoices }: { invoices: Invoice[] }) {
   const router = useRouter();
@@ -19,6 +21,35 @@ export function InvoiceDesk({ invoices }: { invoices: Invoice[] }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [payFor, setPayFor] = useState<Invoice | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState("transfer");
+  const [payRef, setPayRef] = useState("");
+
+  const appUrl = typeof window !== "undefined" ? window.location.origin : "https://app.myjobhack.co";
+  function invoiceUrl(id: string) { return `${appUrl}/invoice/${id}`; }
+  function waLink(inv: Invoice) {
+    const msg = `Hello ${inv.client_name}, here is your invoice ${inv.number} from MYJOBHACK: ${invoiceUrl(inv.id)}`;
+    return `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  }
+
+  async function recordPayment() {
+    if (!payFor) return;
+    const json = await call({ action: "record_payment", id: payFor.id, amount: Number(payAmount), method: payMethod, reference: payRef }, payFor.id);
+    if (json) {
+      setNote(`Payment recorded. Status: ${json.status}.`);
+      setPayFor(null); setPayAmount(""); setPayRef(""); setPayMethod("transfer");
+    }
+  }
+
+  async function receipt(inv: Invoice, send: boolean) {
+    const json = await call({ action: "generate_receipt", id: inv.id, send }, inv.id);
+    if (json && send) setNote(`Receipt ${json.receipt_number} emailed to ${inv.client_email}.`);
+    else if (json && json.html) {
+      const w = window.open("", "_blank");
+      if (w) { w.document.write(json.html); w.document.close(); }
+    }
+  }
 
   const sym = currency === "USD" ? "$" : "₦";
   const total = items.reduce((a, i) => a + Number(i.amount) * (Number(i.qty) || 1), 0);
@@ -44,8 +75,9 @@ export function InvoiceDesk({ invoices }: { invoices: Invoice[] }) {
   }
 
   const BADGE: Record<string, string> = {
-    draft: "bg-coral-soft text-coral", sent: "bg-ink text-white",
-    paid: "bg-paper-2 text-muted", void: "bg-paper-2 text-muted line-through"
+    draft: "bg-coral-soft text-coral", sent: "bg-blue-100 text-blue-700",
+    partial: "bg-amber-100 text-amber-700", paid: "bg-green-100 text-green-700",
+    void: "bg-paper-2 text-muted line-through"
   };
 
   return (
@@ -101,28 +133,97 @@ export function InvoiceDesk({ invoices }: { invoices: Invoice[] }) {
             <div className="font-display font-semibold text-lg">
               {inv.currency === "USD" ? "$" : "₦"}{Number(inv.total).toLocaleString()}
             </div>
-            <span className={`px-2.5 py-1 rounded-pill text-xs font-bold capitalize ${BADGE[inv.status] ?? "bg-paper-2"}`}>{inv.status}</span>
-            {inv.status === "draft" && (
-              <button className="btn-coral !h-9 text-xs" disabled={busy !== null}
-                onClick={() => call({ action: "send", id: inv.id }, inv.id)}>
-                {busy === inv.id ? "…" : "Send ✉"}
-              </button>
-            )}
-            {inv.status === "sent" && (
-              <>
+            <div className="text-right">
+              <span className={`px-2.5 py-1 rounded-pill text-xs font-bold capitalize ${BADGE[inv.status] ?? "bg-paper-2"}`}>{inv.status}</span>
+              {Number(inv.amount_paid) > 0 && Number(inv.amount_paid) < Number(inv.total) && (
+                <div className="text-[11px] text-muted-2 mt-1">
+                  {sym0(inv.currency)}{Number(inv.amount_paid).toLocaleString()} of {sym0(inv.currency)}{Number(inv.total).toLocaleString()} paid
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              {inv.status === "draft" && (
+                <button className="btn-coral !h-9 text-xs" disabled={busy !== null}
+                  onClick={() => call({ action: "send", id: inv.id }, inv.id)}>{busy === inv.id ? "…" : "Send ✉"}</button>
+              )}
+              {inv.status !== "draft" && inv.status !== "void" && (
                 <button className="btn-ghost !h-9 text-xs" disabled={busy !== null}
                   onClick={() => call({ action: "send", id: inv.id }, inv.id)}>Resend</button>
-                <button className="btn-coral !h-9 text-xs" disabled={busy !== null}
-                  onClick={() => call({ action: "mark_paid", id: inv.id }, inv.id)}>Mark paid ✓</button>
-              </>
-            )}
-            {["draft", "sent"].includes(inv.status) && (
-              <button className="text-xs font-semibold text-muted hover:text-coral" disabled={busy !== null}
-                onClick={() => call({ action: "void", id: inv.id }, inv.id)}>Void</button>
-            )}
+              )}
+
+              {/* Download — opens the printable invoice; browser saves as PDF */}
+              <a className="btn-ghost !h-9 text-xs" href={invoiceUrl(inv.id)} target="_blank" rel="noopener">Download ⤓</a>
+
+              {/* WhatsApp share */}
+              <a className="btn-ghost !h-9 text-xs !text-green-700" href={waLink(inv)} target="_blank" rel="noopener">WhatsApp</a>
+
+              {/* Record part / full payment */}
+              {inv.status !== "void" && inv.status !== "paid" && (
+                <button className="btn-ghost !h-9 text-xs" disabled={busy !== null}
+                  onClick={() => { setPayFor(inv); setPayAmount(String(Math.max(0, Number(inv.total) - Number(inv.amount_paid ?? 0)))); }}>
+                  + Payment
+                </button>
+              )}
+
+              {/* Receipt — only once something is paid */}
+              {Number(inv.amount_paid) > 0 && (
+                <>
+                  <button className="btn-ghost !h-9 text-xs" disabled={busy !== null}
+                    onClick={() => receipt(inv, false)}>Receipt ⤓</button>
+                  <button className="btn-coral !h-9 text-xs" disabled={busy !== null}
+                    onClick={() => receipt(inv, true)}>Email receipt</button>
+                </>
+              )}
+
+              {["draft", "sent"].includes(inv.status) && (
+                <button className="text-xs font-semibold text-muted hover:text-coral" disabled={busy !== null}
+                  onClick={() => call({ action: "void", id: inv.id }, inv.id)}>Void</button>
+              )}
+            </div>
           </div>
         ))}
       </div>
+
+      {payFor && (
+        <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4" onClick={() => setPayFor(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-display font-semibold text-lg">Record a payment</h3>
+              <p className="text-sm text-muted-2">{payFor.number} · {payFor.client_name}</p>
+            </div>
+            <div>
+              <label className="label">Amount ({sym0(payFor.currency)})</label>
+              <input className="input" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} autoFocus />
+              <p className="text-xs text-muted-2 mt-1">
+                Balance: {sym0(payFor.currency)}{(Number(payFor.total) - Number(payFor.amount_paid ?? 0)).toLocaleString()}. Enter less for a part payment.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Method</label>
+                <select className="input" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                  <option value="transfer">Bank transfer</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="paystack">Paystack</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Reference</label>
+                <input className="input" value={payRef} onChange={(e) => setPayRef(e.target.value)} placeholder="Teller / txn no." />
+              </div>
+            </div>
+            {err && <p className="text-coral text-sm">{err}</p>}
+            <div className="flex gap-3">
+              <button className="btn-coral" onClick={recordPayment} disabled={busy !== null}>
+                {busy ? "Recording…" : "Record payment"}
+              </button>
+              <button className="btn-ghost" onClick={() => setPayFor(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

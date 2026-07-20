@@ -5,7 +5,7 @@ import { InvoiceDesk } from "@/components/InvoiceDesk";
 export default async function InvoicesPage() {
   const supabase = createClient();
   const { data: invoices } = await supabase.from("invoices")
-    .select("id, number, client_name, client_email, currency, total, status, created_at")
+    .select("id, number, client_name, client_email, currency, total, amount_paid, status, created_at")
     .order("created_at", { ascending: false });
   return (
     <>
