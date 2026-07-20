@@ -111,12 +111,23 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       if (error) { setErr(error.message); setBusy(false); return; }
       if (pendingQuestions?.length) {
         try {
-          await fetch("/api/jobs/apply-draft", {
+          const qRes = await fetch("/api/jobs/apply-draft", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ job_id: j.id, questions: pendingQuestions, title: j.title })
           });
+          const qJson = await qRes.json();
+          if (!qRes.ok) {
+            setErr(`Saved, but the screening questions could not be added: ${qJson.error ?? "unknown error"}`);
+            setBusy(false);
+            return;
+          }
           setPendingQuestions(null);
-        } catch {}
+          setAiNote(`Saved. ${qJson.added} screening question${qJson.added === 1 ? "" : "s"} added to the application form.`);
+        } catch (e: any) {
+          setErr(`Saved, but the screening questions could not be added: ${e?.message ?? "network error"}`);
+          setBusy(false);
+          return;
+        }
       }
       try {
         await fetch("/api/revalidate", {
@@ -131,11 +142,21 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       if (error) { setErr(error.message); setBusy(false); return; }
       if (pendingQuestions?.length) {
         try {
-          await fetch("/api/jobs/apply-draft", {
+          const qRes = await fetch("/api/jobs/apply-draft", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ job_id: data.id, questions: pendingQuestions, title: j.title })
           });
-        } catch {}
+          const qJson = await qRes.json();
+          if (!qRes.ok) {
+            setErr(`Job created, but the screening questions could not be added: ${qJson.error ?? "unknown error"}`);
+            setBusy(false);
+            return;
+          }
+        } catch (e: any) {
+          setErr(`Job created, but the screening questions could not be added: ${e?.message ?? "network error"}`);
+          setBusy(false);
+          return;
+        }
       }
       try {
         await fetch("/api/revalidate", {
