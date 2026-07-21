@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getPricing } from "@/lib/pricing";
 
 export const runtime = "nodejs";
 
@@ -23,12 +24,23 @@ export async function POST(request: Request) {
 
   if (!sub) return NextResponse.json({ error: "No active plan. Choose a plan to view candidates.", upgrade: true }, { status: 402 });
 
+  // Elite profiles cost more to unlock — they're your premium inventory.
+  const { data: elite } = await admin.from("elite_memberships")
+    .select("status").eq("talent_id", talent_id).maybeSingle();
+  const isElite = !!elite && elite.status === "verified";
+  const cost = isElite ? 3 : 1; // Elite unlock spends 3 views, standard spends 1
+
   const cap = (sub as any).employer_plans?.profile_views_per_month;
-  if (cap != null && sub.views_used >= cap)
-    return NextResponse.json({ error: "You've used all your profile views this month. Upgrade for more.", upgrade: true }, { status: 402 });
+  if (cap != null && sub.views_used + cost > cap)
+    return NextResponse.json({
+      error: isElite
+        ? "Unlocking an Elite candidate needs 3 views and you don't have enough left. Upgrade for more."
+        : "You've used all your profile views this month. Upgrade for more.",
+      upgrade: true
+    }, { status: 402 });
 
   await admin.from("profile_unlocks").insert({ employer_id: user.id, talent_id });
-  await admin.from("employer_subscriptions").update({ views_used: sub.views_used + 1 }).eq("id", sub.id);
+  await admin.from("employer_subscriptions").update({ views_used: sub.views_used + cost }).eq("id", sub.id);
 
-  return NextResponse.json({ ok: true, views_used: sub.views_used + 1, cap });
+  return NextResponse.json({ ok: true, views_used: sub.views_used + cost, cap, elite: isElite });
 }

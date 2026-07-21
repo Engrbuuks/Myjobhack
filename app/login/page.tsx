@@ -37,12 +37,12 @@ export default function LoginPage() {
       </section>
 
       <section className="flex items-center justify-center p-8">
-        <form onSubmit={onSubmit} className="w-full max-w-sm">
+        <form onSubmit={onSubmit} className="w-full max-w-sm text-center sm:text-left">
           <h2 className="font-display font-semibold text-3xl mb-1">Welcome back</h2>
           <p className="text-muted text-sm mb-8">Sign in to your MYJOBHACK portal.</p>
-          <label className="label">Email</label>
+          <label className="label block text-left">Email</label>
           <input className="input mb-4" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          <label className="label">Password</label>
+          <label className="label block text-left">Password</label>
           <input className="input mb-6" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           {err && <p className="text-coral text-sm mb-4">{err}</p>}
           <button className="btn-coral w-full justify-center" disabled={busy}>

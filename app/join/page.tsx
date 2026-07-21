@@ -40,17 +40,17 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
         <div className="pointer-events-none absolute -top-40 right-[5%] w-[80vw] max-w-[560px] aspect-square rounded-full bg-coral/[.14] blur-3xl" />
         <div className="pointer-events-none absolute top-60 -left-32 w-[55vw] max-w-80 aspect-square rounded-full bg-coral/[.07] blur-3xl" />
         <div className="relative max-w-6xl mx-auto px-5 sm:px-6 pt-10 sm:pt-16 pb-10 sm:pb-14 grid lg:grid-cols-[1.1fr_.9fr] gap-10 lg:gap-14 items-center">
-          <div>
+          <div className="text-center lg:text-left">
             <div className="text-[11px] font-extrabold uppercase tracking-[.26em] text-[#FFB4AC] mb-5">
               Free forever · Two minutes
             </div>
             <h1 className="font-display font-semibold text-[clamp(30px,7.5vw,60px)] leading-[1.03] mb-6">
               Your next role is <span className="text-coral">looking for you.</span>
             </h1>
-            <p className="text-white/60 text-lg leading-relaxed max-w-lg mb-8">
+            <p className="text-white/60 text-lg leading-relaxed max-w-lg mx-auto lg:mx-0 mb-8">
               Build one profile. Get matched to verified roles, invited to trainings that raise your ceiling, and shortlisted the moment you qualify — no applications disappearing into silence.
             </p>
-            <div className="flex flex-wrap gap-3 mb-8">
+            <div className="flex flex-wrap gap-3 mb-8 justify-center lg:justify-start">
               <Link href={signupHref} className="btn-coral !h-14 !px-8 text-base">Create my free profile →</Link>
               <Link href="/roles" className="inline-flex items-center px-7 h-14 rounded-pill border border-white/20 text-sm font-bold hover:border-coral transition">
                 See open roles

@@ -6,7 +6,7 @@ import { InterviewScheduler } from "@/components/InterviewScheduler";
 import { ExportButton } from "@/components/ExportButton";
 
 type Row = {
-  id: string; status: string; rules_passed: boolean | null;
+  id: string; talent_id?: string | null; status: string; rules_passed: boolean | null;
   ai_fit_score: number | null; ai_summary: string | null;
   created_at: string; name: string; email: string; guest?: boolean;
   answers: { label: string; value: string }[];
@@ -21,6 +21,23 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
   const [busy, setBusy] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [placeFor, setPlaceFor] = useState<Row | null>(null);
+  const [salary, setSalary] = useState("");
+  const [placeNote, setPlaceNote] = useState<string | null>(null);
+  const [placing, setPlacing] = useState(false);
+
+  async function recordPlacement() {
+    if (!placeFor) return;
+    setPlacing(true); setPlaceNote(null);
+    const res = await fetch("/api/employer/record-placement", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ talent_id: (placeFor as any).talent_id ?? placeFor.id, monthly_salary: Number(salary) || null })
+    });
+    const j = await res.json();
+    setPlacing(false);
+    if (res.ok) { setPlaceNote(j.message); setTimeout(() => { setPlaceFor(null); router.refresh(); }, 2500); }
+    else setPlaceNote(j.error ?? "Could not record placement.");
+  }
 
   function toggle(id: string) {
     setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -122,6 +139,11 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
               onClick={() => setScheduling(scheduling === r.id ? null : r.id)}>
               {scheduling === r.id ? "Close" : "🗓 Interview"}
             </button> : <a href={`mailto:${r.email}`} className="btn-ghost !h-9 text-xs">📧 Email</a>}
+            {r.status === "hired" && (
+              <button className="btn-coral !h-9 text-xs" onClick={() => { setPlaceFor(r); setSalary(""); setPlaceNote(null); }}>
+                Record placement
+              </button>
+            )}
             <button className="text-coral text-sm font-semibold" onClick={() => setOpen(open === r.id ? null : r.id)}>
               {open === r.id ? "Close" : "Details"}
             </button>
@@ -156,6 +178,31 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
           )}
         </div>
       ))}
+      {placeFor && (
+        <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4" onClick={() => !placing && setPlaceFor(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-display font-semibold text-lg">Record placement</h3>
+              <p className="text-sm text-muted-2">{placeFor.name}</p>
+            </div>
+            <p className="text-sm text-muted-2">
+              If this candidate is an Elite member, the fee is a percentage of their monthly salary — enter it below.
+              Otherwise a flat placement fee applies and you can leave salary blank.
+            </p>
+            <div>
+              <label className="label">Monthly salary (₦) — for Elite fee</label>
+              <input className="input" type="number" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="e.g. 400000" />
+            </div>
+            {placeNote && <p className="text-sm font-semibold text-green-600">{placeNote}</p>}
+            <div className="flex gap-3">
+              <button className="btn-coral" onClick={recordPlacement} disabled={placing}>
+                {placing ? "Recording…" : "Record & raise fee"}
+              </button>
+              <button className="btn-ghost" onClick={() => setPlaceFor(null)} disabled={placing}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

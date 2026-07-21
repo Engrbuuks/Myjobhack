@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateAssessment } from "@/lib/assessment";
+import { getPricing } from "@/lib/pricing";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -32,6 +33,22 @@ export async function POST() {
     skills = [...skills, ...(labels ?? []).map((l: any) => l.label)];
   }
 
+  // Elite members get free assessments but capped, so they don't drain AI/review budget.
+  const { data: elite } = await admin.from("elite_memberships")
+    .select("status").eq("talent_id", user.id).maybeSingle();
+  if (elite && elite.status === "verified") {
+    const pricing = await getPricing();
+    const { data: tpUsed } = await admin.from("talent_profiles")
+      .select("free_assessments_used").eq("profile_id", user.id).maybeSingle();
+    const used = tpUsed?.free_assessments_used ?? 0;
+    if (used >= pricing.elite_free_assessments) {
+      return NextResponse.json({
+        error: `You've used your ${pricing.elite_free_assessments} included assessments. Further assessments are available on the premium track.`,
+        capped: true
+      }, { status: 402 });
+    }
+  }
+
   const level = (tp?.expected_role_level as string) ?? "mid";
   const gen = await generateAssessment({ field, level, skills });
   if (gen.error || !gen.questions.length)
@@ -44,6 +61,12 @@ export async function POST() {
   }).select("id, questions, time_limit_min").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Count this against the Elite free allowance.
+  if (elite && elite.status === "verified") {
+    const { data: tpc } = await admin.from("talent_profiles").select("free_assessments_used").eq("profile_id", user.id).maybeSingle();
+    await admin.from("talent_profiles").update({ free_assessments_used: (tpc?.free_assessments_used ?? 0) + 1 }).eq("profile_id", user.id);
+  }
 
   // Strip rubrics before sending to the client (don't reveal the marking scheme)
   const clientQuestions = (asmt.questions as any[]).map(({ rubric, max_points, ...q }) => q);

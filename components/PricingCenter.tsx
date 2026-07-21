@@ -3,7 +3,7 @@ import { useState } from "react";
 
 type SeekerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; features: string[]; active: boolean };
 type EmployerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; profile_views_per_month: number | null; can_search_pool: boolean; can_contact: boolean; can_request_assessment: boolean; featured_job_slots: number; active: boolean };
-type Loose = { assessment_per_candidate_ngn?: number; assessment_per_candidate_usd?: number; elite_premium_ngn?: number; elite_premium_usd?: number };
+type Loose = { assessment_per_candidate_ngn?: number; assessment_per_candidate_usd?: number; elite_premium_ngn?: number; elite_premium_usd?: number; placement_elite_percent?: number; placement_general_ngn?: number; elite_unlock_premium_ngn?: number; elite_free_assessments?: number };
 type Training = { id: string; title: string; price_ngn: number; price_usd: number };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -24,7 +24,11 @@ export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: 
     assessment_per_candidate_ngn: loose.assessment_per_candidate_ngn ?? 3500,
     assessment_per_candidate_usd: loose.assessment_per_candidate_usd ?? 3,
     elite_premium_ngn: loose.elite_premium_ngn ?? 5000,
-    elite_premium_usd: loose.elite_premium_usd ?? 4
+    elite_premium_usd: loose.elite_premium_usd ?? 4,
+    placement_elite_percent: loose.placement_elite_percent ?? 10,
+    placement_general_ngn: loose.placement_general_ngn ?? 25000,
+    elite_unlock_premium_ngn: loose.elite_unlock_premium_ngn ?? 5000,
+    elite_free_assessments: loose.elite_free_assessments ?? 3
   });
 
   async function post(body: any) {
@@ -123,6 +127,62 @@ export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: 
           </div>
         </div>
         <button className="btn-coral mt-3" onClick={() => post({ kind: "loose", data: lo })}>Save assessment & Elite prices</button>
+      </Section>
+
+      <Section title="Placement fees & Elite economics">
+        <div className="card p-5 grid sm:grid-cols-2 gap-5">
+          <div>
+            <div className="font-semibold text-sm mb-2">Placement fee — general hire (flat)</div>
+            <div><label className="label !text-xs">₦</label><input className="input !h-10" type="number" value={lo.placement_general_ngn} onChange={(e) => setLo({ ...lo, placement_general_ngn: Number(e.target.value) })} /></div>
+          </div>
+          <div>
+            <div className="font-semibold text-sm mb-2">Placement fee — Elite hire (% of monthly salary)</div>
+            <div><label className="label !text-xs">%</label><input className="input !h-10" type="number" value={lo.placement_elite_percent} onChange={(e) => setLo({ ...lo, placement_elite_percent: Number(e.target.value) })} /></div>
+          </div>
+          <div>
+            <div className="font-semibold text-sm mb-2">Elite profile unlock premium</div>
+            <div><label className="label !text-xs">₦</label><input className="input !h-10" type="number" value={lo.elite_unlock_premium_ngn} onChange={(e) => setLo({ ...lo, elite_unlock_premium_ngn: Number(e.target.value) })} /></div>
+          </div>
+          <div>
+            <div className="font-semibold text-sm mb-2">Elite free assessments (cap)</div>
+            <div><label className="label !text-xs">count</label><input className="input !h-10" type="number" value={lo.elite_free_assessments} onChange={(e) => setLo({ ...lo, elite_free_assessments: Number(e.target.value) })} /></div>
+          </div>
+        </div>
+        <p className="text-xs text-muted-2 mt-2 max-w-2xl">Elite members are your supply magnet — cheap to carry, valuable because employers pay a premium to reach and hire them. These control that premium.</p>
+        <button className="btn-coral mt-3" onClick={() => post({ kind: "loose", data: lo })}>Save placement & Elite economics</button>
+      </Section>
+
+      <Section title="Placements & Elite economics">
+        <div className="card p-5 space-y-4">
+          <p className="text-sm text-muted-2">This is where the real revenue sits — employers pay to hire, more for Elite talent. Elite members pay little; you monetise the demand they create.</p>
+          <div className="grid sm:grid-cols-2 gap-5">
+            <div>
+              <label className="label !text-xs">Elite placement fee (% of monthly salary)</label>
+              <input className="input !h-10" type="number" value={lo.placement_elite_percent}
+                onChange={(e) => setLo({ ...lo, placement_elite_percent: Number(e.target.value) })} />
+              <p className="text-xs text-muted-2 mt-1">Charged when an employer hires an Elite member.</p>
+            </div>
+            <div>
+              <label className="label !text-xs">General placement fee (₦ flat)</label>
+              <input className="input !h-10" type="number" value={lo.placement_general_ngn}
+                onChange={(e) => setLo({ ...lo, placement_general_ngn: Number(e.target.value) })} />
+              <p className="text-xs text-muted-2 mt-1">Flat fee for a non-Elite hire.</p>
+            </div>
+            <div>
+              <label className="label !text-xs">Elite unlock premium (views spent)</label>
+              <input className="input !h-10" type="number" value={lo.elite_unlock_premium_ngn}
+                onChange={(e) => setLo({ ...lo, elite_unlock_premium_ngn: Number(e.target.value) })} />
+              <p className="text-xs text-muted-2 mt-1">Reference value — Elite profiles currently cost 3 views to unlock vs 1.</p>
+            </div>
+            <div>
+              <label className="label !text-xs">Elite free assessments (cap)</label>
+              <input className="input !h-10" type="number" value={lo.elite_free_assessments}
+                onChange={(e) => setLo({ ...lo, elite_free_assessments: Number(e.target.value) })} />
+              <p className="text-xs text-muted-2 mt-1">How many free assessments an Elite member gets before the premium track.</p>
+            </div>
+          </div>
+          <button className="btn-coral" onClick={() => post({ kind: "loose", data: lo })}>Save placement & economics</button>
+        </div>
       </Section>
     </div>
   );

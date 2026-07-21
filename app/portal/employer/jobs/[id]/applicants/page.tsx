@@ -42,7 +42,7 @@ export default async function EmployerApplicants({ params }: { params: { id: str
         .filter(([k]) => fieldMap.has(k))
         .map(([k, v]) => ({ label: fieldMap.get(k)!, value: Array.isArray(v) ? v.join(", ") : String(v) }));
       return {
-        id: a.id, status: a.status, rules_passed: a.rules_passed,
+        id: a.id, talent_id: a.talent_id, status: a.status, rules_passed: a.rules_passed,
         ai_fit_score: a.ai_fit_score, ai_summary: a.ai_summary,
         created_at: a.created_at, name: prof?.full_name ?? a.guest_name ?? "—", guest: !a.talent_id,
         email: prof?.email ?? a.guest_email ?? "", answers, resumeUrl
