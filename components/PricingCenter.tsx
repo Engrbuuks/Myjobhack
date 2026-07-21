@@ -4,6 +4,7 @@ import { useState } from "react";
 type SeekerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; features: string[]; active: boolean };
 type EmployerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; profile_views_per_month: number | null; can_search_pool: boolean; can_contact: boolean; can_request_assessment: boolean; featured_job_slots: number; active: boolean };
 type Loose = { assessment_per_candidate_ngn?: number; assessment_per_candidate_usd?: number; elite_premium_ngn?: number; elite_premium_usd?: number };
+type Training = { id: string; title: string; price_ngn: number; price_usd: number };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -14,10 +15,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export function PricingCenter({ seekerPlans, employerPlans, loose }: { seekerPlans: SeekerPlan[]; employerPlans: EmployerPlan[]; loose: Loose }) {
+export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: { seekerPlans: SeekerPlan[]; employerPlans: EmployerPlan[]; trainings: Training[]; loose: Loose }) {
   const [note, setNote] = useState<string | null>(null);
   const [sp, setSp] = useState(seekerPlans);
   const [ep, setEp] = useState(employerPlans);
+  const [tr, setTr] = useState(trainings);
   const [lo, setLo] = useState<Loose>({
     assessment_per_candidate_ngn: loose.assessment_per_candidate_ngn ?? 3500,
     assessment_per_candidate_usd: loose.assessment_per_candidate_usd ?? 3,
@@ -82,6 +84,25 @@ export function PricingCenter({ seekerPlans, employerPlans, loose }: { seekerPla
           ))}
         </div>
       </Section>
+
+      {/* TRAININGS */}
+      {tr.length > 0 && (
+        <Section title="Training prices">
+          <div className="space-y-2">
+            {tr.map((t, i) => (
+              <div key={t.id} className="card p-3 grid sm:grid-cols-[1fr_120px_120px_auto] gap-3 items-end">
+                <div className="min-w-0"><label className="label !text-xs">Training</label>
+                  <div className="font-semibold text-sm truncate py-2">{t.title}</div></div>
+                <div><label className="label !text-xs">₦</label>
+                  <input className="input !h-10" type="number" value={t.price_ngn} onChange={(e) => setTr(tr.map((x, j) => j === i ? { ...x, price_ngn: Number(e.target.value) } : x))} /></div>
+                <div><label className="label !text-xs">$</label>
+                  <input className="input !h-10" type="number" value={t.price_usd} onChange={(e) => setTr(tr.map((x, j) => j === i ? { ...x, price_usd: Number(e.target.value) } : x))} /></div>
+                <button className="btn-coral !h-10" onClick={() => post({ kind: "training", id: t.id, data: { price_ngn: t.price_ngn, price_usd: t.price_usd } })}>Save</button>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {/* LOOSE PRICES */}
       <Section title="Assessments & Elite premium">

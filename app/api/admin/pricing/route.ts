@@ -19,6 +19,8 @@ export async function POST(request: Request) {
     await admin.from("plans").update(data).eq("id", id);
   } else if (kind === "employer_plan") {
     await admin.from("employer_plans").update(data).eq("id", id);
+  } else if (kind === "training") {
+    await admin.from("trainings").update(data).eq("id", id);
   } else if (kind === "loose") {
     const { data: existing } = await admin.from("app_settings").select("value").eq("key", "pricing").maybeSingle();
     const merged = { ...(existing?.value ?? {}), ...data };
