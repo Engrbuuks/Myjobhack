@@ -78,15 +78,15 @@ export function renderEmail(spec: EmailSpec): string {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(spec.heading)}</title>
 </head>
-<body style="margin:0;padding:0;background:#FAFAF8">
+<body style="margin:0;padding:0;background:#F7FAFA">
 ${spec.preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${esc(spec.preheader)}</div>` : ""}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAFAF8">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7FAFA">
 <tr><td align="center" style="padding:36px 16px">
 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
 
     <!-- ink card -->
-    <tr><td style="background:#0C0D11;border-radius:24px;padding:40px 36px">
+    <tr><td style="background:#083E40;border-radius:24px;padding:40px 36px">
 
       <!-- wordmark -->
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --ink: #0C0D11; --coral: #FC5647; --paper: #FAFAF8;
+  --ink: #083E40; --coral: #FC5647; --paper: #F7FAFA;
   --font-fraunces: 'Fraunces';
   --font-inter: 'Inter';
 }

@@ -1,7 +1,7 @@
 import type { Bucket } from "@/lib/poolStats";
 
 const CORAL = "#FC5647";
-const INK = "#0C0D11";
+const INK = "#083E40";
 
 /** Horizontal bar chart — best for niche/country breakdowns. */
 export function BarList({ data, max, unit = "" }: { data: Bucket[]; max?: number; unit?: string }) {

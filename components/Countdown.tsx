@@ -82,7 +82,7 @@ export function Countdown({ to, compact, dark = true }: { to: string | null; com
         .cd-cells { display:flex; align-items:flex-end; gap:4px; }
         .cell { display:flex; flex-direction:column; align-items:center; position:relative; min-width:46px; }
         .num { font-family:var(--font-display, Georgia), serif; font-weight:600; font-size:30px; line-height:1;
-          color:${dark ? "#fff" : "#0C0D11"}; font-variant-numeric:tabular-nums;
+          color:${dark ? "#fff" : "#083E40"}; font-variant-numeric:tabular-nums;
           animation:mjhFlip .42s cubic-bezier(.2,.8,.3,1); }
         .lab { font-size:9px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; margin-top:5px;
           color:${dark ? "rgba(255,255,255,.38)" : "#9A9CA6"}; }

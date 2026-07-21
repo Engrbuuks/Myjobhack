@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   const confirmUrl = linkData.properties.action_link;
 
   const html = `
-  <div style="font-family:Inter,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 28px;color:#0C0D11">
+  <div style="font-family:Inter,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 28px;color:#083E40">
     <div style="font-size:22px;font-weight:700;margin-bottom:4px">my<span style="color:#FC5647">job</span>hack</div>
     <p style="color:#6B6E7B;font-size:13px;margin:0 0 28px">Verified excellence. Real opportunities.</p>
     <h1 style="font-size:24px;line-height:1.3;margin:0 0 14px">You're almost in, ${fullName.split(" ")[0] || "there"}.</h1>
