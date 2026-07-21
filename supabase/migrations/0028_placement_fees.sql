@@ -27,6 +27,7 @@ create policy "placements own or staff" on placements
 
 -- Elite assessment cap tracking (so unlimited free assessments can't drain margin).
 alter table elite_memberships add column if not exists assessments_used int not null default 0;
+alter table talent_profiles add column if not exists free_assessments_used int not null default 0;
 
 -- Seed placement + elite pricing into the central pricing settings.
 insert into app_settings (key, value) values

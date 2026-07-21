@@ -3,7 +3,7 @@ import { useState } from "react";
 
 type SeekerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; features: string[]; active: boolean };
 type EmployerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; profile_views_per_month: number | null; can_search_pool: boolean; can_contact: boolean; can_request_assessment: boolean; featured_job_slots: number; active: boolean };
-type Loose = { assessment_per_candidate_ngn?: number; assessment_per_candidate_usd?: number; elite_premium_ngn?: number; elite_premium_usd?: number; placement_elite_percent?: number; placement_general_ngn?: number; elite_unlock_premium_ngn?: number; elite_free_assessments?: number };
+type Loose = { assessment_per_candidate_ngn?: number; assessment_per_candidate_usd?: number; elite_premium_ngn?: number; elite_premium_usd?: number; placement_elite_percent?: number; placement_general_ngn?: number; elite_unlock_premium_ngn?: number; elite_free_assessments?: number; job_assessment_per_candidate_ngn?: number };
 type Training = { id: string; title: string; price_ngn: number; price_usd: number };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -28,7 +28,8 @@ export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: 
     placement_elite_percent: loose.placement_elite_percent ?? 10,
     placement_general_ngn: loose.placement_general_ngn ?? 25000,
     elite_unlock_premium_ngn: loose.elite_unlock_premium_ngn ?? 5000,
-    elite_free_assessments: loose.elite_free_assessments ?? 3
+    elite_free_assessments: loose.elite_free_assessments ?? 3,
+    job_assessment_per_candidate_ngn: loose.job_assessment_per_candidate_ngn ?? 5000
   });
 
   async function post(body: any) {
@@ -146,6 +147,10 @@ export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: 
           <div>
             <div className="font-semibold text-sm mb-2">Elite free assessments (cap)</div>
             <div><label className="label !text-xs">count</label><input className="input !h-10" type="number" value={lo.elite_free_assessments} onChange={(e) => setLo({ ...lo, elite_free_assessments: Number(e.target.value) })} /></div>
+          </div>
+          <div>
+            <div className="font-semibold text-sm mb-2">Job-specific assessment (employer pays / finalist)</div>
+            <div><label className="label !text-xs">₦</label><input className="input !h-10" type="number" value={lo.job_assessment_per_candidate_ngn} onChange={(e) => setLo({ ...lo, job_assessment_per_candidate_ngn: Number(e.target.value) })} /></div>
           </div>
         </div>
         <p className="text-xs text-muted-2 mt-2 max-w-2xl">Elite members are your supply magnet — cheap to carry, valuable because employers pay a premium to reach and hire them. These control that premium.</p>

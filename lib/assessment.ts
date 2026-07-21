@@ -136,3 +136,47 @@ export function needsHumanReview(s: ScoreResult): boolean {
   if (s.overall >= 48 && s.overall <= 52) return true; // borderline pass/fail
   return false;
 }
+
+/**
+ * JOB-SPECIFIC assessment — generated from a PARTICULAR posting's requirements,
+ * not the candidate's generic field. This is the employer-ordered deep-check
+ * for their shortlist. It is materially different from the general test because
+ * it's built around the role's actual duties and required skills.
+ */
+export async function generateJobAssessment(opts: {
+  job_title: string; job_description: string; requirements: string[]; level: string;
+}): Promise<{ questions: AsmtQuestion[]; time_limit_min: number; model?: string; error?: string }> {
+  const reqs = (opts.requirements ?? []).filter(Boolean).slice(0, 10).join("; ");
+  const prompt = `You are a hiring assessor creating a JOB-SPECIFIC competency test for a SHORTLISTED candidate.
+This test must be tailored to THIS EXACT ROLE, not the candidate's general field.
+
+Role title: "${opts.job_title}"
+Seniority: "${opts.level || "mid"}"
+Key requirements: ${reqs || "n/a"}
+Role description: "${(opts.job_description || "").slice(0, 800)}"
+
+Create a practical assessment that verifies the candidate can do THIS specific job's duties and meet THESE requirements. Ground every question in the role above — reference its actual responsibilities and required skills. Mix:
+- 2 multiple-choice on role-critical knowledge (type "mcq", 4 "options")
+- 2-3 open-response questions that mirror real tasks from THIS role (type "open")
+- If technical, 1 "code"/work-sample question drawn from the role's stack.
+
+For EACH question include a concise "rubric" (what a strong answer shows FOR THIS ROLE), "max_points" (10-25), "minutes" (3-15). Total 30-50 min.
+
+Return ONLY JSON:
+{"time_limit_min": <int>, "questions": [{"id":"q1","type":"mcq","prompt":"...","options":["..."],"rubric":"..","max_points":10,"minutes":4}, ...]}`;
+
+  const { data, error, model } = await geminiJson(prompt);
+  if (error || !data?.questions?.length) return { questions: [], time_limit_min: 45, error: error ?? "No questions generated" };
+
+  const questions: AsmtQuestion[] = data.questions.map((q: any, i: number) => ({
+    id: q.id || `q${i + 1}`,
+    type: ["mcq", "open", "code"].includes(q.type) ? q.type : "open",
+    prompt: String(q.prompt ?? ""),
+    options: Array.isArray(q.options) ? q.options.map(String) : undefined,
+    rubric: String(q.rubric ?? ""),
+    max_points: Number(q.max_points) || 10,
+    minutes: Number(q.minutes) || 5
+  })).filter((q: AsmtQuestion) => q.prompt);
+
+  return { questions, time_limit_min: Number(data.time_limit_min) || 45, model };
+}

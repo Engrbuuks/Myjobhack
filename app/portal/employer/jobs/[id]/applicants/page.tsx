@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHeader } from "@/components/PageHeader";
 import { ApplicantTable } from "@/components/ApplicantTable";
+import { buildCandidateCard } from "@/lib/candidateCard";
 import { getMyOrg } from "@/lib/org";
 
 export default async function EmployerApplicants({ params }: { params: { id: string } }) {
@@ -24,28 +25,32 @@ export default async function EmployerApplicants({ params }: { params: { id: str
     (fields ?? []).forEach((f) => fieldMap.set(f.id, f.label));
   }
 
+  // Which candidates has this employer unlocked or placed? (email is masked otherwise)
+  const empId = user!.id;
+  const { data: unlocks } = await admin.from("profile_unlocks").select("talent_id").eq("employer_id", empId);
+  const { data: placed } = await admin.from("placements").select("talent_id").eq("employer_id", empId);
+  const released = new Set([...(unlocks ?? []).map((u: any) => u.talent_id), ...(placed ?? []).map((p: any) => p.talent_id)]);
+
   const rows = await Promise.all(
     (apps ?? []).map(async (a) => {
       const { data: prof } = await admin.from("profiles").select("full_name, email").eq("id", a.talent_id).single();
-      let resumeUrl: string | null = null;
-      if (a.guest_resume_path) {
-        const { data: gs } = await admin.storage.from("documents").createSignedUrl(a.guest_resume_path, 3600);
-        resumeUrl = gs?.signedUrl ?? null;
-      } else if (a.resume_document_id) {
-        const { data: doc } = await admin.from("documents").select("bucket, path").eq("id", a.resume_document_id).single();
-        if (doc) {
-          const { data: s } = await admin.storage.from(doc.bucket).createSignedUrl(doc.path, 3600);
-          resumeUrl = s?.signedUrl ?? null;
-        }
-      }
+      const isReleased = a.talent_id ? released.has(a.talent_id) : false;
+      // Résumés go through the redaction endpoint — contact details are
+      // scrubbed until the employer unlocks the candidate or records a placement.
+      const hasResume = !!(a.guest_resume_path || a.resume_document_id);
+      const resumeUrl = hasResume ? `/api/employer/resume?application_id=${a.id}` : null;
       const answers = Object.entries((a.answers as Record<string, any>) ?? {})
         .filter(([k]) => fieldMap.has(k))
         .map(([k, v]) => ({ label: fieldMap.get(k)!, value: Array.isArray(v) ? v.join(", ") : String(v) }));
+      // Structured card — the leak-proof evaluation surface (résumé stays gated).
+      const card = a.talent_id ? await buildCandidateCard(a.talent_id, isReleased) : null;
       return {
         id: a.id, talent_id: a.talent_id, status: a.status, rules_passed: a.rules_passed,
         ai_fit_score: a.ai_fit_score, ai_summary: a.ai_summary,
         created_at: a.created_at, name: prof?.full_name ?? a.guest_name ?? "—", guest: !a.talent_id,
-        email: prof?.email ?? a.guest_email ?? "", answers, resumeUrl
+        email: isReleased ? (prof?.email ?? a.guest_email ?? "") : "🔒 Unlock to view",
+        contact_locked: !isReleased, card,
+        answers, resumeUrl
       };
     })
   );
@@ -71,7 +76,7 @@ export default async function EmployerApplicants({ params }: { params: { id: str
           </p>
         </div>
       )}
-      <ApplicantTable rows={rows} statusEndpoint="/api/employer/application-status" />
+      <ApplicantTable rows={rows} statusEndpoint="/api/employer/application-status" jobId={params.id} />
     </>
   );
 }

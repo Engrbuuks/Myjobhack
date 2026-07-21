@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { InterviewScheduler } from "@/components/InterviewScheduler";
 import { ExportButton } from "@/components/ExportButton";
+import { CandidateCard } from "@/components/CandidateCard";
 
 type Row = {
-  id: string; talent_id?: string | null; status: string; rules_passed: boolean | null;
+  id: string; talent_id?: string | null; status: string; rules_passed: boolean | null; card?: any; contact_locked?: boolean;
   ai_fit_score: number | null; ai_summary: string | null;
   created_at: string; name: string; email: string; guest?: boolean;
   answers: { label: string; value: string }[];
@@ -14,7 +15,7 @@ type Row = {
 };
 const STATUSES = ["submitted", "shortlisted", "interviewing", "offered", "hired", "rejected"];
 
-export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEndpoint?: string }) {
+export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; statusEndpoint?: string; jobId?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState<string | null>(null);
@@ -25,6 +26,26 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
   const [salary, setSalary] = useState("");
   const [placeNote, setPlaceNote] = useState<string | null>(null);
   const [placing, setPlacing] = useState(false);
+
+  const [asmtNote, setAsmtNote] = useState<string | null>(null);
+  async function orderAssessments() {
+    if (picked.size === 0 || !jobId) return;
+    setBulkBusy(true); setAsmtNote(null);
+    const talent_ids = rows.filter((r) => picked.has(r.id)).map((r) => (r as any).talent_id).filter(Boolean);
+    const res = await fetch("/api/employer/order-assessment", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: jobId, talent_ids })
+    });
+    const j = await res.json();
+    setBulkBusy(false);
+    setAsmtNote(res.ok ? j.message : (j.error ?? "Could not order assessments."));
+    if (res.ok) { setPicked(new Set()); setTimeout(() => router.refresh(), 2500); }
+  }
+
+  async function unlockContact(talentId: string) {
+    await fetch("/api/employer/unlock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ talent_id: talentId }) });
+    router.refresh();
+  }
 
   async function recordPlacement() {
     if (!placeFor) return;
@@ -101,8 +122,15 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
               <button key={s} disabled={bulkBusy} onClick={() => bulkStatus(s)}
                 className="btn-ghost !h-8 text-xs capitalize">{s}</button>
             ))}
+            {jobId && (
+              <button disabled={bulkBusy} onClick={orderAssessments}
+                className="btn-coral !h-8 text-xs" title="Order a job-specific assessment for the selected candidates">
+                ✦ Order assessment
+              </button>
+            )}
           </div>
         )}
+        {asmtNote && <span className="text-xs font-semibold text-coral">{asmtNote}</span>}
         <div className="flex-1" />
         <ExportButton rows={exportRows} filename="applicants" label="Export" />
       </div>
@@ -153,7 +181,12 @@ export function ApplicantTable({ rows, statusEndpoint }: { rows: Row[]; statusEn
               <InterviewScheduler applicationId={r.id} onDone={() => setScheduling(null)} />
             </div>
           )}
-          {open === r.id && (
+          {open === r.id && r.card && (
+            <div className="mt-4 pt-4 border-t border-line">
+              <CandidateCard card={r.card} onUnlock={unlockContact} />
+            </div>
+          )}
+          {open === r.id && !r.card && (
             <div className="mt-4 pt-4 border-t border-line grid md:grid-cols-2 gap-4 text-sm">
               <div>
                 <div className="text-xs font-bold uppercase tracking-widest text-muted mb-2">Answers</div>
