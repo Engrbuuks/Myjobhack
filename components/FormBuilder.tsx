@@ -97,26 +97,38 @@ export function FormBuilder({ jobId, formId, initial }: {
 
       <div className="space-y-3">
         {fields.map((f, i) => (
-          <div key={i} className="rounded-xl border border-line p-4">
-            <div className="grid sm:grid-cols-[1fr_140px_auto] gap-3 mb-3">
-              <input className="input !h-10" placeholder="Question label — e.g. Years of accounting experience"
-                value={f.label} onChange={(e) => upd(i, "label", e.target.value)} />
-              <select className="input !h-10" value={f.field_type}
-                onChange={(e) => { upd(i, "field_type", e.target.value); upd(i, "elig_op", ""); }}>
-                {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 text-xs font-semibold">
-                  <input type="checkbox" className="accent-[#FC5647]" checked={f.required}
-                    onChange={(e) => upd(i, "required", e.target.checked)} /> req
-                </label>
-                <button className="text-muted hover:text-ink px-1" onClick={() => move(i, -1)}>↑</button>
-                <button className="text-muted hover:text-ink px-1" onClick={() => move(i, 1)}>↓</button>
-                <button className="text-muted hover:text-coral px-1" onClick={() => remove(i)}>✕</button>
+          <div key={i} className="rounded-2xl border border-line bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <span className="w-7 h-7 rounded-full bg-ink text-white grid place-items-center text-xs font-bold shrink-0 mt-1">{i + 1}</span>
+              <div className="flex items-center gap-1 shrink-0">
+                <button className="w-8 h-8 rounded-lg hover:bg-paper-2 text-muted hover:text-ink transition" onClick={() => move(i, -1)} title="Move up">↑</button>
+                <button className="w-8 h-8 rounded-lg hover:bg-paper-2 text-muted hover:text-ink transition" onClick={() => move(i, 1)} title="Move down">↓</button>
+                <button className="w-8 h-8 rounded-lg hover:bg-coral-soft text-muted hover:text-coral transition" onClick={() => remove(i)} title="Remove">✕</button>
               </div>
             </div>
+            <div className="mb-4">
+              <label className="label !text-xs">Question</label>
+              <textarea
+                className="w-full rounded-xl border border-line px-4 py-3 text-base font-medium resize-y min-h-[56px] focus:border-coral focus:ring-2 focus:ring-coral/20 outline-none transition"
+                rows={2}
+                placeholder="Type your question — e.g. How many years of hands-on accounting experience do you have?"
+                value={f.label} onChange={(e) => upd(i, "label", e.target.value)} />
+            </div>
+            <div className="grid sm:grid-cols-[180px_auto] gap-3 items-end mb-3">
+              <div>
+                <label className="label !text-xs">Answer type</label>
+                <select className="input !h-11" value={f.field_type}
+                  onChange={(e) => { upd(i, "field_type", e.target.value); upd(i, "elig_op", ""); }}>
+                  {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-sm font-semibold h-11">
+                <input type="checkbox" className="accent-[#FC5647] w-4 h-4" checked={f.required}
+                  onChange={(e) => upd(i, "required", e.target.checked)} /> Required
+              </label>
+            </div>
             {["select", "multiselect"].includes(f.field_type) && (
-              <input className="input !h-10 mb-3" placeholder="Options, comma separated — e.g. Yes, No, Partially"
+              <input className="input !h-11 mb-3" placeholder="Options, comma separated — e.g. Yes, No, Partially"
                 value={f.options} onChange={(e) => upd(i, "options", e.target.value)} />
             )}
             {(OPS[f.field_type] ?? []).length > 0 && (

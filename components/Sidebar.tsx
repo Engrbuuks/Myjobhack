@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useState, useEffect } from "react";
 
 export type NavItem = { href: string; label: string; icon: string };
 
@@ -10,6 +11,16 @@ export function Sidebar({ items, portal, primary }: {
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  // close the drawer on navigation
+  useEffect(() => { setOpen(false); }, [pathname]);
+  // lock body scroll when drawer open on mobile
+  useEffect(() => {
+    if (open) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
 
   async function signOut() {
     const supabase = createClient();
@@ -17,13 +28,16 @@ export function Sidebar({ items, portal, primary }: {
     router.push("/login"); router.refresh();
   }
 
-  return (
-    <aside className="w-64 shrink-0 bg-ink text-white flex flex-col min-h-screen sticky top-0 max-h-screen">
-      <div className="px-6 py-6 border-b border-line-d">
-        <div className="font-display font-semibold text-xl leading-none">
-          myjob<span className="text-coral">hack</span>
+  const nav = (
+    <aside className="w-64 shrink-0 bg-ink text-white flex flex-col h-full lg:min-h-screen lg:sticky lg:top-0 lg:max-h-screen">
+      <div className="px-6 py-6 border-b border-line-d flex items-center justify-between">
+        <div>
+          <div className="font-display font-semibold text-xl leading-none">
+            myjob<span className="text-coral">hack</span>
+          </div>
+          <div className="text-[10px] font-extrabold uppercase tracking-[.24em] text-white/40 mt-2">{portal}</div>
         </div>
-        <div className="text-[10px] font-extrabold uppercase tracking-[.24em] text-white/40 mt-2">{portal}</div>
+        <button className="lg:hidden text-white/60 hover:text-white text-2xl leading-none" onClick={() => setOpen(false)} aria-label="Close menu">×</button>
       </div>
 
       {primary && (
@@ -56,5 +70,28 @@ export function Sidebar({ items, portal, primary }: {
         </button>
       </div>
     </aside>
+  );
+
+  return (
+    <>
+      {/* Mobile top bar */}
+      <div className="lg:hidden sticky top-0 z-40 flex items-center justify-between px-4 h-14 bg-ink text-white">
+        <button onClick={() => setOpen(true)} className="flex items-center gap-2 font-semibold" aria-label="Open menu">
+          <span className="text-xl">☰</span>
+          <span className="font-display">myjob<span className="text-coral">hack</span></span>
+        </button>
+        <span className="text-[10px] font-extrabold uppercase tracking-[.2em] text-white/40">{portal}</span>
+      </div>
+
+      {/* Desktop: always visible. Mobile: drawer */}
+      <div className="hidden lg:block">{nav}</div>
+
+      {open && (
+        <div className="lg:hidden fixed inset-0 z-50 flex">
+          <div className="w-64 max-w-[80vw] h-full animate-[slideIn_.2s_ease]">{nav}</div>
+          <div className="flex-1 bg-black/50" onClick={() => setOpen(false)} />
+        </div>
+      )}
+    </>
   );
 }

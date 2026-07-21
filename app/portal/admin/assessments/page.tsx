@@ -19,12 +19,38 @@ export default async function AdminAssessmentsPage() {
     rows.push({ ...s, name: p?.full_name ?? "—", email: p?.email ?? "", field: a?.field_label ?? "", questions: a?.questions ?? [], answers: ans ?? [] });
   }
 
+  const { data: orders } = await admin.from("assessment_orders")
+    .select("id, employer_id, talent_ids, amount, currency, status, created_at")
+    .neq("status", "fulfilled").order("created_at", { ascending: false });
+  const orderRows = [];
+  for (const o of orders ?? []) {
+    const { data: emp } = await admin.from("profiles").select("full_name, email").eq("id", o.employer_id).maybeSingle();
+    orderRows.push({ ...o, employer: emp?.full_name ?? emp?.email ?? "—" });
+  }
+
   return (
     <>
       <PageHeader
         title="Assessment review"
         sub="These results need a human decision — top badges, borderline passes, low-confidence AI grades, or integrity flags. Confirm or override each."
       />
+      {orderRows.length > 0 && (
+        <div className="mb-8">
+          <h3 className="font-display font-semibold text-lg mb-3">Paid assessment orders</h3>
+          <div className="space-y-2">
+            {orderRows.map((o: any) => (
+              <div key={o.id} className="card p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold">{o.employer} · {o.talent_ids.length} candidate(s)</div>
+                  <div className="text-sm text-muted-2">₦{Number(o.amount).toLocaleString()} · <span className="capitalize">{o.status}</span></div>
+                </div>
+                <span className="text-xs text-muted-2">Order {o.id.slice(0, 8)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <div className="card p-10 text-center text-sm text-muted">Nothing waiting for review. AI is handling the rest automatically.</div>
       ) : (

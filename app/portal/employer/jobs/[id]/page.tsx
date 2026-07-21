@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
+import { JobMatches } from "@/components/JobMatches";
 import { JobEditor } from "@/components/JobEditor";
 import { FormBuilder } from "@/components/FormBuilder";
 import { CopyLink } from "@/components/CopyLink";
@@ -29,6 +30,9 @@ export default async function EmployerEditJob({ params }: { params: { id: string
       <div className="grid xl:grid-cols-2 gap-6 items-start">
         <JobEditor job={job} niches={niches ?? []} orgId={org.id} basePath="/portal/employer/jobs" />
         <FormBuilder jobId={params.id} formId={job.form_id ?? null} initial={(fields ?? []) as any} />
+      </div>
+      <div className="mt-6 max-w-2xl">
+        <JobMatches jobId={params.id} />
       </div>
     </>
   );

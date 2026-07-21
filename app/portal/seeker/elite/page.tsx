@@ -39,7 +39,8 @@ export default async function SeekerElite() {
             </div>
             <div className="text-right">
               <div className="text-2xl font-display font-semibold">₦5,000<span className="text-sm text-muted-2">/mo</span></div>
-              <div className="text-xs text-muted-2">or verified-free tier by merit</div>
+              <div className="text-xs text-muted-2 mb-2">or verified-free tier by merit</div>
+              <a href="/portal/seeker/subscription" className="btn-coral !h-9 text-sm inline-flex">Go premium →</a>
             </div>
           </div>
         </div>
