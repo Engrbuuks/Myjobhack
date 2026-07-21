@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { MatchedJobs } from "@/components/MatchedJobs";
 import { DashHero } from "@/components/DashHero";
 import { StatCard } from "@/components/StatCard";
 import { ProgressRing } from "@/components/ProgressRing";
@@ -106,6 +107,10 @@ export default async function SeekerDashboard() {
           <span className="font-semibold text-sm relative" style={{ color: "#FC5647" }}>Apply →</span>
         </Link>
       )}
+
+      <div className="mt-6 max-w-2xl">
+        <MatchedJobs />
+      </div>
     </>
   );
 }
