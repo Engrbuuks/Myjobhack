@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { SegmentFilterBar } from "@/components/SegmentFilterBar";
 import { RequestCredentialsButton } from "@/components/RequestCredentialsButton";
+import { PoolSelectionProvider, RowCheckbox } from "@/components/PoolSelectionBar";
 import { filtersFromSearchParams, querySegment } from "@/lib/segment";
 
 export default async function PoolPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
@@ -13,6 +14,8 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
     querySegment(supabase, filters)
   ]);
   const tmap = new Map((taxonomies ?? []).map((t) => [t.id, t.label]));
+  const allProfileIds: string[] = [];
+  for (const r of rows as any[]) allProfileIds.push(r.profile_id);
   const qs = new URLSearchParams(
     Object.entries(filters).filter(([, v]) => v) as [string, string][]
   ).toString();
@@ -40,10 +43,12 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
           No talent matches this segment yet. Loosen a filter, or wait — the pool is filling.
         </div>
       ) : (
-        <div className="card overflow-hidden">
+        <PoolSelectionProvider allIds={allProfileIds}>
+          <div className="card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-widest text-muted border-b border-line">
+                <th className="px-4 py-3"></th>
                 <th className="px-5 py-3 font-bold">Name</th>
                 <th className="px-5 py-3 font-bold">Niche</th>
                 <th className="px-5 py-3 font-bold">Goal</th>
@@ -56,6 +61,7 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
             <tbody>
               {rows.map((r) => (
                 <tr key={r.profile_id} className="border-b border-line last:border-0 hover:bg-paper transition">
+                  <td className="px-4 py-3"><RowCheckbox id={r.profile_id} /></td>
                   <td className="px-5 py-3">
                     <div className="font-semibold">{r.profile?.full_name || "—"}</div>
                     <div className="text-xs text-muted-2">{r.headline || r.profile?.email}</div>
@@ -84,7 +90,8 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        </PoolSelectionProvider>
       )}
     </>
   );

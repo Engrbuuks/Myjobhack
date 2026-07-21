@@ -11,7 +11,7 @@ type Props = {
     niche_id: string | null; career_goal_id: string | null;
     headline: string | null; summary: string | null; years_experience: number;
     salary_min: number | null; salary_max: number | null; salary_currency: string;
-    expected_role_level: string | null; preferred_work_mode: string | null; relocation: string;
+    expected_role_level: string | null; preferred_work_mode: string | null; relocation: string; custom_skills?: string[];
     resume_document_id: string | null;
   };
   expertiseIds: string[];
@@ -46,6 +46,9 @@ export function ProfileWizard(p: Props) {
   const [nicheId, setNicheId] = useState(p.talent.niche_id ?? "");
   const [goalId, setGoalId] = useState(p.talent.career_goal_id ?? "");
   const [expertise, setExpertise] = useState<string[]>(p.expertiseIds);
+  const [customSkills, setCustomSkills] = useState<string[]>(p.talent.custom_skills ?? []);
+  const [skillInput, setSkillInput] = useState("");
+  const totalSkills = () => expertise.length + customSkills.length;
   // step 3
   const [salMin, setSalMin] = useState(p.talent.salary_min?.toString() ?? "");
   const [salMax, setSalMax] = useState(p.talent.salary_max?.toString() ?? "");
@@ -65,16 +68,34 @@ export function ProfileWizard(p: Props) {
   const completion = useMemo(() => {
     let pct = 0;
     if (fullName && phone && country && city) pct += 30;
-    if (nicheId && goalId && expertise.length > 0) pct += 30;
+    if (nicheId && goalId && (expertise.length + customSkills.length) > 0) pct += 30;
     if (salMin && salMax && level && mode) pct += 25;
     if (resumeId) pct += 15;
     return pct;
-  }, [fullName, phone, country, city, nicheId, goalId, expertise, salMin, salMax, level, mode, resumeId]);
+  }, [fullName, phone, country, city, nicheId, goalId, expertise, customSkills, salMin, salMax, level, mode, resumeId]);
 
   function toggleSkill(id: string) {
     setExpertise((cur) =>
-      cur.includes(id) ? cur.filter((x) => x !== id) : cur.length < 6 ? [...cur, id] : cur
+      cur.includes(id) ? cur.filter((x) => x !== id) : (cur.length + customSkills.length) < 6 ? [...cur, id] : cur
     );
+  }
+
+  function addCustomSkill() {
+    const v = skillInput.trim();
+    if (!v) return;
+    if (totalSkills() >= 6) { setErr("You can add up to 6 areas of expertise in total."); return; }
+    // avoid dupes (case-insensitive) against existing custom + taxonomy labels
+    const existingLabels = [
+      ...customSkills.map((s) => s.toLowerCase()),
+      ...skills.filter((s) => expertise.includes(s.id)).map((s) => s.label.toLowerCase())
+    ];
+    if (existingLabels.includes(v.toLowerCase())) { setSkillInput(""); return; }
+    setCustomSkills((c) => [...c, v]);
+    setSkillInput("");
+  }
+
+  function removeCustomSkill(v: string) {
+    setCustomSkills((c) => c.filter((x) => x !== v));
   }
 
   async function uploadResume(file: File) {
@@ -106,7 +127,7 @@ export function ProfileWizard(p: Props) {
     if (s === 1) {
       if (!nicheId) return "Please select your niche.";
       if (!goalId) return "Please select your career goal.";
-      if (expertise.length === 0) return "Select at least one area of expertise.";
+      if (expertise.length + customSkills.length === 0) return "Add at least one area of expertise.";
     }
     if (s === 2) {
       if (!salMin || !salMax) return "Expected salary range is required.";
@@ -133,6 +154,7 @@ export function ProfileWizard(p: Props) {
       .eq("id", user.id);
     const { error: e2 } = await supabase.from("talent_profiles")
       .update({
+        custom_skills: customSkills,
         niche_id: nicheId || null,
         career_goal_id: goalId || null,
         headline: headline || null,
@@ -232,6 +254,36 @@ export function ProfileWizard(p: Props) {
                 <button key={s.id} type="button" className={chip(expertise.includes(s.id))}
                   onClick={() => toggleSkill(s.id)}>{s.label}</button>
               ))}
+            </div>
+
+            {/* Custom / typed skills for anything not in the list */}
+            <div className="mt-4">
+              <label className="label !text-xs">Don't see yours? Type it and press Add</label>
+              <div className="flex gap-2">
+                <input
+                  className="input !h-10"
+                  value={skillInput}
+                  onChange={(e) => setSkillInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomSkill(); } }}
+                  placeholder="e.g. Solar installation, Yoruba copywriting…"
+                  disabled={totalSkills() >= 6}
+                />
+                <button type="button" className="btn-ghost !h-10 shrink-0"
+                  onClick={addCustomSkill} disabled={totalSkills() >= 6 || !skillInput.trim()}>+ Add</button>
+              </div>
+              {customSkills.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {customSkills.map((s) => (
+                    <span key={s} className="inline-flex items-center gap-2 bg-ink text-white rounded-pill px-3 py-1.5 text-sm font-semibold">
+                      {s}
+                      <button type="button" onClick={() => removeCustomSkill(s)} className="text-white/70 hover:text-white">✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-2 mt-2">
+                {totalSkills()}/6 selected. {totalSkills() >= 6 ? "Remove one to add another." : "Mix from the list and your own."}
+              </p>
             </div>
           </div>
         </div>
