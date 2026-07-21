@@ -38,7 +38,7 @@ export async function querySegment(supabase: SupabaseClient, f: SegmentFilters) 
   }
 
   let q = supabase.from("talent_profiles").select(
-    "profile_id, niche_id, career_goal_id, headline, years_experience, salary_min, salary_max, salary_currency, expected_role_level, preferred_work_mode, relocation, profile_completion, verification, resume_document_id"
+    "profile_id, niche_id, career_goal_id, headline, years_experience, salary_min, salary_max, salary_currency, expected_role_level, preferred_work_mode, relocation, profile_completion, verification, resume_document_id, competency_band, competency_score, competency_percentile"
   );
   if (ids) q = q.in("profile_id", ids);
   if (f.niche) q = q.eq("niche_id", f.niche);

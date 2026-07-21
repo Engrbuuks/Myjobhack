@@ -30,6 +30,7 @@ export type PoolStats = {
   by_role_level: Bucket[];
   by_work_mode: Bucket[];
   by_verification: Bucket[];
+  by_competency: Bucket[];
   by_state: Bucket[];
   by_years: Bucket[];          // experience buckets
   by_month: Bucket[];          // signups per month, last 12
@@ -99,7 +100,7 @@ export async function getPoolStats(filters: PoolFilters = {}): Promise<PoolStats
   const talentProfiles = allProfiles.filter((p) => ["job_seeker", "elite_member"].includes(p.role));
 
   // Talent detail (niche, verification, work mode, level, resume)
-  const tp = await fetchAll(admin, "talent_profiles", "profile_id, niche_id, verification, preferred_work_mode, expected_role_level, resume_document_id, years_experience");
+  const tp = await fetchAll(admin, "talent_profiles", "profile_id, niche_id, verification, preferred_work_mode, expected_role_level, resume_document_id, years_experience, competency_band");
   const tpById = new Map(tp.map((t: any) => [t.profile_id, t]));
 
   // Merge talent profile detail onto each talent record
@@ -176,6 +177,7 @@ export async function getPoolStats(filters: PoolFilters = {}): Promise<PoolStats
     by_role_level: tally(filtered, "expected_role_level").slice(0, 8),
     by_work_mode: tally(filtered, "preferred_work_mode"),
     by_verification: tally(filtered, "verification"),
+    by_competency: tally(filtered, "competency_band"),
     by_years: yearsBuckets(filtered),
     by_month: months,
     filtered_total: filtered.length

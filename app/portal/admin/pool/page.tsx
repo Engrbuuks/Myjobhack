@@ -63,7 +63,16 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
                 <tr key={r.profile_id} className="border-b border-line last:border-0 hover:bg-paper transition align-middle">
                   <td className="pl-3 pr-1 py-3"><RowCheckbox id={r.profile_id} /></td>
                   <td className="px-3 py-3">
-                    <div className="font-semibold truncate">{r.profile?.full_name || "—"}</div>
+                    <div className="font-semibold truncate flex items-center gap-2">
+                      {r.profile?.full_name || "—"}
+                      {r.competency_band && (
+                        <span className={`shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                          r.competency_band === "expert" ? "bg-ink text-white" :
+                          r.competency_band === "strong" ? "bg-green-100 text-green-700" :
+                          r.competency_band === "proficient" ? "bg-blue-100 text-blue-700" : "bg-coral-soft text-coral"
+                        }`}>{r.competency_band}</span>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-2 truncate">{r.headline || r.profile?.email}</div>
                   </td>
                   <td className="px-3 py-3 truncate hidden md:table-cell">{r.niche_id ? tmap.get(r.niche_id) : "—"}</td>
