@@ -45,46 +45,46 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
       ) : (
         <PoolSelectionProvider allIds={allProfileIds}>
           <div className="card overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-muted border-b border-line">
-                <th className="px-4 py-3"></th>
-                <th className="px-5 py-3 font-bold">Name</th>
-                <th className="px-5 py-3 font-bold">Niche</th>
-                <th className="px-5 py-3 font-bold">Goal</th>
-                <th className="px-5 py-3 font-bold">Level</th>
-                <th className="px-5 py-3 font-bold">Expectation</th>
-                <th className="px-5 py-3 font-bold">Complete</th>
-                <th className="px-5 py-3"></th>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-muted border-b border-line">
+                <th className="w-9 pl-3 pr-1 py-3"></th>
+                <th className="px-3 py-3 font-bold">Name</th>
+                <th className="px-3 py-3 font-bold hidden md:table-cell w-[16%]">Niche</th>
+                <th className="px-3 py-3 font-bold hidden lg:table-cell w-[14%]">Goal</th>
+                <th className="px-3 py-3 font-bold hidden sm:table-cell w-[10%]">Level</th>
+                <th className="px-3 py-3 font-bold hidden xl:table-cell w-[16%]">Expectation</th>
+                <th className="px-3 py-3 font-bold w-[8%]">Done</th>
+                <th className="px-3 py-3 w-[18%]"></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.profile_id} className="border-b border-line last:border-0 hover:bg-paper transition">
-                  <td className="px-4 py-3"><RowCheckbox id={r.profile_id} /></td>
-                  <td className="px-5 py-3">
-                    <div className="font-semibold">{r.profile?.full_name || "—"}</div>
-                    <div className="text-xs text-muted-2">{r.headline || r.profile?.email}</div>
+                <tr key={r.profile_id} className="border-b border-line last:border-0 hover:bg-paper transition align-middle">
+                  <td className="pl-3 pr-1 py-3"><RowCheckbox id={r.profile_id} /></td>
+                  <td className="px-3 py-3">
+                    <div className="font-semibold truncate">{r.profile?.full_name || "—"}</div>
+                    <div className="text-xs text-muted-2 truncate">{r.headline || r.profile?.email}</div>
                   </td>
-                  <td className="px-5 py-3">{r.niche_id ? tmap.get(r.niche_id) : "—"}</td>
-                  <td className="px-5 py-3">{r.career_goal_id ? tmap.get(r.career_goal_id) : "—"}</td>
-                  <td className="px-5 py-3 capitalize">{r.expected_role_level ?? "—"}</td>
-                  <td className="px-5 py-3">
+                  <td className="px-3 py-3 truncate hidden md:table-cell">{r.niche_id ? tmap.get(r.niche_id) : "—"}</td>
+                  <td className="px-3 py-3 truncate hidden lg:table-cell">{r.career_goal_id ? tmap.get(r.career_goal_id) : "—"}</td>
+                  <td className="px-3 py-3 capitalize hidden sm:table-cell">{r.expected_role_level ?? "—"}</td>
+                  <td className="px-3 py-3 truncate hidden xl:table-cell">
                     {r.salary_min
-                      ? `${r.salary_currency} ${Number(r.salary_min).toLocaleString()}–${Number(r.salary_max ?? r.salary_min).toLocaleString()}`
+                      ? `${r.salary_currency} ${Number(r.salary_min).toLocaleString()}`
                       : "—"}
                     <span className="text-muted-2"> · {r.preferred_work_mode ?? "—"}</span>
                   </td>
-                  <td className="px-5 py-3">
-                    <span className={`inline-grid place-items-center min-w-11 h-6 px-2 rounded-pill text-xs font-bold ${
+                  <td className="px-3 py-3">
+                    <span className={`inline-grid place-items-center min-w-9 h-6 px-1.5 rounded-pill text-xs font-bold ${
                       r.profile_completion >= 100 ? "bg-ink text-white" : "bg-coral-soft text-coral"
                     }`}>{r.profile_completion}%</span>
                   </td>
-                  <td className="px-5 py-3 text-right">
-                    <span className="inline-flex items-center gap-3">
+                  <td className="px-3 py-3">
+                    <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                       <RequestCredentialsButton profileId={r.profile_id} compact />
                       <Link href={`/portal/admin/pool/${r.profile_id}`} className="text-coral font-semibold">View →</Link>
-                    </span>
+                    </div>
                   </td>
                 </tr>
               ))}

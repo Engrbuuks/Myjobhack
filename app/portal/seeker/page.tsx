@@ -95,14 +95,15 @@ export default async function SeekerDashboard() {
 
       {myRole?.role === "job_seeker" && (
         <Link href="/portal/seeker/elite"
-          className="relative overflow-hidden card p-6 max-w-2xl flex items-center gap-5 bg-ink text-white border-ink hover:border-coral transition block">
-          <span className="pointer-events-none absolute -top-16 -right-10 w-52 h-52 rounded-full bg-coral/[.15] blur-3xl" />
-          <span className="w-11 h-11 rounded-full bg-coral grid place-items-center text-lg shrink-0">✦</span>
+          className="relative overflow-hidden p-6 max-w-2xl flex items-center gap-5 rounded-card border border-ink hover:border-coral transition block"
+          style={{ backgroundColor: "#0C0D11", color: "#ffffff" }}>
+          <span className="pointer-events-none absolute -top-16 -right-10 w-52 h-52 rounded-full blur-3xl" style={{ backgroundColor: "rgba(252,86,71,.15)" }} />
+          <span className="w-11 h-11 rounded-full grid place-items-center text-lg shrink-0" style={{ backgroundColor: "#FC5647" }}>✦</span>
           <span className="flex-1 relative">
-            <span className="block font-display font-semibold text-lg">Finished at the top of your class?</span>
-            <span className="block text-sm text-white/55 mt-0.5">Apply for Elite — verified chapters of Africa&rsquo;s best graduates.</span>
+            <span className="block font-display font-semibold text-lg" style={{ color: "#ffffff" }}>Finished at the top of your class?</span>
+            <span className="block text-sm mt-0.5" style={{ color: "rgba(255,255,255,.6)" }}>Apply for Elite — verified chapters of Africa&rsquo;s best graduates.</span>
           </span>
-          <span className="text-coral font-semibold text-sm relative">Apply →</span>
+          <span className="font-semibold text-sm relative" style={{ color: "#FC5647" }}>Apply →</span>
         </Link>
       )}
     </>
