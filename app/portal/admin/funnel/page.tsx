@@ -24,10 +24,11 @@ export default async function FunnelPage() {
   const ids = (talentProfiles ?? []).map((p) => p.id);
   const signups = ids.length;
 
-  const [complete, withResume, { data: applicants }, { data: subscribers }, { data: activeSubs }, { data: drips }, { data: cfg }] =
+  const [complete, assessed, { data: matched }, { data: applicants }, { data: subscribers }, { data: activeSubs }, { data: drips }, { data: cfg }] =
     await Promise.all([
       count(supabase, "talent_profiles", (q: any) => q.gte("profile_completion", 100).in("profile_id", ids.length ? ids : ["-"])),
-      count(supabase, "talent_profiles", (q: any) => q.not("resume_document_id", "is", null).in("profile_id", ids.length ? ids : ["-"])),
+      count(supabase, "talent_profiles", (q: any) => q.not("competency_band", "is", null).in("profile_id", ids.length ? ids : ["-"])),
+      supabase.from("job_matches").select("talent_id").gte("score", 55),
       supabase.from("applications").select("talent_id"),
       supabase.from("subscriptions").select("profile_id"),
       supabase.from("subscriptions").select("profile_id").eq("status", "active").gt("current_period_end", new Date().toISOString()),
@@ -35,6 +36,7 @@ export default async function FunnelPage() {
       supabase.from("app_settings").select("value").eq("key", "funnel").maybeSingle()
     ]);
 
+  const matchedN = new Set((matched ?? []).map((m: any) => m.talent_id)).size;
   const applied = new Set((applicants ?? []).map((a) => a.talent_id)).size;
   const everSub = new Set((subscribers ?? []).map((s) => s.profile_id)).size;
   const nowSub = new Set((activeSubs ?? []).map((s) => s.profile_id)).size;
@@ -42,9 +44,9 @@ export default async function FunnelPage() {
   const stages = [
     { label: "Signups", n: signups },
     { label: "Profile complete", n: complete },
-    { label: "Resume uploaded", n: withResume },
+    { label: "Competency assessed", n: assessed },
+    { label: "Matched to roles", n: matchedN },
     { label: "Applied to a role", n: applied },
-    { label: "Ever subscribed", n: everSub },
     { label: "Active subscribers", n: nowSub }
   ];
   const max = Math.max(1, signups);

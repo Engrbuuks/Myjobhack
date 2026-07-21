@@ -13,7 +13,7 @@ type Job = {
   id?: string; title: string; description: string; location: string;
   work_mode: string | null; role_level: string | null; employment_type: string;
   salary_note: string; salary_currency?: string; niche_id: string | null; status: string; key_requirements?: string[]; is_featured?: boolean; featured_rank?: number | null; company_name?: string | null; company_logo_path?: string | null; company_website?: string | null; locations?: JobLocation[]; is_multi_location?: boolean;
-  closes_at: string | null; external_url: string | null;
+  closes_at: string | null; external_url: string | null; openings?: number;
 };
 
 const MODES = ["remote", "hybrid", "onsite", "flexible"];
@@ -25,7 +25,7 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
   const [j, setJ] = useState<Job>(job ?? {
     title: "", description: "", location: "", work_mode: null, role_level: null,
     employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null, key_requirements: [], is_featured: false, featured_rank: null, company_name: null, company_logo_path: null, company_website: null, locations: [], is_multi_location: false,
-    status: "draft", closes_at: null, external_url: null
+    status: "draft", closes_at: null, external_url: null, openings: 1
   });
   const [busy, setBusy] = useState(false);
   const [pendingQuestions, setPendingQuestions] = useState<any[] | null>(null);
@@ -90,7 +90,7 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       is_featured: !!j.is_featured,
       featured_rank: j.featured_rank ?? null,
       niche_id: j.niche_id, status: j.status as any,
-      closes_at: j.closes_at || null, external_url: j.external_url || null,
+      closes_at: j.closes_at || null, external_url: j.external_url || null, openings: Math.max(1, Number(j.openings) || 1),
     };
     if (j.id) {
       // set published_at the first time it goes live; never overwrite it afterwards
@@ -322,6 +322,12 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
               <option value="closed">closed</option>
               <option value="archived">archived</option>
             </select></div>
+
+          <div><label className="label">Openings (how many to hire)</label>
+            <input className="input" type="number" min={1} value={j.openings ?? 1}
+              onChange={(e) => set("openings", Math.max(1, Number(e.target.value) || 1))} />
+            <p className="text-xs text-muted-2 mt-1">Set above 1 for volume hiring. The posting auto-closes once this many are marked hired.</p>
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-4 mt-6">

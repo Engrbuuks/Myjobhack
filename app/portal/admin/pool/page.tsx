@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { SegmentFilterBar } from "@/components/SegmentFilterBar";
 import { RequestCredentialsButton } from "@/components/RequestCredentialsButton";
 import { PoolSelectionProvider, RowCheckbox } from "@/components/PoolSelectionBar";
+import { ExportButton } from "@/components/ExportButton";
 import { filtersFromSearchParams, querySegment } from "@/lib/segment";
 
 export default async function PoolPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
@@ -14,6 +15,12 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
     querySegment(supabase, filters)
   ]);
   const tmap = new Map((taxonomies ?? []).map((t) => [t.id, t.label]));
+  const exportRows = (rows as any[]).map((r) => ({
+    name: r.profile?.full_name ?? "", email: r.profile?.email ?? "",
+    niche: r.niche_id ? tmap.get(r.niche_id) : "", goal: r.career_goal_id ? tmap.get(r.career_goal_id) : "",
+    level: r.expected_role_level ?? "", competency: r.competency_band ?? "",
+    completion: r.profile_completion ?? 0
+  }));
   const allProfileIds: string[] = [];
   for (const r of rows as any[]) allProfileIds.push(r.profile_id);
   const qs = new URLSearchParams(
@@ -32,6 +39,7 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
         }
       />
       <SegmentFilterBar taxonomies={taxonomies ?? []} />
+      <div className="flex justify-end mb-3"><ExportButton rows={exportRows} filename="talent-pool" label="Export pool" /></div>
 
       <div className="mb-4 text-sm text-muted">
         <b className="font-display text-2xl text-ink mr-2">{rows.length}</b>
