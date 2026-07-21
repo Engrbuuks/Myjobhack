@@ -47,7 +47,22 @@ export async function GET() {
     : newest.PUBLIC ? "Newest job IS public — if it's not on the site, the app is serving a stale build/cache."
     : `Newest job is hidden: ${newest.blocked_by}.`;
 
-  // 4 · which project is this
+  // 4 · What the PUBLIC FEED actually returns right now (this is what WordPress reads)
+  const nowIso2 = new Date().toISOString();
+  const feed = await admin.from("jobs")
+    .select("title, status, closes_at")
+    .eq("status", "published")
+    .or(`closes_at.is.null,closes_at.gt.${nowIso2}`)
+    .order("published_at", { ascending: false }).limit(80);
+  report.public_feed_returns = {
+    count: feed.data?.length ?? 0,
+    titles: (feed.data ?? []).map((j: any) => j.title),
+    verdict: (feed.data?.length ?? 0) === 0
+      ? "Feed is EMPTY — nothing will show on any surface. Check status/deadline."
+      : "Feed returns jobs — if a surface is blank, that surface is caching or not wired to the feed."
+  };
+
+  // 5 · which project is this
   report.project_ref = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/^https?:\/\//, "").split(".")[0];
 
   return NextResponse.json(report, { headers: { "Cache-Control": "no-store" } });
