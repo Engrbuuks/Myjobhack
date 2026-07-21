@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "https://app.myjobhack.co/join" }
 };
 
-export default async function JoinPage({ searchParams }: { searchParams: { ref?: string } }) {
+export default async function JoinPage({ searchParams }: { searchParams: { ref?: string; as?: string } }) {
   const admin = createAdminClient();
   const [{ count: talentCount }, { data: jobs }] = await Promise.all([
     admin.from("profiles").select("*", { count: "exact", head: true }).in("role", ["job_seeker", "elite_member"]),
@@ -25,7 +25,10 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
       .or(`closes_at.is.null,closes_at.gt.${new Date().toISOString()}`)
       .order("published_at", { ascending: false }).limit(4)
   ]);
-  const signupHref = searchParams.ref ? `/signup?ref=${encodeURIComponent(searchParams.ref)}` : "/signup";
+  const _params = new URLSearchParams();
+  if (searchParams.ref) _params.set("ref", String(searchParams.ref));
+  if (searchParams.as) _params.set("as", String(searchParams.as));
+  const signupHref = _params.toString() ? `/signup?${_params.toString()}` : "/signup";
 
   return (
     <div className="min-h-screen bg-ink text-white overflow-x-hidden">
@@ -86,7 +89,7 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
 
       {(jobs ?? []).length > 0 && (
         <section className="max-w-6xl mx-auto px-5 sm:px-6 py-10 sm:py-14 border-t border-white/10">
-          <div className="text-[11px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-6">Hiring right now</div>
+          <div className="text-[11px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-6 text-center sm:text-left">Hiring right now</div>
           <div className="grid sm:grid-cols-2 gap-4 mb-8">
             {(jobs ?? []).map((j) => (
               <Link key={j.id} href={`/jobs/${j.id}`}
@@ -101,7 +104,7 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
               </Link>
             ))}
           </div>
-          <Link href="/roles" className="text-sm font-bold text-coral">See every open role →</Link>
+          <div className="text-center sm:text-left"><Link href="/roles" className="text-sm font-bold text-coral">See every open role →</Link></div>
         </section>
       )}
 
@@ -111,7 +114,7 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
             ["02", "Get matched", "Roles and trainings find you — apply in one click when they fit."],
             ["03", "Arrive ready", "Certificates, prepared interviews, a resume that survives scrutiny."]
           ].map(([n, t, d]) => (
-            <div key={n}>
+            <div key={n} className="text-center sm:text-left">
               <div className="font-display font-semibold text-coral text-2xl mb-2">{n}</div>
               <div className="font-semibold mb-1">{t}</div>
               <div className="text-sm text-white/50 leading-relaxed">{d}</div>

@@ -21,6 +21,7 @@ create table if not exists placements (
 );
 create index if not exists placements_emp_idx on placements (employer_id, created_at desc);
 alter table placements enable row level security;
+drop policy if exists "placements own or staff" on placements;
 create policy "placements own or staff" on placements
   for all using (employer_id = auth.uid() or is_staff()) with check (employer_id = auth.uid() or is_staff());
 

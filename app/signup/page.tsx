@@ -4,6 +4,13 @@ import Link from "next/link";
 
 export default function SignupPage() {
   const [role, setRole] = useState<"job_seeker" | "employer">("job_seeker");
+  const [inviteTier, setInviteTier] = useState<string | null>(null);
+  if (typeof window !== "undefined" && inviteTier === null) {
+    const as = new URLSearchParams(window.location.search).get("as");
+    if (as === "employer") { setInviteTier("employer"); if (role !== "employer") setRole("employer"); }
+    else if (as === "elite") { setInviteTier("elite"); }
+    else setInviteTier("");
+  }
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,7 +47,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password, full_name: fullName.trim(), role, ref: refTag })
+        body: JSON.stringify({ email: email.trim(), password, full_name: fullName.trim(), role, ref: refTag, invite_as: inviteTier || null })
       });
 
       // Read as text first — an empty body would break res.json() outright.

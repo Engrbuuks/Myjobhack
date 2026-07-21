@@ -19,6 +19,7 @@ export async function POST(request: Request) {
   const fullName = String(body.full_name ?? "").trim();
   const role = body.role === "employer" ? "employer" : "job_seeker";
   const ref = body.ref ? String(body.ref) : null;
+  const inviteAs = ["elite", "employer", "talent"].includes(body.invite_as) ? body.invite_as : null;
 
   if (!fullName) return NextResponse.json({ error: "Please enter your full name." }, { status: 400 });
   if (!email || !email.includes("@")) return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
@@ -87,6 +88,21 @@ export async function POST(request: Request) {
       ok: true,
       warning: "Your account was created, but we couldn't send the confirmation email just now. Request a new link from the sign-in page."
     });
+  }
+
+  // Invite-link tracking: bump the counter and record the intended tier.
+  if (ref) {
+    try {
+      await admin.rpc("bump_invite_signup", { p_code: ref });
+    } catch { /* non-fatal */ }
+  }
+  // Elite invite → flag the new profile so admin can verify distinction.
+  if (inviteAs === "elite" && created?.user?.id) {
+    try {
+      await admin.from("elite_memberships").insert({
+        talent_id: created.user.id, status: "pending", source: "invite_link"
+      });
+    } catch { /* table/columns may differ; non-fatal */ }
   }
 
   return NextResponse.json({ ok: true });
