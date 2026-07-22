@@ -9,15 +9,44 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const { training_id, method, proof_document_id } = await request.json();
+  const { training_id, method, proof_document_id, coupon_code } = await request.json();
   const { data: training } = await supabase.from("trainings")
     .select("id, title, price_ngn, price_usd").eq("id", training_id).single();
   if (!training) return NextResponse.json({ error: "Training not found" }, { status: 404 });
 
   const admin = createAdminClient();
   const currency = method === "manual_transfer_usd" ? "USD" : "NGN";
-  const amount = currency === "USD" ? training.price_usd : training.price_ngn;
+  let amount = currency === "USD" ? training.price_usd : training.price_ngn;
   if (!amount || amount <= 0) return NextResponse.json({ error: "This training is free — just register." }, { status: 400 });
+
+  // Coupon — validated server-side. Naira only: discounts are set in naira.
+  let couponMeta: Record<string, any> = {};
+  if (coupon_code && currency === "NGN") {
+    const { validateCoupon, recordRedemption } = await import("@/lib/coupons");
+    const c = await validateCoupon({
+      code: String(coupon_code), training_id, profile_id: user.id, amount: Number(amount)
+    });
+    if (!c.ok) return NextResponse.json({ error: c.error }, { status: 400 });
+
+    couponMeta = { coupon_id: c.coupon_id, coupon_code: c.code,
+                   original_amount: c.original, discount_amount: c.discount };
+    amount = c.final;
+
+    // Fully covered — enrol straight away, nothing to charge.
+    if (amount <= 0) {
+      await recordRedemption({
+        coupon_id: c.coupon_id, profile_id: user.id, training_id,
+        original: c.original, discount: c.discount, final: 0
+      });
+      await admin.from("enrollments").upsert(
+        { training_id, talent_id: user.id, status: "registered" },
+        { onConflict: "training_id,talent_id" });
+      return NextResponse.json({
+        ok: true, free: true,
+        message: `Coupon ${c.code} covers the full price — you're registered.`
+      });
+    }
+  }
 
   const { data: payment, error } = await admin.from("payments").insert({
     profile_id: user.id, amount, currency,
@@ -48,7 +77,7 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       email: prof?.email, amount: amount * 100, currency: "NGN",
       callback_url: `${appUrl}/api/pay/training/verify?payment_id=${payment.id}`,
-      metadata: { kind: "training", training_id, profile_id: user.id, payment_id: payment.id }
+      metadata: { kind: "training", training_id, profile_id: user.id, payment_id: payment.id, ...couponMeta }
     })
   });
   const json = await res.json();

@@ -14,6 +14,22 @@ export function TrainingPay({ trainingId, priceNgn, priceUsd, bankNgn, bankUsd }
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [coupon, setCoupon] = useState("");
+  const [applied, setApplied] = useState<{ code: string; discount: number; final: number; describe: string } | null>(null);
+  const [couponErr, setCouponErr] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  async function applyCoupon() {
+    if (!coupon.trim()) return;
+    setChecking(true); setCouponErr(null);
+    const res = await fetch("/api/coupons/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: coupon, training_id: trainingId }) });
+    const j = await res.json();
+    setChecking(false);
+    if (!res.ok) { setApplied(null); setCouponErr(j.error ?? "That code didn't work."); return; }
+    setApplied({ code: j.code, discount: j.discount, final: j.final, describe: j.describe });
+  }
 
   const price = lane === "NGN" ? priceNgn : priceUsd;
   const bank = lane === "NGN" ? bankNgn : bankUsd;
@@ -32,11 +48,12 @@ export function TrainingPay({ trainingId, priceNgn, priceUsd, bankNgn, bankUsd }
     setBusy(method); setErr(null);
     const res = await fetch("/api/pay/training", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ training_id: trainingId, method, proof_document_id: proofId })
+      body: JSON.stringify({ training_id: trainingId, method, proof_document_id: proofId, coupon_code: applied?.code ?? null })
     });
     const json = await res.json();
     setBusy(null);
     if (!res.ok) { setErr(json.error); return; }
+    if (json.free) { setDone(true); router.refresh(); return; }
     if (json.mode === "paystack") { window.location.href = json.authorization_url; return; }
     setDone(true); router.refresh();
   }
@@ -65,7 +82,38 @@ export function TrainingPay({ trainingId, priceNgn, priceUsd, bankNgn, bankUsd }
             onClick={() => setLane(c)}>{c === "NGN" ? "₦ NGN" : "$ USD"}</button>
         ))}
       </div>
-      <div className="text-sm mb-3">Amount: <b>{sym}{Number(price).toLocaleString()}</b></div>
+      <div className="text-sm mb-3">
+        Amount:{" "}
+        {applied && lane === "NGN" ? (
+          <>
+            <span className="line-through text-muted-2">₦{Number(price).toLocaleString()}</span>{" "}
+            <b>₦{Number(applied.final).toLocaleString()}</b>{" "}
+            <span className="text-coral text-xs font-semibold">({applied.describe})</span>
+          </>
+        ) : (
+          <b>{sym}{Number(price).toLocaleString()}</b>
+        )}
+      </div>
+
+      {lane === "NGN" && (
+        <div className="mb-3">
+          {applied ? (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="px-2 py-1 rounded-pill bg-mint text-ink font-bold">{applied.code} applied</span>
+              <button className="text-muted-2 underline" onClick={() => { setApplied(null); setCoupon(""); }}>remove</button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <input className="input !h-9 text-xs uppercase flex-1" placeholder="Coupon code (optional)"
+                value={coupon} onChange={(e) => { setCoupon(e.target.value.toUpperCase()); setCouponErr(null); }} />
+              <button className="btn-ghost !h-9 text-xs" onClick={applyCoupon} disabled={checking || !coupon.trim()}>
+                {checking ? "…" : "Apply"}
+              </button>
+            </div>
+          )}
+          {couponErr && <p className="text-coral text-xs mt-1.5">{couponErr}</p>}
+        </div>
+      )}
       {lane === "NGN" && (
         <button className="btn-coral !h-10 w-full justify-center mb-3" disabled={busy !== null}
           onClick={() => pay("paystack")}>

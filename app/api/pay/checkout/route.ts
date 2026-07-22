@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { initPaystack, type PayPurpose } from "@/lib/paystack";
 import { getPricing } from "@/lib/pricing";
+import { validateCoupon } from "@/lib/coupons";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,39 @@ export async function POST(request: Request) {
       const { data: t } = await admin.from("trainings").select("id, price_ngn, title").eq("id", body.training_id).maybeSingle();
       if (!t) return NextResponse.json({ error: "Training not found." }, { status: 400 });
       amount = Number(t.price_ngn); metadata.training_id = t.id; metadata.title = t.title;
+
+      // Coupon, if one was supplied. Validated server-side — never trust a
+      // discounted price sent by the client.
+      if (body.coupon_code) {
+        const c = await validateCoupon({
+          code: String(body.coupon_code), training_id: t.id,
+          profile_id: user.id, amount
+        });
+        if (!c.ok) return NextResponse.json({ error: c.error }, { status: 400 });
+
+        metadata.coupon_id = c.coupon_id;
+        metadata.coupon_code = c.code;
+        metadata.original_amount = c.original;
+        metadata.discount_amount = c.discount;
+        amount = c.final;
+
+        // A coupon that covers the whole price enrols immediately — there is
+        // nothing to charge, so no need to send them to Paystack.
+        if (amount <= 0) {
+          const { recordRedemption } = await import("@/lib/coupons");
+          await recordRedemption({
+            coupon_id: c.coupon_id, profile_id: user.id, training_id: t.id,
+            original: c.original, discount: c.discount, final: 0
+          });
+          await admin.from("enrollments").upsert(
+            { training_id: t.id, talent_id: user.id, status: "registered" },
+            { onConflict: "training_id,talent_id" });
+          return NextResponse.json({
+            ok: true, free: true, amount: 0,
+            message: `Coupon ${c.code} covers the full price — you're enrolled.`
+          });
+        }
+      }
       break;
     }
     case "elite_premium":

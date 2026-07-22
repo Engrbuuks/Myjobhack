@@ -24,6 +24,21 @@ export async function settlePayment(data: any): Promise<{ settled: boolean; note
   switch (purpose) {
     case "training": {
       if (m.payment_id) await enrollAfterPayment(admin, m.payment_id, m.profile_id ?? "system");
+
+      // If a coupon was used, record the redemption now that money has actually
+      // moved — this is what enforces usage limits and reports what each code earned.
+      if (m.coupon_id && m.profile_id) {
+        const { recordRedemption } = await import("@/lib/coupons");
+        await recordRedemption({
+          coupon_id: String(m.coupon_id),
+          profile_id: String(m.profile_id),
+          training_id: m.training_id ? String(m.training_id) : null,
+          original: Number(m.original_amount) || 0,
+          discount: Number(m.discount_amount) || 0,
+          final: Number(m.original_amount || 0) - Number(m.discount_amount || 0),
+          payment_id: m.payment_id ? String(m.payment_id) : null
+        });
+      }
       return { settled: true };
     }
 
