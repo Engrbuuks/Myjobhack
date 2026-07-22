@@ -3,7 +3,7 @@ import { useState } from "react";
 
 type SeekerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; features: string[]; active: boolean };
 type EmployerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; profile_views_per_month: number | null; can_search_pool: boolean; can_contact: boolean; can_request_assessment: boolean; featured_job_slots: number; active: boolean };
-type Loose = { assessment_per_candidate_ngn?: number; assessment_per_candidate_usd?: number; elite_premium_ngn?: number; elite_premium_usd?: number; placement_elite_percent?: number; placement_general_ngn?: number; elite_unlock_premium_ngn?: number; elite_free_assessments?: number; job_assessment_per_candidate_ngn?: number };
+type Loose = { assessment_per_candidate_ngn?: number; assessment_per_candidate_usd?: number; elite_premium_ngn?: number; elite_premium_usd?: number; placement_elite_percent?: number; placement_general_ngn?: number; elite_unlock_premium_ngn?: number; elite_free_assessments?: number; job_assessment_per_candidate_ngn?: number; placement_basis?: string; placement_multiple?: number };
 type Training = { id: string; title: string; price_ngn: number; price_usd: number };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -29,7 +29,9 @@ export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: 
     placement_general_ngn: loose.placement_general_ngn ?? 25000,
     elite_unlock_premium_ngn: loose.elite_unlock_premium_ngn ?? 5000,
     elite_free_assessments: loose.elite_free_assessments ?? 3,
-    job_assessment_per_candidate_ngn: loose.job_assessment_per_candidate_ngn ?? 5000
+    job_assessment_per_candidate_ngn: loose.job_assessment_per_candidate_ngn ?? 5000,
+    placement_basis: loose.placement_basis ?? "annual",
+    placement_multiple: loose.placement_multiple ?? 1
   });
 
   async function post(body: any) {
@@ -136,9 +138,39 @@ export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: 
             <div className="font-semibold text-sm mb-2">Placement fee — general hire (flat)</div>
             <div><label className="label !text-xs">₦</label><input className="input !h-10" type="number" value={lo.placement_general_ngn} onChange={(e) => setLo({ ...lo, placement_general_ngn: Number(e.target.value) })} /></div>
           </div>
-          <div>
-            <div className="font-semibold text-sm mb-2">Placement fee — Elite hire (% of monthly salary)</div>
-            <div><label className="label !text-xs">%</label><input className="input !h-10" type="number" value={lo.placement_elite_percent} onChange={(e) => setLo({ ...lo, placement_elite_percent: Number(e.target.value) })} /></div>
+          <div className="sm:col-span-2">
+            <div className="font-semibold text-sm mb-2">Placement fee — Elite hire</div>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <label className="label !text-xs">Charge on</label>
+                <select className="input !h-10" value={lo.placement_basis}
+                  onChange={(e) => setLo({ ...lo, placement_basis: e.target.value })}>
+                  <option value="annual">% of annual salary</option>
+                  <option value="monthly">% of monthly salary</option>
+                  <option value="multiple">Multiple of monthly salary</option>
+                </select>
+              </div>
+              {lo.placement_basis === "multiple" ? (
+                <div>
+                  <label className="label !text-xs">Months of salary</label>
+                  <input className="input !h-10" type="number" step="0.5" value={lo.placement_multiple}
+                    onChange={(e) => setLo({ ...lo, placement_multiple: Number(e.target.value) })} />
+                </div>
+              ) : (
+                <div>
+                  <label className="label !text-xs">Percentage</label>
+                  <input className="input !h-10" type="number" value={lo.placement_elite_percent}
+                    onChange={(e) => setLo({ ...lo, placement_elite_percent: Number(e.target.value) })} />
+                </div>
+              )}
+              <div className="text-xs text-muted-2 self-end pb-2">
+                {lo.placement_basis === "multiple"
+                  ? `On a ₦400,000/mo hire: ₦${Math.round(400000 * (lo.placement_multiple ?? 1)).toLocaleString()}`
+                  : lo.placement_basis === "monthly"
+                    ? `On a ₦400,000/mo hire: ₦${Math.round(400000 * ((lo.placement_elite_percent ?? 0) / 100)).toLocaleString()}`
+                    : `On a ₦400,000/mo hire: ₦${Math.round(400000 * 12 * ((lo.placement_elite_percent ?? 0) / 100)).toLocaleString()}`}
+              </div>
+            </div>
           </div>
           <div>
             <div className="font-semibold text-sm mb-2">Elite profile unlock premium</div>
