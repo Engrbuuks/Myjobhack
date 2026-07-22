@@ -6,10 +6,13 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminCouponsPage() {
   const admin = createAdminClient();
-  const [{ data: coupons }, { data: trainings }] = await Promise.all([
-    admin.from("coupons").select("*").order("created_at", { ascending: false }),
-    admin.from("trainings").select("id, title, price_ngn").order("created_at", { ascending: false }).limit(100)
-  ]);
+
+  // Query independently so a missing table (pending migration) can't blank the page.
+  const couponRes = await admin.from("coupons").select("*").order("created_at", { ascending: false });
+  const tableMissing = !!couponRes.error;
+  const coupons = couponRes.data ?? [];
+  const { data: trainings } = await admin.from("trainings")
+    .select("id, title, price_ngn").order("created_at", { ascending: false }).limit(100);
 
   // What each code has actually earned and given away.
   const { data: reds } = await admin.from("coupon_redemptions")
@@ -35,6 +38,14 @@ export default async function AdminCouponsPage() {
     <>
       <PageHeader title="Training coupons"
         sub="Discount codes for trainings — run a launch offer, reward a partner's audience, or fill a cohort that isn't selling." />
+      {tableMissing && (
+        <div className="card p-4 mb-6 border-coral/40" style={{ background: "#FFF4F2" }}>
+          <div className="font-semibold text-sm text-ink">Coupons aren't set up in the database yet</div>
+          <p className="text-sm text-muted-2 mt-1">
+            Run migration <b>0037_coupons.sql</b> in Supabase, then refresh this page. The form below won't save until you do.
+          </p>
+        </div>
+      )}
       <CouponManager coupons={rows as any} trainings={(trainings ?? []) as any} />
     </>
   );
