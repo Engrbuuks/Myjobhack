@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { EliteApply } from "@/components/EliteApply";
+import { PayButton } from "@/components/PayButton";
 
 export default async function SeekerElite() {
   const supabase = createClient();
@@ -35,12 +36,12 @@ export default async function SeekerElite() {
           <div className="card p-5 mt-4 flex flex-wrap items-center justify-between gap-4" style={{ background: "linear-gradient(120deg,#fff,#FFF4F2)" }}>
             <div>
               <div className="font-display font-semibold text-lg">Membership</div>
-              <p className="text-sm text-muted-2">By review and verification. Premium tier unlocks the full toolkit and unlimited assessments.</p>
+              <p className="text-sm text-muted-2">By academic distinction. The premium tier unlocks the full toolkit and priority perks.</p>
             </div>
             <div className="text-right">
               <div className="text-2xl font-display font-semibold">₦5,000<span className="text-sm text-muted-2">/mo</span></div>
               <div className="text-xs text-muted-2 mb-2">or verified-free tier by merit</div>
-              <a href="/portal/seeker/subscription" className="btn-coral !h-9 text-sm inline-flex">Go premium →</a>
+              <PayButton purpose="elite_premium" refData={{}} label="Go premium →" className="btn-coral !h-9 text-sm inline-flex" />
             </div>
           </div>
         </div>

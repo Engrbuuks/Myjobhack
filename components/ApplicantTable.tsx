@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { InterviewScheduler } from "@/components/InterviewScheduler";
 import { ExportButton } from "@/components/ExportButton";
 import { CandidateCard } from "@/components/CandidateCard";
+import { PayButton } from "@/components/PayButton";
 
 type Row = {
   id: string; talent_id?: string | null; status: string; rules_passed: boolean | null; card?: any; contact_locked?: boolean;
@@ -227,6 +228,9 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
               <input className="input" type="number" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="e.g. 400000" />
             </div>
             {placeNote && <p className="text-sm font-semibold text-green-600">{placeNote}</p>}
+            {placeNote && (placeFor as any).talent_id && (
+              <p className="text-xs text-muted-2">An invoice was raised. The employer can pay it online from Invoices, or via Paystack when prompted.</p>
+            )}
             <div className="flex gap-3">
               <button className="btn-coral" onClick={recordPlacement} disabled={placing}>
                 {placing ? "Recording…" : "Record & raise fee"}

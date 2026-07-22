@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { redactResumePdf } from "@/lib/redactResume";
+import { redactResumePdf, watermarkResumePdf } from "@/lib/redactResume";
 
 export const runtime = "nodejs";
 
@@ -55,9 +55,14 @@ export async function GET(request: Request) {
   if (error || !file) return NextResponse.json({ error: "Could not read résumé." }, { status: 500 });
   const ab = await file.arrayBuffer();
 
-  // Released → original. Otherwise → redacted.
+  // Released → original, watermarked with the non-circumvention notice.
   if (released) {
-    return new NextResponse(ab, { headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline; filename=resume.pdf" } });
+    try {
+      const stamped = await watermarkResumePdf(ab);
+      return new NextResponse(Buffer.from(stamped), { headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline; filename=resume.pdf" } });
+    } catch {
+      return new NextResponse(ab, { headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline; filename=resume.pdf" } });
+    }
   }
 
   try {

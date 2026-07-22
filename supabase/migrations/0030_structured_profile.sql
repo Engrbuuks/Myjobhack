@@ -46,3 +46,27 @@ insert into app_settings (key, value) values
 on conflict (key) do update set value = app_settings.value || excluded.value;
 
 notify pgrst, 'reload schema';
+
+-- ---------- Placement guarantee tracking ----------
+-- A guarantee window on each placement: if the hire leaves within N days,
+-- the employer is entitled to a free replacement. Terms are YOUR policy;
+-- this just tracks the window and status.
+alter table placements add column if not exists guarantee_days int not null default 90;
+alter table placements add column if not exists guarantee_status text not null default 'active'; -- active | expired | claimed | fulfilled
+alter table placements add column if not exists guarantee_until date;
+
+-- Set the guarantee window on insert (created_at + guarantee_days).
+create or replace function set_placement_guarantee() returns trigger
+language plpgsql as $$
+begin
+  if new.guarantee_until is null then
+    new.guarantee_until := (coalesce(new.created_at, now())::date + (new.guarantee_days || ' days')::interval)::date;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists trg_placement_guarantee on placements;
+create trigger trg_placement_guarantee before insert on placements
+  for each row execute function set_placement_guarantee();
+
+notify pgrst, 'reload schema';

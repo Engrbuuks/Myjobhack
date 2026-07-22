@@ -11,15 +11,25 @@ export function EmployerPlans({ plans, currentPlanId }: { plans: Plan[]; current
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  async function choose(planId: string) {
+  async function choose(planId: string, price: number) {
     setBusy(planId); setNote(null);
+    if (price > 0) {
+      // Paid plan → Paystack checkout.
+      const res = await fetch("/api/pay/checkout", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purpose: "employer_subscription", plan_id: planId })
+      });
+      const json = await res.json();
+      if (res.ok && json.authorization_url) { window.location.href = json.authorization_url; return; }
+      setBusy(null); setNote(json.error ?? "Could not start payment."); return;
+    }
+    // Free plan → simple activation.
     const res = await fetch("/api/employer/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan_id: planId })
     });
     const json = await res.json();
     setBusy(null);
-    if (res.ok) setNote(json.message ?? "Plan selected. Complete payment to activate.");
-    else setNote(json.error ?? "Something went wrong.");
+    if (res.ok) setNote(json.message ?? "Plan activated."); else setNote(json.error ?? "Something went wrong.");
   }
 
   const feat = (on: boolean, label: string) => (
@@ -54,8 +64,8 @@ export function EmployerPlans({ plans, currentPlanId }: { plans: Plan[]; current
                 <span className="btn-ghost justify-center !cursor-default">Current plan</span>
               ) : (
                 <button className={highlight ? "btn-coral justify-center" : "btn-ghost justify-center"}
-                  disabled={busy !== null} onClick={() => choose(p.id)}>
-                  {busy === p.id ? "…" : Number(p.price_ngn) === 0 ? "Start free" : "Choose " + p.name}
+                  disabled={busy !== null} onClick={() => choose(p.id, Number(p.price_ngn))}>
+                  {busy === p.id ? "…" : Number(p.price_ngn) === 0 ? "Start free" : "Pay & activate " + p.name}
                 </button>
               )}
             </div>

@@ -85,3 +85,28 @@ export async function redactResumePdf(input: ArrayBuffer): Promise<RedactionResu
 
   return { bytes, redactedCount, imageOnlyPages, warning };
 }
+
+/**
+ * Stamps a watermark on every page of a résumé that IS being released to an
+ * employer — the "introduced via MYJOBHACK" notice tied to non-circumvention.
+ * Deterrent, not prevention: makes going around the platform a documented act.
+ */
+export async function watermarkResumePdf(input: ArrayBuffer, note?: string): Promise<Uint8Array> {
+  const { PDFDocument, rgb, degrees, StandardFonts } = await import("pdf-lib");
+  const doc = await PDFDocument.load(input);
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const text = note ?? "Introduced via MYJOBHACK — hiring off-platform breaches your agreement";
+
+  for (const page of doc.getPages()) {
+    const { width, height } = page.getSize();
+    // Diagonal faint watermark across the page.
+    page.drawText("MYJOBHACK", {
+      x: width * 0.12, y: height * 0.45, size: 48, font,
+      color: rgb(0.05, 0.35, 0.36), opacity: 0.08, rotate: degrees(30)
+    });
+    // Footer notice bar.
+    page.drawRectangle({ x: 0, y: 0, width, height: 20, color: rgb(0.03, 0.24, 0.25), opacity: 0.9 });
+    page.drawText(text, { x: 12, y: 6, size: 7, font, color: rgb(1, 1, 1), opacity: 0.9 });
+  }
+  return doc.save();
+}
