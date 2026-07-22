@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/Sidebar";
 
@@ -6,8 +7,18 @@ export default async function Layout({ children }: { children: React.ReactNode }
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: profile } = await supabase.from("profiles").select("role, full_name").eq("id", user.id).single();
+  const { data: profile } = await supabase.from("profiles")
+    .select("role, full_name, country, city").eq("id", user.id).single();
   if (profile?.role !== "elite_member" && profile?.role !== "admin") redirect("/");
+
+  // Location is compulsory across the platform — employers filter on it, and
+  // chapters are assigned by city. Send anyone missing it to their profile.
+  const path = headers().get("x-pathname") ?? headers().get("referer") ?? "";
+  const missingLocation = profile?.role !== "admin"
+    && (!profile?.country?.trim() || !profile?.city?.trim());
+  if (missingLocation && !path.includes("/portal/elite/profile")) {
+    redirect("/portal/elite/profile?needs=location");
+  }
   return (
     <>
       <Sidebar

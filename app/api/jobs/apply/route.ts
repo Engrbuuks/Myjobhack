@@ -26,6 +26,16 @@ export async function POST(request: Request) {
   if (!talent?.resume_document_id)
     return NextResponse.json({ error: "Upload your resume in your profile before applying." }, { status: 400 });
 
+  // Location is compulsory — employers filter and match on it, and a candidate
+  // with no country/city is effectively invisible in the pool.
+  const { data: loc } = await supabase.from("profiles")
+    .select("country, city").eq("id", user.id).maybeSingle();
+  if (!loc?.country?.trim() || !loc?.city?.trim())
+    return NextResponse.json({
+      error: "Add your country and city/state in your profile before applying — employers search by location.",
+      needs_location: true
+    }, { status: 400 });
+
   // required-field + eligibility evaluation
   let fields: FieldDef[] = [];
   if (job.form_id) {

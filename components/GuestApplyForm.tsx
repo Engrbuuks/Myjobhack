@@ -71,7 +71,7 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
           <input className="gin" placeholder="Full name *" value={name} onChange={(e) => setName(e.target.value)} />
           <input className="gin" type="email" placeholder="Email *" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input className="gin" placeholder="Phone / WhatsApp" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <LocationPicker dark labels={false} country={country} city={city} onCountry={setCountry} onCity={setCity} />
+          <LocationPicker dark labels={false} required country={country} city={city} onCountry={setCountry} onCity={setCity} />
         </div>
 
         {fields.map((f) => (

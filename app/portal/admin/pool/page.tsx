@@ -21,6 +21,14 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
     level: r.expected_role_level ?? "", competency: r.competency_band ?? "",
     completion: r.profile_completion ?? 0
   }));
+  // Data quality: location is compulsory but historic signups may predate that.
+  const { createAdminClient: _adminForQuality } = await import("@/lib/supabase/admin");
+  const _admin = _adminForQuality();
+  const { data: _people } = await _admin.from("profiles")
+    .select("id, country, city").in("role", ["job_seeker", "elite_member"]);
+  const _missingLocation = (_people ?? []).filter((p: any) => !p.country?.trim() || !p.city?.trim()).length;
+  const _totalPeople = (_people ?? []).length;
+
   const allProfileIds: string[] = [];
   for (const r of rows as any[]) allProfileIds.push(r.profile_id);
   const qs = new URLSearchParams(
@@ -38,6 +46,18 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
           </Link>
         }
       />
+      {_missingLocation > 0 && (
+        <div className="card p-4 mb-4 border-coral/40" style={{ background: "#FFF4F2" }}>
+          <div className="font-semibold text-sm text-ink">
+            {_missingLocation} of {_totalPeople} people have no country or city
+          </div>
+          <p className="text-sm text-muted-2 mt-1">
+            Employers filter and match on location, so these profiles are effectively invisible in the pool.
+            Location is now compulsory for new signups and enforced before applying — these are historic accounts.
+            Use Campaigns to ask them to complete it.
+          </p>
+        </div>
+      )}
       <SegmentFilterBar taxonomies={taxonomies ?? []} />
       <div className="flex justify-end mb-3"><ExportButton rows={exportRows} filename="talent-pool" label="Export pool" /></div>
 
