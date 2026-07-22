@@ -21,6 +21,22 @@ export function CandidateCard({ card, onUnlock }: { card: Card; onUnlock?: (tale
           <div className="text-center shrink-0">
             <div className="font-display font-semibold text-xl text-coral">{card.competency_band}</div>
             <div className="text-[10px] font-bold uppercase tracking-widest text-muted-2">Competency{card.competency_score != null ? ` · ${Math.round(card.competency_score)}` : ""}</div>
+            {card.assessment_integrity && (
+              <div className="mt-1.5">
+                {card.assessment_integrity === "clean" && (
+                  <span className="px-2 py-0.5 rounded-pill bg-paper-2 text-[10px] font-bold uppercase tracking-wider text-muted"
+                    title="No integrity concerns were detected during this assessment.">✓ Clean sitting</span>
+                )}
+                {card.assessment_integrity === "reviewed" && (
+                  <span className="px-2 py-0.5 rounded-pill bg-mint text-[10px] font-bold uppercase tracking-wider text-ink"
+                    title="This result was confirmed by a human reviewer.">✓ Human-reviewed</span>
+                )}
+                {card.assessment_integrity === "flagged" && (
+                  <span className="px-2 py-0.5 rounded-pill bg-coral text-white text-[10px] font-bold uppercase tracking-wider"
+                    title="Integrity signals were raised during this assessment and it is under review.">⚑ Under review</span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

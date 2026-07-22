@@ -19,6 +19,8 @@ export type CandidateCard = {
   work_mode: string | null;
   competency_band: string | null;
   competency_score: number | null;
+  assessment_integrity: "clean" | "reviewed" | "flagged" | null;  // what the employer sees
+  assessment_reviewed_by_human: boolean;
   skills: string[];
   experience: { title: string; company: string; period: string; summary: string | null }[];
   credentials: { title: string; institution: string; year: number | null; distinction: string | null; status: string }[];
@@ -79,6 +81,21 @@ export async function buildCandidateCard(talentId: string, released: boolean): P
     title: c.title, institution: c.institution, year: c.year, distinction: c.distinction, status: c.status
   }));
 
+  // Assessment integrity — employers paying real money deserve to know whether
+  // the competency band came from a clean sitting or a flagged one.
+  const { data: score } = await admin.from("assessment_scores")
+    .select("integrity_risk, review_status")
+    .eq("talent_id", talentId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+  let assessmentIntegrity: "clean" | "reviewed" | "flagged" | null = null;
+  const humanReviewed = score?.review_status === "confirmed" || score?.review_status === "overridden";
+  if (score) {
+    if (score.integrity_risk === "high") assessmentIntegrity = "flagged";
+    else if (humanReviewed) assessmentIntegrity = "reviewed";
+    else if (score.integrity_risk === "low") assessmentIntegrity = "clean";
+    else assessmentIntegrity = "reviewed";
+  }
+
   // elite?
   const { data: elite } = await admin.from("elite_memberships")
     .select("id").eq("talent_id", talentId).eq("status", "verified").maybeSingle();
@@ -89,6 +106,7 @@ export async function buildCandidateCard(talentId: string, released: boolean): P
     headline: tp.headline, summary: tp.summary, years_experience: tp.years_experience ?? 0,
     niche, role_level: tp.expected_role_level, work_mode: tp.preferred_work_mode,
     competency_band: tp.competency_band ?? null, competency_score: tp.competency_score ?? null,
+    assessment_integrity: assessmentIntegrity, assessment_reviewed_by_human: humanReviewed,
     skills, experience, credentials,
     is_elite: !!elite, released,
     resume_url: released ? `/api/employer/resume?talent_id=${talentId}` : null

@@ -50,17 +50,44 @@ export async function POST() {
   }
 
   const level = (tp?.expected_role_level as string) ?? "mid";
-  const gen = await generateAssessment({ field, level, skills });
+  // Never issue this candidate a question they have already seen, and give
+  // every sitting its own variant seed so two candidates rarely share a paper.
+  const { data: seen } = await admin.from("issued_questions")
+    .select("prompt_hash").eq("talent_id", user.id).order("created_at", { ascending: false }).limit(40);
+
+  const { data: priorAsmts } = await admin.from("assessments")
+    .select("questions").eq("talent_id", user.id).order("created_at", { ascending: false }).limit(4);
+  const avoidPrompts: string[] = [];
+  for (const a of priorAsmts ?? []) {
+    for (const q of ((a.questions as any[]) ?? [])) {
+      if (q?.prompt) avoidPrompts.push(String(q.prompt).slice(0, 160));
+    }
+  }
+
+  const seed = `${user.id.slice(0, 4)}${Date.now().toString(36).slice(-5)}`;
+  const gen = await generateAssessment({ field, level, skills, seed, avoidPrompts });
   if (gen.error || !gen.questions.length)
     return NextResponse.json({ error: gen.error ?? "Could not generate an assessment. Try again." }, { status: 502 });
 
   const { data: asmt, error } = await admin.from("assessments").insert({
     talent_id: user.id, niche_id: tp?.niche_id ?? null, field_label: field,
     role_level: level as any, status: "generated", generated_by: gen.model ?? null,
-    questions: gen.questions, time_limit_min: gen.time_limit_min
+    questions: gen.questions, time_limit_min: gen.time_limit_min,
+    variant_seed: gen.seed ?? null, question_count: gen.questions.length, difficulty: gen.difficulty ?? null
   }).select("id, questions, time_limit_min").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Fingerprint every prompt issued, so future papers can avoid them.
+  try {
+    const { createHash } = await import("crypto");
+    const rows = gen.questions.map((q) => ({
+      talent_id: user.id,
+      prompt_hash: createHash("sha256").update(String(q.prompt).toLowerCase().trim()).digest("hex").slice(0, 32),
+      field_label: field
+    }));
+    if (rows.length) await admin.from("issued_questions").insert(rows);
+  } catch { /* fingerprinting is best-effort — never block the assessment */ }
 
   // Count this against the Elite free allowance.
   if (elite && elite.status === "verified") {

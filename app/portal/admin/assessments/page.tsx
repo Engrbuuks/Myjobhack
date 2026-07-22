@@ -14,9 +14,9 @@ export default async function AdminAssessmentsPage() {
   const rows = [];
   for (const s of queue ?? []) {
     const { data: p } = await admin.from("profiles").select("full_name, email").eq("id", s.talent_id).maybeSingle();
-    const { data: a } = await admin.from("assessments").select("field_label, questions").eq("id", s.assessment_id).maybeSingle();
+    const { data: a } = await admin.from("assessments").select("field_label, questions, integrity, question_count, difficulty").eq("id", s.assessment_id).maybeSingle();
     const { data: ans } = await admin.from("assessment_answers").select("question_id, answer, seconds_spent").eq("assessment_id", s.assessment_id);
-    rows.push({ ...s, name: p?.full_name ?? "—", email: p?.email ?? "", field: a?.field_label ?? "", questions: a?.questions ?? [], answers: ans ?? [] });
+    rows.push({ ...s, name: p?.full_name ?? "—", email: p?.email ?? "", field: a?.field_label, integrity: (a as any)?.integrity ?? null, questionCount: (a as any)?.question_count ?? null, questions: a?.questions ?? [], answers: ans ?? [] });
   }
 
   const { data: orders } = await admin.from("assessment_orders")

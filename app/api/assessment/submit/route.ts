@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { scoreAssessment, needsHumanReview } from "@/lib/assessment";
+import { assessIntegrity } from "@/lib/integrity";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const { assessment_id, answers } = await request.json();
+  const { assessment_id, answers, integrity: integrityRaw } = await request.json();
   if (!assessment_id || !Array.isArray(answers))
     return NextResponse.json({ error: "assessment_id and answers required" }, { status: 400 });
 
@@ -35,14 +36,36 @@ export async function POST(request: Request) {
     questions: asmt.questions as any, answers
   });
 
-  const review = needsHumanReview(result);
+  // Integrity: detection aid for AI-assisted answers. High risk always goes to a human.
+  // Server-measured facts the client cannot alter: wall-clock time from when
+  // the paper was started, and the true size of what was submitted.
+  const startedAt = (asmt as any).started_at ? new Date((asmt as any).started_at).getTime() : null;
+  const serverSeconds = startedAt ? Math.max(0, (Date.now() - startedAt) / 1000) : undefined;
+  const totalAnswerChars = answers.reduce(
+    (n: number, a: any) => n + String(a?.answer ?? "").length, 0);
+
+  const verdict = assessIntegrity({
+    paste_events: Number(integrityRaw?.paste_events) || 0,
+    paste_chars: Number(integrityRaw?.paste_chars) || 0,
+    focus_losses: Number(integrityRaw?.focus_losses) || 0,
+    focus_lost_seconds: Number(integrityRaw?.focus_lost_seconds) || 0,
+    per_question: integrityRaw?.per_question ?? {},
+    total_seconds: Number(integrityRaw?.total_seconds) || 0,
+    server_seconds: serverSeconds,
+    total_answer_chars: totalAnswerChars
+  });
+  await admin.from("assessments").update({ integrity: verdict }).eq("id", assessment_id);
+
+  const review = needsHumanReview(result) || verdict.risk !== "low";
   const percentile = await computePercentile(admin, asmt.field_label, asmt.role_level, result.overall);
 
   await admin.from("assessment_scores").insert({
     assessment_id, talent_id: user.id, overall: result.overall, percentile,
     band: result.band, per_question: result.per_question, strengths: result.strengths,
     gaps: result.gaps, ai_confidence: result.ai_confidence, scored_by: result.model ?? null,
-    review_status: review ? "needs_review" : "auto", flags: result.flags
+    review_status: review ? "needs_review" : "auto",
+    flags: [...(result.flags ?? []), ...verdict.flags],
+    integrity_risk: verdict.risk
   });
   await admin.from("assessments").update({ status: "scored" }).eq("id", assessment_id);
 

@@ -17,22 +17,75 @@ export type AsmtQuestion = {
   minutes: number;
 };
 
+/** How deep the paper goes, by seniority. More senior = more questions, more open work. */
+export function paperShape(level: string) {
+  const l = (level || "mid").toLowerCase();
+  if (l.includes("entry") || l.includes("junior") || l.includes("intern"))
+    return { total: 6, mcq: 3, open: 3, code: 0, minutes: 35, difficulty: "entry" };
+  if (l.includes("senior") || l.includes("lead"))
+    return { total: 10, mcq: 3, open: 6, code: 1, minutes: 70, difficulty: "senior" };
+  if (l.includes("manager") || l.includes("head") || l.includes("director") || l.includes("expert"))
+    return { total: 12, mcq: 3, open: 8, code: 1, minutes: 85, difficulty: "expert" };
+  return { total: 8, mcq: 3, open: 4, code: 1, minutes: 50, difficulty: "mid" };
+}
+
+/** Angles the generator rotates through, so two candidates rarely get the same paper. */
+const VARIANT_ANGLES = [
+  "a diagnostic scenario where something has gone wrong and must be traced to its cause",
+  "a prioritisation scenario with competing demands and insufficient time",
+  "a quality-control scenario where the candidate must spot what is incorrect in supplied work",
+  "a planning scenario requiring a first-week or first-90-day approach",
+  "a stakeholder scenario requiring explanation of a technical matter to a non-expert",
+  "a resource-constrained scenario where the obvious solution is unavailable",
+  "a data-interpretation scenario requiring a decision from incomplete information",
+  "an escalation scenario where the candidate must decide what to handle and what to raise"
+];
+
 export async function generateAssessment(opts: {
-  field: string; level: string; skills: string[];
-}): Promise<{ questions: AsmtQuestion[]; time_limit_min: number; model?: string; error?: string }> {
+  field: string; level: string; skills: string[]; seed?: string; avoidPrompts?: string[];
+}): Promise<{ questions: AsmtQuestion[]; time_limit_min: number; model?: string; error?: string; seed?: string; difficulty?: string }> {
   const skills = opts.skills.filter(Boolean).slice(0, 8).join(", ");
+  const shape = paperShape(opts.level);
+
+  // Randomised variant: a seed plus two rotating angles make repeat papers unlikely.
+  const seed = opts.seed || Math.random().toString(36).slice(2, 10);
+  const pick = (n: number) => VARIANT_ANGLES[(parseInt(seed.slice(n, n + 3), 36) || n) % VARIANT_ANGLES.length];
+  const angleA = pick(0), angleB = pick(3);
+  const avoid = (opts.avoidPrompts ?? []).slice(0, 12);
+
   const prompt = `You are a hiring assessor creating a COMPETENCY test for a candidate.
 Field/title: "${opts.field}"
 Seniority: "${opts.level || "mid"}"
 Declared skills: ${skills || "n/a"}
+Variant seed: ${seed}
 
-Create a practical assessment that measures whether this person can actually DO this job — not their credentials. Mix question types:
-- 2 multiple-choice questions on core knowledge (type "mcq", include 4 "options")
-- 2 open-response questions requiring real reasoning or a short work sample (type "open")
-- If the field is technical/coding, 1 "code" question with a concrete task.
+Create a practical assessment that measures whether this person can actually DO this job — not their credentials.
 
-For EACH question include a concise "rubric" describing what a strong answer contains, "max_points" (10-25), and "minutes" (3-15).
-Keep it realistic for the seniority. Total time should be 30-50 minutes.
+PAPER SHAPE (follow exactly):
+- ${shape.mcq} multiple-choice questions (type "mcq", exactly 4 "options")
+- ${shape.open} open-response questions (type "open")
+${shape.code ? `- ${shape.code} work-sample or "code" question with a concrete task` : "- no code question for this field/level"}
+- ${shape.total} questions in total. Total time about ${shape.minutes} minutes.
+
+RESISTANCE TO AI ASSISTANCE — this is critical. Candidates may attempt to answer using an AI chatbot. Write questions that a generic AI answers poorly:
+- Anchor open questions in SPECIFIC, MESSY, SITUATIONAL judgement rather than definitions or textbook knowledge.
+- Build at least two open questions around: ${angleA}; and ${angleB}.
+- Require the candidate to commit to a decision AND justify a trade-off they rejected.
+- Ask for concrete specifics — actual numbers, actual sequences, actual first steps — not general principles.
+- Prefer "what would you do when X goes wrong and Y is unavailable" over "explain what X is".
+- NEVER ask a question whose full answer is a well-known definition, list, or formula.
+
+SCORABILITY — equally critical. A question that cannot be scored consistently is worthless, however clever it is. Every question must be BOTH hard to fake AND reliably markable:
+- Each open question must have a small number of DEFENSIBLE correct shapes — a strong answer should be recognisable, not a matter of taste.
+- The rubric must list 3-5 CONCRETE, OBSERVABLE things a strong answer contains (a named step, a specific trade-off, a stated assumption, an order of operations) — not vague qualities like "shows good judgement".
+- Never ask for pure opinion, personal preference, or anything with no better-or-worse answer.
+- Anchor the question so that experience produces specifics a generic answer cannot invent: real sequences, real failure modes, real constraints.
+
+For EACH question include a "rubric" with:
+  (a) the 3-5 concrete markers of a strong answer, in order of importance;
+  (b) what a GENERIC or AI-generated answer looks like for this question — the textbook shape, the giveaway phrasing, what it will omit — so both the scorer and a human reviewer can tell recitation from experience.
+Include "max_points" (10-25) and "minutes" (3-15) per question.
+${avoid.length ? `\nDo NOT reuse or closely paraphrase any of these previously-issued prompts:\n- ${avoid.join("\n- ")}` : ""}
 
 Return ONLY JSON:
 {"time_limit_min": <int>, "questions": [{"id":"q1","type":"mcq","prompt":"...","options":[".."],"rubric":"..","max_points":10,"minutes":4}, ...]}`;
@@ -50,7 +103,7 @@ Return ONLY JSON:
     minutes: Number(q.minutes) || 5
   })).filter((q: AsmtQuestion) => q.prompt);
 
-  return { questions, time_limit_min: Number(data.time_limit_min) || 45, model };
+  return { questions, time_limit_min: Number(data.time_limit_min) || shape.minutes, model, seed, difficulty: shape.difficulty };
 }
 
 export type ScoreResult = {

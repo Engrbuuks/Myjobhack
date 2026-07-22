@@ -15,6 +15,50 @@ export function SingleAssessmentRunner({ assessmentId, alreadyDone }: { assessme
   const seconds = useRef<Record<string, number>>({});
   const startTimes = useRef<Record<string, number>>({});
 
+  // ---- Integrity signals (detection aid, not proof) ----
+  const integrity = useRef({
+    paste_events: 0, paste_chars: 0,
+    focus_losses: 0, focus_lost_seconds: 0,
+    per_question: {} as Record<string, { seconds: number; chars: number; bursts: number }>,
+    total_seconds: 0
+  });
+  const lastKeyAt = useRef<Record<string, number>>({});
+  const blurAt = useRef<number | null>(null);
+  const sittingStart = useRef<number>(0);
+
+  // Track leaving the page — a second device or another tab is the usual reason.
+  useEffect(() => {
+    if (phase !== "taking") return;
+    function onBlur() { blurAt.current = Date.now(); }
+    function onFocus() {
+      if (blurAt.current) {
+        integrity.current.focus_losses += 1;
+        integrity.current.focus_lost_seconds += (Date.now() - blurAt.current) / 1000;
+        blurAt.current = null;
+      }
+    }
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => { window.removeEventListener("blur", onBlur); window.removeEventListener("focus", onFocus); };
+  }, [phase]);
+
+  function notePaste(e: React.ClipboardEvent) {
+    const text = e.clipboardData?.getData("text") ?? "";
+    integrity.current.paste_events += 1;
+    integrity.current.paste_chars += text.length;
+  }
+
+  // A "burst" is a run of typing with no pause longer than 2.5s.
+  function noteTyping(qid: string, value: string) {
+    const now = Date.now();
+    const rec = integrity.current.per_question[qid] ?? { seconds: 0, chars: 0, bursts: 0 };
+    const last = lastKeyAt.current[qid];
+    if (!last || now - last > 2500) rec.bursts += 1;
+    lastKeyAt.current[qid] = now;
+    rec.chars = value.length;
+    integrity.current.per_question[qid] = rec;
+  }
+
   useEffect(() => {
     if (phase !== "taking") return;
     const t = setInterval(() => setRemaining((r) => { if (r <= 1) { submit(); return 0; } return r - 1; }), 1000);
@@ -30,6 +74,7 @@ export function SingleAssessmentRunner({ assessmentId, alreadyDone }: { assessme
     const json = await res.json();
     if (!res.ok) { setErr(json.error ?? "Could not load assessment."); return; }
     setQuestions(json.questions); setRemaining(json.time_limit_min * 60);
+    sittingStart.current = Date.now();
     json.questions.forEach((q: Q) => { startTimes.current[q.id] = Date.now(); });
     setPhase("taking");
   }
@@ -39,11 +84,15 @@ export function SingleAssessmentRunner({ assessmentId, alreadyDone }: { assessme
     setPhase("grading");
     for (const q of questions) {
       if (startTimes.current[q.id]) seconds.current[q.id] = Math.round((Date.now() - startTimes.current[q.id]) / 1000);
+      const rec = integrity.current.per_question[q.id] ?? { seconds: 0, chars: (answers[q.id] ?? "").length, bursts: 1 };
+      rec.seconds = seconds.current[q.id] ?? 0;
+      integrity.current.per_question[q.id] = rec;
     }
+    integrity.current.total_seconds = Math.round((Date.now() - sittingStart.current) / 1000);
     const payload = questions.map((q) => ({ question_id: q.id, answer: answers[q.id] ?? "", seconds_spent: seconds.current[q.id] ?? null }));
     const res = await fetch("/api/assessment/submit", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assessment_id: assessmentId, answers: payload })
+      body: JSON.stringify({ assessment_id: assessmentId, answers: payload, integrity: integrity.current })
     });
     const json = await res.json();
     if (!res.ok) { setErr(json.error ?? "Scoring failed."); setPhase("taking"); return; }
@@ -96,7 +145,9 @@ export function SingleAssessmentRunner({ assessmentId, alreadyDone }: { assessme
             </div>
           ) : (
             <textarea className="input !h-auto py-2" rows={q.type === "code" ? 8 : 4}
-              value={answers[q.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+              value={answers[q.id] ?? ""}
+              onPaste={notePaste}
+              onChange={(e) => { noteTyping(q.id, e.target.value); setAnswers({ ...answers, [q.id]: e.target.value }); }}
               placeholder={q.type === "code" ? "Write your solution…" : "Your answer…"} />
           )}
         </div>
