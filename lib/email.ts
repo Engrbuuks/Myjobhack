@@ -144,3 +144,69 @@ ${spec.preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hi
 </body>
 </html>`;
 }
+
+/**
+ * PLAIN email — for campaigns and any bulk send.
+ *
+ * The branded template above is deliberately designed: dark card, large serif
+ * heading, pill CTA button. That design is exactly what Gmail's classifier reads
+ * as "marketing", which lands it in Promotions. For bulk mail we send something
+ * that looks like a person wrote it: left-aligned text, a normal text link
+ * instead of a button, minimal styling, no dark card.
+ *
+ * Use renderEmail() for transactional mail (receipts, invites, notifications)
+ * and renderPlainEmail() for campaigns.
+ */
+export function renderPlainEmail(opts: {
+  heading?: string;
+  paragraphs: string[];
+  bullets?: string[];
+  cta?: { label: string; url: string };
+  signoff?: string;
+  unsubscribeUrl?: string;
+}): string {
+  const esc = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const font = "font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif";
+
+  const paras = opts.paragraphs.map(p =>
+    `<p style="margin:0 0 16px;${font};font-size:15px;line-height:1.6;color:#1a1a1a">${esc(p)}</p>`
+  ).join("");
+
+  const bullets = opts.bullets?.length
+    ? `<ul style="margin:0 0 16px;padding-left:20px">${opts.bullets.map(b =>
+        `<li style="${font};font-size:15px;line-height:1.6;color:#1a1a1a;margin-bottom:6px">${esc(b)}</li>`
+      ).join("")}</ul>`
+    : "";
+
+  // A plain text link, not a button. Buttons read as advertising.
+  const cta = opts.cta
+    ? `<p style="margin:0 0 16px;${font};font-size:15px;line-height:1.6;color:#1a1a1a">
+         <a href="${opts.cta.url}" style="color:#0C5A5D;text-decoration:underline">${esc(opts.cta.label)}</a>
+       </p>`
+    : "";
+
+  const unsub = opts.unsubscribeUrl
+    ? `<p style="margin:24px 0 0;${font};font-size:12px;line-height:1.5;color:#888">
+         If you'd rather not receive these, <a href="${opts.unsubscribeUrl}" style="color:#888">unsubscribe here</a>.
+       </p>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#ffffff">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff">
+  <tr><td align="left" style="padding:24px 20px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
+      <tr><td>
+        ${opts.heading ? `<p style="margin:0 0 16px;${font};font-size:16px;font-weight:600;line-height:1.5;color:#1a1a1a">${esc(opts.heading)}</p>` : ""}
+        ${paras}
+        ${bullets}
+        ${cta}
+        <p style="margin:24px 0 0;${font};font-size:15px;line-height:1.6;color:#1a1a1a">${esc(opts.signoff ?? "— The MYJOBHACK team")}</p>
+        ${unsub}
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+}

@@ -1,18 +1,71 @@
 type SendResult = { id: string | null; error: string | null };
 
 const FROM = process.env.RESEND_FROM || "MYJOBHACK <no-reply@myjobhack.co>";
+const REPLY_TO = process.env.RESEND_REPLY_TO || "hello@myjobhack.co";
+const APP = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+
+/**
+ * Strips HTML to a readable plain-text alternative.
+ * Sending HTML-only is one of the strongest "this is marketing" signals there is —
+ * genuine correspondence almost always carries both parts.
+ */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href, label) => {
+      const text = String(label).replace(/<[^>]+>/g, "").trim();
+      return text && !href.includes(text) ? `${text} (${href})` : href;
+    })
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#8203;/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n").map((l) => l.trim()).join("\n")
+    .trim();
+}
+
+type SendOpts = {
+  /** Bulk/marketing mail must carry unsubscribe headers. Transactional must not. */
+  bulk?: boolean;
+  /** Per-recipient unsubscribe link, if you have one. */
+  unsubscribeUrl?: string;
+};
+
+function headersFor(opts?: SendOpts) {
+  if (!opts?.bulk) return undefined;
+  const url = opts.unsubscribeUrl || `${APP}/portal/account`;
+  return {
+    // Gmail and Yahoo require these for bulk senders. Missing them is one of
+    // the strongest signals that pushes mail into Promotions or Spam.
+    "List-Unsubscribe": `<${url}>, <mailto:unsubscribe@myjobhack.co>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+  };
+}
 
 export async function sendBatch(
-  emails: { to: string; subject: string; html: string }[]
+  emails: { to: string; subject: string; html: string; text?: string; unsubscribeUrl?: string }[],
+  opts?: SendOpts
 ): Promise<SendResult[]> {
   const key = process.env.RESEND_API_KEY;
   if (!key) return emails.map(() => ({ id: null, error: "RESEND_API_KEY not set" }));
 
   const results: SendResult[] = [];
-  // Resend batch endpoint accepts up to 100 per call
   for (let i = 0; i < emails.length; i += 100) {
     const chunk = emails.slice(i, i + 100).map((e) => ({
-      from: FROM, to: [e.to], subject: e.subject, html: e.html
+      from: FROM,
+      to: [e.to],
+      subject: e.subject,
+      html: e.html,
+      // Always send a plain-text part alongside the HTML.
+      text: e.text ?? htmlToText(e.html),
+      reply_to: REPLY_TO,
+      ...(headersFor({ ...opts, unsubscribeUrl: e.unsubscribeUrl ?? opts?.unsubscribeUrl })
+        ? { headers: headersFor({ ...opts, unsubscribeUrl: e.unsubscribeUrl ?? opts?.unsubscribeUrl }) }
+        : {})
     }));
     try {
       const res = await fetch("https://api.resend.com/emails/batch", {
@@ -34,30 +87,30 @@ export async function sendBatch(
   return results;
 }
 
-export async function sendEmail(to: string, subject: string, html: string): Promise<SendResult> {
-  const [res] = await sendBatch([{ to, subject, html }]);
+export async function sendEmail(
+  to: string, subject: string, html: string, opts?: SendOpts
+): Promise<SendResult> {
+  const [res] = await sendBatch([{ to, subject, html }], opts);
   return res;
 }
 
-import { renderEmail } from "@/lib/email";
-
+/**
+ * Training invitation email. Kept here for backwards compatibility with the
+ * invite engine; renders through the shared branded template.
+ */
 export function inviteEmailHtml(opts: {
   name: string; trainingTitle: string; description: string;
   when: string; where: string; appUrl: string;
-}) {
+}): string {
+  const { renderEmail } = require("@/lib/email");
   return renderEmail({
-    preheader: `You've been selected for ${opts.trainingTitle}`,
     kicker: "Training invitation",
-    heading: opts.trainingTitle,
+    heading: `${opts.name}, you're invited to ${opts.trainingTitle}`,
     paragraphs: [
-      `Hi ${opts.name || "there"} — based on your skills and career goals, you've been selected for this training.`,
-      ...(opts.description ? [opts.description] : [])
+      opts.description || "A place has been reserved for you on this training.",
+      "Accept your invite in your portal to confirm your seat."
     ],
-    details: [
-      ["When", opts.when],
-      ["Where", opts.where]
-    ],
-    cta: { label: "View & register", url: `${opts.appUrl}/portal/seeker/trainings` },
-    footNote: "You're receiving this because your MYJOBHACK profile matches this training's audience."
+    details: [["When", opts.when], ["Where", opts.where]],
+    cta: { label: "Accept my invite", url: `${opts.appUrl}/portal/seeker/trainings` }
   });
 }

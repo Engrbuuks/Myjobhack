@@ -85,7 +85,12 @@ Respond with ONLY this JSON:
     if (emails.length === 0) return NextResponse.json({ error: "No recipients resolved." }, { status: 400 });
 
     const html = renderCampaign(b.draft);
-    const results = await sendBatch(emails.map((to) => ({ to, subject: b.draft.subject, html })));
+    // Campaigns are bulk mail — they must carry List-Unsubscribe headers, or
+    // Gmail will route them to Promotions (or worse).
+    const results = await sendBatch(
+      emails.map((to) => ({ to, subject: b.draft.subject, html })),
+      { bulk: true }
+    );
     const sent = results.filter((r) => !r.error).length;
 
     await admin.from("campaigns").insert({

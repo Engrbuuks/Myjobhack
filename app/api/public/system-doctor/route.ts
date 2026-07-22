@@ -62,7 +62,15 @@ export async function GET() {
       : "Feed returns jobs — if a surface is blank, that surface is caching or not wired to the feed."
   };
 
-  // 5 · which project is this
+  // 5 · Taxonomy coverage — how many niches the pool actually spans.
+  const { data: niches } = await admin.from("taxonomies")
+    .select("label").eq("kind", "niche").eq("active", true).order("label");
+  report.niches = {
+    count: (niches ?? []).length,
+    labels: (niches ?? []).map((n: any) => n.label)
+  };
+
+  // 6 · which project is this
   report.project_ref = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/^https?:\/\//, "").split(".")[0];
 
   return NextResponse.json(report, { headers: { "Cache-Control": "no-store" } });
