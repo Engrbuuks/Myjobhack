@@ -163,8 +163,19 @@ export async function POST(request: Request) {
         const ROLES = ["job_seeker", "elite_member", "employer", "recruiter", "trainer", "partner", "admin"];
         if (!ROLES.includes(data?.role)) return NextResponse.json({ error: "Invalid role" }, { status: 400 });
         await admin.from("profiles").update({ role: data.role }).eq("id", id);
+
+        // Verify the change actually persisted. A database trigger can silently
+        // revert a role change; without this check the UI would report success
+        // while nothing changed.
+        const { data: after } = await admin.from("profiles").select("role").eq("id", id).single();
+        if (after?.role !== data.role) {
+          return NextResponse.json({
+            error: "The role change did not save — a database rule reverted it. Run migration 0033, then try again."
+          }, { status: 409 });
+        }
+
         await admin.from("activity_log").insert({ actor_id: user.id, action: `Role changed to ${data.role}`, entity: "profile", entity_id: id });
-        return NextResponse.json({ ok: true });
+        return NextResponse.json({ ok: true, role: after?.role });
       }
 
       default:
