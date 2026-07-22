@@ -157,6 +157,18 @@ ${spec.preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hi
  * Use renderEmail() for transactional mail (receipts, invites, notifications)
  * and renderPlainEmail() for campaigns.
  */
+/**
+ * BRANDED-LIGHT email — for campaigns and any bulk send.
+ *
+ * The full branded template (dark card, pill button, large serif) is what
+ * Gmail's classifier reads as marketing. This keeps the MYJOBHACK identity —
+ * teal headings, coral accent, the wordmark — but on a white background with
+ * a text-weight link instead of a button, which reads far closer to ordinary
+ * correspondence.
+ *
+ * Use renderEmail() for transactional mail (receipts, invoices, invites) and
+ * renderPlainEmail() for campaigns.
+ */
 export function renderPlainEmail(opts: {
   heading?: string;
   paragraphs: string[];
@@ -167,27 +179,36 @@ export function renderPlainEmail(opts: {
 }): string {
   const esc = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const font = "font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif";
+  const TEAL = "#083E40", TEAL2 = "#0C5A5D", CORAL = "#FC5647", LINE = "#DCEAE9", MUTED = "#4C6667";
 
   const paras = opts.paragraphs.map(p =>
-    `<p style="margin:0 0 16px;${font};font-size:15px;line-height:1.6;color:#1a1a1a">${esc(p)}</p>`
+    `<p style="margin:0 0 16px;${font};font-size:15px;line-height:1.65;color:#1a1a1a">${esc(p)}</p>`
   ).join("");
 
+  // Bullets carry a small coral marker — brand presence without looking like an advert.
   const bullets = opts.bullets?.length
-    ? `<ul style="margin:0 0 16px;padding-left:20px">${opts.bullets.map(b =>
-        `<li style="${font};font-size:15px;line-height:1.6;color:#1a1a1a;margin-bottom:6px">${esc(b)}</li>`
-      ).join("")}</ul>`
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px">${
+        opts.bullets.map(b =>
+          `<tr>
+             <td style="padding:0 10px 8px 0;vertical-align:top">
+               <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${CORAL};margin-top:7px"></span>
+             </td>
+             <td style="padding:0 0 8px;${font};font-size:15px;line-height:1.6;color:#1a1a1a">${esc(b)}</td>
+           </tr>`).join("")
+      }</table>`
     : "";
 
-  // A plain text link, not a button. Buttons read as advertising.
+  // A bold teal link with a coral arrow — reads as a link, not a banner ad.
   const cta = opts.cta
-    ? `<p style="margin:0 0 16px;${font};font-size:15px;line-height:1.6;color:#1a1a1a">
-         <a href="${opts.cta.url}" style="color:#0C5A5D;text-decoration:underline">${esc(opts.cta.label)}</a>
+    ? `<p style="margin:0 0 18px;${font};font-size:15px;line-height:1.6">
+         <a href="${opts.cta.url}" style="color:${TEAL2};font-weight:600;text-decoration:underline">${esc(opts.cta.label)}</a>
+         <span style="color:${CORAL};font-weight:700">&nbsp;&rarr;</span>
        </p>`
     : "";
 
   const unsub = opts.unsubscribeUrl
-    ? `<p style="margin:24px 0 0;${font};font-size:12px;line-height:1.5;color:#888">
-         If you'd rather not receive these, <a href="${opts.unsubscribeUrl}" style="color:#888">unsubscribe here</a>.
+    ? `<p style="margin:20px 0 0;${font};font-size:12px;line-height:1.5;color:#8a9a99">
+         If you'd rather not receive these, <a href="${opts.unsubscribeUrl}" style="color:#8a9a99">unsubscribe here</a>.
        </p>`
     : "";
 
@@ -195,16 +216,36 @@ export function renderPlainEmail(opts: {
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#ffffff">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff">
-  <tr><td align="left" style="padding:24px 20px">
+  <tr><td align="left" style="padding:26px 20px">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
+
+      <!-- Wordmark: text only, no logo image. Images are a Promotions signal. -->
+      <tr><td style="padding-bottom:6px">
+        <span style="${font};font-size:17px;font-weight:700;color:${TEAL};letter-spacing:-.2px">myjob<span style="color:${CORAL}">hack</span></span>
+      </td></tr>
+
+      <!-- Thin coral rule: brand presence at almost no deliverability cost -->
+      <tr><td style="padding-bottom:20px">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td style="width:34px;height:2px;background:${CORAL};font-size:0;line-height:0">&nbsp;</td>
+        </tr></table>
+      </td></tr>
+
       <tr><td>
-        ${opts.heading ? `<p style="margin:0 0 16px;${font};font-size:16px;font-weight:600;line-height:1.5;color:#1a1a1a">${esc(opts.heading)}</p>` : ""}
+        ${opts.heading ? `<p style="margin:0 0 16px;${font};font-size:17px;font-weight:600;line-height:1.45;color:${TEAL}">${esc(opts.heading)}</p>` : ""}
         ${paras}
         ${bullets}
         ${cta}
-        <p style="margin:24px 0 0;${font};font-size:15px;line-height:1.6;color:#1a1a1a">${esc(opts.signoff ?? "— The MYJOBHACK team")}</p>
+        <p style="margin:22px 0 0;${font};font-size:15px;line-height:1.6;color:#1a1a1a">${esc(opts.signoff ?? "\u2014 The MYJOBHACK team")}</p>
+      </td></tr>
+
+      <tr><td style="padding-top:22px;border-top:1px solid ${LINE}">
+        <p style="margin:14px 0 0;${font};font-size:12px;line-height:1.5;color:${MUTED}">
+          MYJOBHACK &middot; Verified by competency. Not just a CV.
+        </p>
         ${unsub}
       </td></tr>
+
     </table>
   </td></tr>
 </table>
