@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 type SeekerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; features: string[]; active: boolean };
 type EmployerPlan = { id: string; name: string; price_ngn: number; price_usd: number; interval: string; profile_views_per_month: number | null; can_search_pool: boolean; can_contact: boolean; can_request_assessment: boolean; featured_job_slots: number; active: boolean };
@@ -16,7 +17,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: { seekerPlans: SeekerPlan[]; employerPlans: EmployerPlan[]; trainings: Training[]; loose: Loose }) {
+  const router = useRouter();
   const [note, setNote] = useState<string | null>(null);
+  const [noteBad, setNoteBad] = useState(false);
   const [sp, setSp] = useState(seekerPlans);
   const [ep, setEp] = useState(employerPlans);
   const [tr, setTr] = useState(trainings);
@@ -35,15 +38,36 @@ export function PricingCenter({ seekerPlans, employerPlans, trainings, loose }: 
   });
 
   async function post(body: any) {
-    const res = await fetch("/api/admin/pricing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const j = await res.json();
-    setNote(res.ok ? "Saved." : (j.error ?? "Failed."));
-    setTimeout(() => setNote(null), 2500);
+    setNote(null); setNoteBad(false);
+    try {
+      const res = await fetch("/api/admin/pricing", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await res.json();
+      if (res.ok) {
+        setNote("Saved."); setNoteBad(false);
+        setTimeout(() => setNote(null), 2500);
+        router.refresh();                       // pull the stored values back
+      } else {
+        // Failures stay on screen until dismissed — a silent failure is the
+        // whole reason this went unnoticed before.
+        setNote(j.error ?? "Could not save."); setNoteBad(true);
+      }
+    } catch {
+      setNote("Network error — nothing was saved."); setNoteBad(true);
+    }
   }
 
   return (
     <div className="max-w-4xl">
-      {note && <div className="fixed top-6 right-6 bg-ink text-white px-4 py-2 rounded-pill text-sm font-semibold z-50">{note}</div>}
+      {note && (
+        <div className={`fixed top-6 right-6 z-50 max-w-md px-4 py-3 rounded-card text-sm font-semibold shadow-lg ${
+          noteBad ? "bg-coral text-white" : "bg-ink text-white"}`}>
+          {note}
+          {noteBad && (
+            <button className="ml-3 underline opacity-80" onClick={() => setNote(null)}>dismiss</button>
+          )}
+        </div>
+      )}
 
       {/* SEEKER / ELITE PLANS */}
       <Section title="Member & Elite subscriptions">
