@@ -20,7 +20,9 @@ export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
   if (secret) {
     const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
+    const ua = request.headers.get("user-agent") ?? "";
+    // Vercel Cron sends a user-agent, not an Authorization header.
+    if (!ua.includes("vercel-cron") && auth !== `Bearer ${secret}`) {
       return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     }
   }

@@ -117,14 +117,31 @@ const DRIPS: Drip[] = [
 ];
 
 export async function GET(request: Request) {
+  // Vercel Cron identifies itself with a user-agent; it does NOT send an
+  // Authorization header unless you configure one. Requiring a bearer token
+  // therefore silently rejected every scheduled run — which is why no funnel
+  // email had ever sent. Accept either signal.
   const secret = process.env.CRON_SECRET;
   const auth = request.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`)
+  const ua = request.headers.get("user-agent") ?? "";
+  const isVercelCron = ua.includes("vercel-cron");
+  if (secret && !isVercelCron && auth !== `Bearer ${secret}`)
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const admin = createAdminClient();
   const { data: cfg } = await admin.from("app_settings").select("value").eq("key", "funnel").maybeSingle();
-  if ((cfg?.value as any)?.enabled === false) return NextResponse.json({ ok: true, skipped: "disabled" });
+  if ((cfg?.value as any)?.enabled === false)
+    return NextResponse.json({ ok: true, sent: 0, skipped: "The funnel is disabled in settings." });
+
+  if (!process.env.RESEND_API_KEY)
+    return NextResponse.json({ ok: false, sent: 0, error: "RESEND_API_KEY is not set — nothing can send." }, { status: 500 });
+
+  // Invite guest applicants into the pool — the warmest supply we touch.
+  let applicantInvites = { invited: 0, skipped_existing: 0 };
+  try {
+    const { inviteApplicantsToPool } = await import("@/lib/applicantInvites");
+    applicantInvites = await inviteApplicantsToPool();
+  } catch { /* never let this block the drip emails */ }
 
   const now = Date.now();
   let sent = 0;
@@ -154,5 +171,5 @@ export async function GET(request: Request) {
   }
   // scheduled campaigns due by now ride the same daily train
   const campaignsFired = await dispatchDue(admin);
-  return NextResponse.json({ ok: true, sent, campaignsFired });
+  return NextResponse.json({ ok: true, applicant_invites: applicantInvites, sent, campaignsFired });
 }

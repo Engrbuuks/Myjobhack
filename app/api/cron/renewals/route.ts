@@ -9,7 +9,8 @@ export const maxDuration = 60;
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
   const auth = request.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`)
+  const ua = request.headers.get("user-agent") ?? "";
+  if (secret && !ua.includes("vercel-cron") && auth !== `Bearer ${secret}`)
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const admin = createAdminClient();
