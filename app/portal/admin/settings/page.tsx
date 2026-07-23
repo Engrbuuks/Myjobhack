@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
 import { ToolLimits } from "@/components/ToolLimits";
 import { BankSettings, TaxonomyManager, ChapterManager, PlanManager } from "@/components/AdminSettings";
+import { InterviewSettings } from "@/components/InterviewSettings";
 
 export default async function AdminSettingsPage() {
   const supabase = createClient();
@@ -15,6 +16,15 @@ export default async function AdminSettingsPage() {
   const empty = { bank: "", account_name: "", account_number: "" };
 
   const { data: limitsRow } = await supabase.from("app_settings").select("value").eq("key", "toolkit_limits").maybeSingle();
+
+  const { data: ivRow } = await supabase.from("app_settings").select("value").eq("key", "interviews").maybeSingle();
+  const iv = (ivRow?.value ?? {}) as any;
+  const interviewDefaults = {
+    booking_url: iv.booking_url ?? "",
+    default_mode: iv.default_mode ?? "video",
+    default_duration_min: Number(iv.default_duration_min) || 30,
+    default_meeting_link: iv.default_meeting_link ?? ""
+  };
 
   // fair-use watch: members whose reviews spanned 3+ DIFFERENT resumes in 7 days
   const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString();
@@ -37,6 +47,7 @@ export default async function AdminSettingsPage() {
       <PageHeader title="Settings"
         sub="Bank details shown to subscribers, and the four CRM axes — deactivated options disappear from filters and the profile wizard, without touching anyone's existing profile." />
       <div className="mb-10">
+        <InterviewSettings initial={interviewDefaults} />
         <BankSettings ngn={(ngn?.value as any) ?? empty} usd={(usd?.value as any) ?? empty} />
       </div>
       <div className="text-xs font-bold uppercase tracking-widest text-muted mb-4">CRM axes & sectors</div>
