@@ -90,8 +90,8 @@ export default async function PoolInsights({
           <BarList data={stats.by_state} />
         </Panel>
 
-        <Panel title="By verification status">
-          <Donut data={stats.by_verification.length ? stats.by_verification : [{ key: "none", label: "No data", count: 1 }]} />
+        <Panel title="By competency band">
+          <Donut data={stats.by_competency.length ? stats.by_competency : [{ key: "none", label: "Not yet assessed", count: 1 }]} />
         </Panel>
 
         <Panel title="By preferred work mode">

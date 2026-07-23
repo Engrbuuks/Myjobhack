@@ -11,6 +11,16 @@
 -- Run after 0037.
 -- ============================================================
 
+-- Safety: this migration's policies use is_admin_or_service(), which is created
+-- in migration 0036. Define it here too if it is missing, so 0038 can run
+-- standalone without failing on a missing function.
+create or replace function is_admin_or_service() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(is_admin(), false)
+      or coalesce(current_setting('request.jwt.claim.role', true), '') = 'service_role'
+      or auth.uid() is null
+$$;
+
 create table if not exists employer_prospects (
   id uuid primary key default gen_random_uuid(),
 
@@ -46,7 +56,7 @@ create table if not exists employer_prospects (
   -- outcome
   lost_reason text,
   owner_id uuid references profiles(id) on delete set null,
-  linked_org_id uuid references orgs(id) on delete set null,  -- once they sign up
+  linked_org_id uuid references organizations(id) on delete set null,  -- once they sign up
 
   notes text,
   created_by uuid references profiles(id) on delete set null,

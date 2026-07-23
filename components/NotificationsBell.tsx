@@ -34,13 +34,16 @@ export function NotificationsBell() {
   }
 
   return (
-    <div className="fixed top-5 right-5 z-50 flex items-center gap-2">
+    /* On mobile these sit inside the sticky top bar (which is 56px tall), so they
+       are pushed below it and made smaller. On desktop there is no top bar, so
+       they float in the corner as before. */
+    <div className="fixed top-[68px] right-3 lg:top-5 lg:right-5 z-40 lg:z-50 flex items-center gap-2">
       <a href="/portal/account" title="Account settings"
-        className="w-11 h-11 rounded-full bg-white border border-line shadow-sm grid place-items-center hover:border-coral transition text-lg">⚙</a>
+        className="w-9 h-9 lg:w-11 lg:h-11 rounded-full bg-white border border-line shadow-sm grid place-items-center hover:border-coral transition text-base lg:text-lg">⚙</a>
       <div className="relative">
       <button onClick={toggle}
-        className="relative w-11 h-11 rounded-full bg-white border border-line shadow-sm grid place-items-center hover:border-coral transition">
-        <span className="text-lg">🔔</span>
+        className="relative w-9 h-9 lg:w-11 lg:h-11 rounded-full bg-white border border-line shadow-sm grid place-items-center hover:border-coral transition">
+        <span className="text-base lg:text-lg">🔔</span>
         {unread > 0 && (
           <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-pill bg-coral text-white text-[11px] font-bold grid place-items-center">
             {unread}

@@ -93,11 +93,14 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       closes_at: j.closes_at || null, external_url: j.external_url || null, openings: Math.max(1, Number(j.openings) || 1),
     };
     if (j.id) {
+      let justPublished = false;
       // set published_at the first time it goes live; never overwrite it afterwards
       const { data: existing } = await supabase.from("jobs").select("published_at").eq("id", j.id).single();
       const updatePayload: any = { ...payload };
       if (j.status === "published" && !existing?.published_at) {
         updatePayload.published_at = new Date().toISOString();
+        // Newly live — match it against the pool so candidates hear about it.
+        justPublished = true;
       } else if (j.status !== "published") {
         updatePayload.published_at = null;
       }
@@ -112,6 +115,16 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
         return;
       }
       if (error) { setErr(error.message); setBusy(false); return; }
+
+      // Newly published — match against the pool in the background. Failure
+      // here must never block the save, so it is fire-and-forget.
+      if (justPublished) {
+        fetch("/api/jobs/publish-match", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: j.id })
+        }).catch(() => {});
+      }
+
       if (pendingQuestions?.length) {
         try {
           const qRes = await fetch("/api/jobs/apply-draft", {

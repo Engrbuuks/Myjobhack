@@ -150,7 +150,14 @@ export function ProfileWizard(p: Props) {
     if (!user) { setErr("Session expired — sign in again."); setBusy(false); return; }
 
     const { error: e1 } = await supabase.from("profiles")
-      .update({ full_name: fullName, phone, country, city, onboarded: completion >= 60 })
+      .update({
+        full_name: fullName, phone, country, city,
+        // The picker returns a state/region for countries that have them.
+        // Analytics read profiles.state, so write both — this is why the pool
+        // showed "unspecified" for every state.
+        state: city || null,
+        onboarded: completion >= 60
+      })
       .eq("id", user.id);
     const { error: e2 } = await supabase.from("talent_profiles")
       .update({

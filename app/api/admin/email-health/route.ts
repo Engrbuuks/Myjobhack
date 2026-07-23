@@ -65,9 +65,19 @@ export async function GET() {
   if (!report.dns.dkim?.present) missing.push("DKIM");
   if (!report.dns.dmarc?.present) missing.push("DMARC");
 
-  report.verdict = missing.length
-    ? `Missing ${missing.join(", ")}. Until these exist, mail will keep landing in Promotions or Spam regardless of how it is written.`
-    : "SPF, DKIM and DMARC are all present. Deliverability problems from here are content, volume or reputation — not authentication.";
+  // Verifying a domain with a sending provider usually sets SPF and DKIM.
+  // DMARC is separate, and its absence is the most common reason a verified
+  // domain still lands in Promotions.
+  report.note_on_verification =
+    "Verifying your domain with Resend typically adds SPF and DKIM. DMARC is a separate record you add yourself — a verified domain can still be missing it.";
+
+  if (!missing.length) {
+    report.verdict = "SPF, DKIM and DMARC are all present. Authentication is not your problem — remaining Promotions placement is down to content design, sending volume and reputation.";
+  } else if (missing.length === 1 && missing[0] === "DMARC") {
+    report.verdict = "SPF and DKIM are set, but DMARC is missing. Gmail requires DMARC from bulk senders — this alone is enough to route mail to Promotions. Add a TXT record at _dmarc." + domain + " with value: v=DMARC1; p=none; rua=mailto:dmarc@" + domain;
+  } else {
+    report.verdict = `Missing ${missing.join(", ")}. Until these exist, mail will keep landing in Promotions or Spam regardless of how it is written.`;
+  }
 
   return NextResponse.json(report, { headers: { "Cache-Control": "no-store" } });
 }
