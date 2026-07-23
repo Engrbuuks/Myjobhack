@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
-import { renderPlainEmail } from "@/lib/email";
+import { renderEmail } from "@/lib/email";
 
 const APP = () => process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
 
@@ -63,7 +63,8 @@ export async function inviteApplicantsToPool(): Promise<{
       .select("title, company_name").eq("id", app.job_id).maybeSingle();
     const first = (app.guest_name || "there").split(" ")[0];
 
-    const html = renderPlainEmail({
+    const html = renderEmail({
+      kicker: "Join the pool",
       heading: "You applied — now let employers find you",
       paragraphs: [
         `Hi ${first},`,
@@ -77,8 +78,6 @@ export async function inviteApplicantsToPool(): Promise<{
         "Free to join, and free to be assessed"
       ],
       cta: { label: "Create my profile", url: `${APP()}/join?ref=applicant-invite` },
-      signoff: "— The MYJOBHACK team",
-      unsubscribeUrl: `${APP()}/join`
     });
 
     const res = await sendEmail(email, "You applied — now let employers find you", html, { bulk: true });

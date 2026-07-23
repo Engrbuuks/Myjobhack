@@ -87,9 +87,28 @@ Respond with ONLY this JSON:
     const html = renderCampaign(b.draft);
     // Campaigns are bulk mail — they must carry List-Unsubscribe headers, or
     // Gmail will route them to Promotions (or worse).
+    //
+    // Paced rather than blasted: smaller chunks with a pause between them look
+    // less like a burst to spam filters and stay well inside provider rate
+    // limits. Tunable from app_settings.campaign_pacing.
+    const { data: paceRow } = await admin.from("app_settings")
+      .select("value").eq("key", "campaign_pacing").maybeSingle();
+    const pace = (paceRow?.value ?? {}) as any;
+
+    // The function has a hard 60s ceiling, so the pace must fit inside it or the
+    // send is cut off part-way — worse than not pacing at all. Compute a pause
+    // that spreads the send across the time we actually have.
+    const BUDGET_MS = 45_000;                       // leave headroom for the API calls
+    const chunkSize = Number(pace.chunk_size) || 25;
+    const wantedPause = Number(pace.pause_ms) || 20_000;
+    const chunks = Math.max(1, Math.ceil(emails.length / chunkSize));
+    const safePause = chunks > 1
+      ? Math.min(wantedPause, Math.floor(BUDGET_MS / (chunks - 1)))
+      : 0;
+
     const results = await sendBatch(
       emails.map((to) => ({ to, subject: b.draft.subject, html })),
-      { bulk: true }
+      { bulk: true, chunkSize, pauseMs: safePause }
     );
     const sent = results.filter((r) => !r.error).length;
 

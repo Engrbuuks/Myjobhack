@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rankCandidates } from "@/lib/matching";
 import { sendEmail } from "@/lib/resend";
-import { renderPlainEmail } from "@/lib/email";
+import { renderEmail } from "@/lib/email";
 
 const APP = () => process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
 
@@ -126,7 +126,8 @@ export async function notifyNewMatches(): Promise<{ notified: number; skipped: n
 
     if (cfg.email_enabled && prof?.email) {
       const first = (prof.full_name || "there").split(" ")[0];
-      const html = renderPlainEmail({
+      const html = renderEmail({
+        kicker: "New matches",
         heading: live.length === 1
           ? "A role matches your profile"
           : `${live.length} roles match your profile`,
@@ -137,8 +138,6 @@ export async function notifyNewMatches(): Promise<{ notified: number; skipped: n
         bullets: live.slice(0, 5).map((j: any) =>
           `${j.title}${j.company_name ? ` · ${j.company_name}` : ""}${j.location ? ` · ${j.location}` : ""}`),
         cta: { label: "See your matches", url: `${APP()}/portal/seeker/jobs` },
-        signoff: "— The MYJOBHACK team",
-        unsubscribeUrl: `${APP()}/portal/account`
       });
       await sendEmail(prof.email, live.length === 1
         ? `A role matches your profile`

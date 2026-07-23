@@ -33,6 +33,16 @@ type SendOpts = {
   bulk?: boolean;
   /** Per-recipient unsubscribe link, if you have one. */
   unsubscribeUrl?: string;
+  /**
+   * How many to send per chunk, and how long to pause between chunks.
+   *
+   * Honest note: pacing helps with provider rate limits and spam filtering,
+   * and it lets you abort a bad send mid-flight. It does NOT reliably move
+   * mail from Promotions to Primary — that is decided by content shape and
+   * engagement history, not send timing.
+   */
+  chunkSize?: number;
+  pauseMs?: number;
 };
 
 function headersFor(opts?: SendOpts) {
@@ -54,8 +64,13 @@ export async function sendBatch(
   if (!key) return emails.map(() => ({ id: null, error: "RESEND_API_KEY not set" }));
 
   const results: SendResult[] = [];
-  for (let i = 0; i < emails.length; i += 100) {
-    const chunk = emails.slice(i, i + 100).map((e) => ({
+  const chunkSize = Math.max(1, Math.min(opts?.chunkSize ?? 100, 100));
+  const pauseMs = Math.max(0, opts?.pauseMs ?? 0);
+
+  for (let i = 0; i < emails.length; i += chunkSize) {
+    // Pace between chunks so a large campaign trickles rather than bursts.
+    if (i > 0 && pauseMs) await new Promise(r => setTimeout(r, pauseMs));
+    const chunk = emails.slice(i, i + chunkSize).map((e) => ({
       from: FROM,
       to: [e.to],
       subject: e.subject,
