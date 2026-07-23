@@ -22,6 +22,10 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
   const [scheduling, setScheduling] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [sortBy, setSortBy] = useState<"fit" | "newest" | "oldest" | "name" | "band" | "stage">("fit");
+  const [filterStage, setFilterStage] = useState<string>("all");
+  const [filterBand, setFilterBand] = useState<string>("all");
+  const [query, setQuery] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [placeFor, setPlaceFor] = useState<Row | null>(null);
   const [salary, setSalary] = useState("");
@@ -64,8 +68,50 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
   function toggle(id: string) {
     setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
-  const allPicked = rows.length > 0 && rows.every((r) => picked.has(r.id));
-  function toggleAll() { setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.id))); }
+  // Sorting and filtering. Applied before anything is rendered, so bulk actions
+  // and export operate on exactly what the employer is looking at.
+  const BAND_RANK: Record<string, number> = { expert: 4, strong: 3, proficient: 2, developing: 1 };
+  const STAGE_RANK: Record<string, number> = {
+    hired: 6, offered: 5, interviewing: 4, shortlisted: 3, submitted: 2, rules_failed: 1, rejected: 0, withdrawn: 0
+  };
+
+  const visible = rows
+    .filter((r) => filterStage === "all" || r.status === filterStage)
+    .filter((r) => {
+      if (filterBand === "all") return true;
+      const b = (r as any).card?.competency_band ?? null;
+      return filterBand === "none" ? !b : b === filterBand;
+    })
+    .filter((r) => {
+      if (!query.trim()) return true;
+      const q = query.toLowerCase();
+      return r.name.toLowerCase().includes(q)
+        || r.answers.some((a) => String(a.value).toLowerCase().includes(q));
+    })
+    .slice()
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "newest": return +new Date(b.created_at) - +new Date(a.created_at);
+        case "oldest": return +new Date(a.created_at) - +new Date(b.created_at);
+        case "name":   return a.name.localeCompare(b.name);
+        case "stage":  return (STAGE_RANK[b.status] ?? 0) - (STAGE_RANK[a.status] ?? 0);
+        case "band": {
+          const ab = BAND_RANK[((a as any).card?.competency_band ?? "").toLowerCase()] ?? 0;
+          const bb = BAND_RANK[((b as any).card?.competency_band ?? "").toLowerCase()] ?? 0;
+          return bb - ab;
+        }
+        default: return (b.ai_fit_score ?? -1) - (a.ai_fit_score ?? -1);
+      }
+    });
+
+  // Which bands actually appear, so we don't offer empty filters.
+  const availableBands = Array.from(new Set(
+    rows.map((r) => (r as any).card?.competency_band).filter(Boolean)
+  )) as string[];
+  const availableStages = Array.from(new Set(rows.map((r) => r.status)));
+
+  const allPicked = visible.length > 0 && visible.every((r) => picked.has(r.id));
+  function toggleAll() { setPicked(allPicked ? new Set() : new Set(visible.map((r) => r.id))); }
 
   async function bulkStatus(status: string) {
     if (picked.size === 0) return;
@@ -83,7 +129,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
   }
 
   // Flatten rows for CSV export
-  const exportRows = rows.map((r) => ({
+  const exportRows = visible.map((r) => ({
     name: r.name, email: r.email, status: r.status,
     ai_fit: r.ai_fit_score ?? "", rules_passed: r.rules_passed == null ? "" : r.rules_passed ? "yes" : "no",
     applied: new Date(r.created_at).toLocaleDateString(),
@@ -110,10 +156,57 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
 
   return (
     <div className="space-y-3">
+      {/* Sort and filter — operates on what you see, so bulk actions and export
+          apply to exactly the set on screen. */}
+      <div className="flex flex-wrap items-end gap-3 p-3 rounded-xl bg-white border border-line">
+        <div>
+          <label className="label !text-xs">Sort by</label>
+          <select className="input !h-9 !w-auto text-xs" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+            <option value="fit">Best fit first</option>
+            <option value="band">Competency band</option>
+            <option value="stage">Furthest in pipeline</option>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name">Name (A–Z)</option>
+          </select>
+        </div>
+        <div>
+          <label className="label !text-xs">Stage</label>
+          <select className="input !h-9 !w-auto text-xs capitalize" value={filterStage} onChange={(e) => setFilterStage(e.target.value)}>
+            <option value="all">All stages</option>
+            {availableStages.map((st) => <option key={st} value={st}>{st.replace("_", " ")}</option>)}
+          </select>
+        </div>
+        {availableBands.length > 0 && (
+          <div>
+            <label className="label !text-xs">Competency</label>
+            <select className="input !h-9 !w-auto text-xs capitalize" value={filterBand} onChange={(e) => setFilterBand(e.target.value)}>
+              <option value="all">Any band</option>
+              {availableBands.map((b) => <option key={b} value={b}>{b}</option>)}
+              <option value="none">Not assessed</option>
+            </select>
+          </div>
+        )}
+        <div className="flex-1 min-w-40">
+          <label className="label !text-xs">Search</label>
+          <input className="input !h-9 text-xs" placeholder="Name or answer text…"
+            value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        {(filterStage !== "all" || filterBand !== "all" || query) && (
+          <button className="btn-ghost !h-9 text-xs"
+            onClick={() => { setFilterStage("all"); setFilterBand("all"); setQuery(""); }}>
+            Clear
+          </button>
+        )}
+        <span className="text-xs text-muted-2 whitespace-nowrap pb-2">
+          {visible.length} of {rows.length}
+        </span>
+      </div>
+
       <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-paper-2 border border-line">
         <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
           <input type="checkbox" className="accent-[#FC5647] w-4 h-4" checked={allPicked} onChange={toggleAll} />
-          Select all ({rows.length})
+          Select all ({visible.length})
         </label>
         <span className="text-sm text-muted-2">{picked.size} selected</span>
         {picked.size > 0 && (
@@ -135,7 +228,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
         <div className="flex-1" />
         <ExportButton rows={exportRows} filename="applicants" label="Export" />
       </div>
-      {rows.map((r) => (
+      {visible.map((r) => (
         <div key={r.id} className="card p-5">
           <div className="flex flex-wrap items-center gap-4">
             <input type="checkbox" className="accent-[#FC5647] w-4 h-4 shrink-0" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />

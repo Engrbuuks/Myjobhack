@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHeader } from "@/components/PageHeader";
 import { ApplicantTable } from "@/components/ApplicantTable";
+import { ApplicantCharts } from "@/components/ApplicantCharts";
 import { buildCandidateCard } from "@/lib/candidateCard";
 import { getMyOrg } from "@/lib/org";
 
@@ -20,9 +21,14 @@ export default async function EmployerApplicants({ params }: { params: { id: str
     .order("ai_fit_score", { ascending: false, nullsFirst: false });
 
   const fieldMap = new Map<string, string>();
+  // Carry the field TYPE through as well — only fixed-choice and numeric fields
+  // are worth counting. Free text produces one unique answer per person.
+  let formFields: { id: string; label: string; type: string }[] = [];
   if (job.form_id) {
-    const { data: fields } = await admin.from("form_fields").select("id, label").eq("form_id", job.form_id);
-    (fields ?? []).forEach((f) => fieldMap.set(f.id, f.label));
+    const { data: fields } = await admin.from("form_fields")
+      .select("id, label, field_type, sort").eq("form_id", job.form_id).order("sort");
+    (fields ?? []).forEach((f: any) => fieldMap.set(f.id, f.label));
+    formFields = (fields ?? []).map((f: any) => ({ id: f.id, label: f.label, type: f.field_type }));
   }
 
   // Which candidates has this employer unlocked or placed? (email is masked otherwise)
@@ -41,7 +47,7 @@ export default async function EmployerApplicants({ params }: { params: { id: str
       const resumeUrl = hasResume ? `/api/employer/resume?application_id=${a.id}` : null;
       const answers = Object.entries((a.answers as Record<string, any>) ?? {})
         .filter(([k]) => fieldMap.has(k))
-        .map(([k, v]) => ({ label: fieldMap.get(k)!, value: Array.isArray(v) ? v.join(", ") : String(v) }));
+        .map(([k, v]) => ({ field_id: k, label: fieldMap.get(k)!, value: Array.isArray(v) ? v.join(", ") : String(v), raw: v }));
       // Structured card — the leak-proof evaluation surface (résumé stays gated).
       const card = a.talent_id ? await buildCandidateCard(a.talent_id, isReleased) : null;
       return {
@@ -58,7 +64,7 @@ export default async function EmployerApplicants({ params }: { params: { id: str
   return (
     <>
       <PageHeader title={`Applicants — ${job.title}`}
-        sub={`${rows.length} total · sorted by AI fit score`}
+        sub={`${rows.length} applicant${rows.length === 1 ? "" : "s"} · sort, filter and search below`}
         action={<Link href={`/portal/employer/jobs/${params.id}`} className="btn-ghost">← Edit job</Link>} />
 
       {(job.openings ?? 1) > 1 && (

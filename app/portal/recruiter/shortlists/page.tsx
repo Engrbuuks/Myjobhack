@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHeader } from "@/components/PageHeader";
 import { ApplicantTable } from "@/components/ApplicantTable";
+import { ApplicantCharts } from "@/components/ApplicantCharts";
 import { buildCandidateCard } from "@/lib/candidateCard";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export default async function RecruiterShortlists({ searchParams }: { searchPara
   const job = (jobs ?? []).find((j) => j.id === jobId) ?? null;
 
   let rows: any[] = [];
+  let formFields: { id: string; label: string; type: string }[] = [];
   if (jobId) {
     const { data: apps } = await admin.from("applications").select("*").eq("job_id", jobId)
       .order("ai_fit_score", { ascending: false, nullsFirst: false });
@@ -25,15 +27,17 @@ export default async function RecruiterShortlists({ searchParams }: { searchPara
     const { data: form } = await admin.from("jobs").select("form_id").eq("id", jobId).maybeSingle();
     const fieldMap = new Map<string, string>();
     if (form?.form_id) {
-      const { data: fields } = await admin.from("form_fields").select("id, label").eq("form_id", form.form_id);
-      (fields ?? []).forEach((f) => fieldMap.set(f.id, f.label));
+      const { data: fields } = await admin.from("form_fields")
+        .select("id, label, field_type, sort").eq("form_id", form.form_id).order("sort");
+      (fields ?? []).forEach((f: any) => fieldMap.set(f.id, f.label));
+      formFields = (fields ?? []).map((f: any) => ({ id: f.id, label: f.label, type: f.field_type }));
     }
 
     rows = await Promise.all((apps ?? []).map(async (a) => {
       const { data: prof } = await admin.from("profiles").select("full_name, email").eq("id", a.talent_id).maybeSingle();
       const answers = Object.entries((a.answers as Record<string, any>) ?? {})
         .filter(([k]) => fieldMap.has(k))
-        .map(([k, v]) => ({ label: fieldMap.get(k)!, value: Array.isArray(v) ? v.join(", ") : String(v) }));
+        .map(([k, v]) => ({ field_id: k, label: fieldMap.get(k)!, value: Array.isArray(v) ? v.join(", ") : String(v) }));
       const card = a.talent_id ? await buildCandidateCard(a.talent_id, false) : null;
       return {
         id: a.id, talent_id: a.talent_id, status: a.status, rules_passed: a.rules_passed,
@@ -65,6 +69,7 @@ export default async function RecruiterShortlists({ searchParams }: { searchPara
           </div>
 
           {job && <p className="text-sm text-muted-2 mb-3">{rows.length} applicant{rows.length === 1 ? "" : "s"} for <b className="text-ink">{job.title}</b></p>}
+          {rows.length > 0 && <ApplicantCharts rows={rows as any} formFields={formFields} />}
           <ApplicantTable rows={rows as any} statusEndpoint="/api/employer/application-status" jobId={jobId ?? undefined} />
         </>
       )}
