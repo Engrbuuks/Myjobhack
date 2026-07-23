@@ -48,13 +48,30 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
               ? "You met the role's requirements, so our system shortlisted you instantly. The hiring team sees you at the top."
               : "The hiring team has it. Watch your inbox."}
           </p>
+          {/* This is the moment of maximum motivation — they have just applied.
+              Lead with the assessment, because that is what actually makes them
+              competitive for the role they just went for, not generic features. */}
           <div className="rounded-xl bg-white/[.06] border border-white/10 p-5 mb-5">
-            <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-2">Don't stop here</div>
-            <p className="text-sm text-white/70 leading-relaxed">
-              Members track every application live, get auto-matched to new roles, receive training invites in their niche, and can sharpen their resume with the Career Toolkit. It's free and takes two minutes.
+            <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-2">
+              One thing worth doing now
+            </div>
+            <p className="text-sm text-white/75 leading-relaxed mb-3">
+              Employers on MYJOBHACK rank candidates by <b className="text-white">proven competency</b>, not
+              by CV claims. Right now your application carries no competency band — so you're being
+              read the same way you would be anywhere else.
+            </p>
+            <p className="text-sm text-white/60 leading-relaxed">
+              Create a free profile and take one practical assessment in your field. It takes about
+              35 minutes, and it applies to <b className="text-white/90">every</b> role you go for here —
+              including this one.
             </p>
           </div>
-          <Link href="/signup" className="btn-coral w-full justify-center !h-12">Create my free profile →</Link>
+          <Link href="/signup" className="btn-coral w-full justify-center !h-12">
+            Create my profile & get assessed →
+          </Link>
+          <p className="text-xs text-white/40 mt-3 text-center">
+            Free. Your application stands either way.
+          </p>
         </div>
       </div>
     );

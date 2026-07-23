@@ -234,7 +234,12 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
             <input type="checkbox" className="accent-[#FC5647] w-4 h-4 shrink-0" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
             <div className="flex-1 min-w-48">
               <div className="font-semibold text-sm">{r.name}</div>
-              <div className="text-xs text-muted-2">{r.email} · {new Date(r.created_at).toLocaleDateString()}{r.guest && <span className="ml-2 px-1.5 py-0.5 rounded bg-paper-2 text-[10px] font-bold uppercase tracking-wider">Guest</span>}</div>
+              <div className="text-xs text-muted-2">{r.email} · {new Date(r.created_at).toLocaleDateString()}{r.guest && (
+                  <span className="ml-2 px-1.5 py-0.5 rounded bg-paper-2 text-[10px] font-bold uppercase tracking-wider"
+                    title="Applied without an account, so they have no competency band. Judge this one on the CV alone.">
+                    Guest · not assessed
+                  </span>
+                )}</div>
             </div>
             {r.ai_fit_score != null && (
               <div className="text-center">

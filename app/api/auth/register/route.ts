@@ -91,6 +91,27 @@ export async function POST(request: Request) {
   }
 
   // Invite-link tracking: bump the counter and record the intended tier.
+  // Claim any applications they made as a guest with this email. Without this,
+  // someone applies, signs up, gets assessed — and the employer still sees an
+  // unassessed CV, because the old application was never linked to the profile.
+  if (created?.user?.id && email) {
+    try {
+      const { data: claimed } = await admin.from("applications")
+        .update({ talent_id: created.user.id, pool_joined: true })
+        .ilike("guest_email", email)
+        .is("talent_id", null)
+        .select("id");
+      if (claimed?.length) {
+        await admin.from("notifications").insert({
+          profile_id: created.user.id,
+          title: claimed.length === 1 ? "We found your earlier application" : `We found ${claimed.length} earlier applications`,
+          body: "They're now linked to your profile. Take your competency assessment and employers will see your band against them.",
+          link: "/portal/seeker/assessment"
+        });
+      }
+    } catch { /* never block signup on this */ }
+  }
+
   if (ref) {
     try {
       await admin.rpc("bump_invite_signup", { p_code: ref });
