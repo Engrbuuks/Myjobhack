@@ -41,6 +41,33 @@ export function EmployerPipeline({ prospects, due, counts }:
   const [tplKey, setTplKey] = useState("hr_lead");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [observation, setObservation] = useState("");
+  const [why, setWhy] = useState<string | null>(null);
+
+  async function draftWithAI(angleKey?: string) {
+    if (!compose) return;
+    setDrafting(true); setWhy(null);
+    try {
+      const res = await fetch("/api/admin/draft-outreach", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prospect_id: compose.id, template_key: tplKey,
+          observation: observation.trim() || null,
+          angle: angleKey || null
+        })
+      });
+      const j = await res.json();
+      if (res.ok) {
+        setSubject(j.subject); setBody(j.body); setWhy(j.why ?? null);
+      } else {
+        setNote(j.error ?? "Could not draft."); setBad(true);
+      }
+    } catch {
+      setNote("Network error while drafting."); setBad(true);
+    }
+    setDrafting(false);
+  }
   const [f, setF] = useState({
     company: "", sector: "", city: "", tier: "1", contact_name: "",
     contact_role: "", contact_email: "", linkedin_url: "", hires_roles: "", hiring_now: false
@@ -62,6 +89,7 @@ export function EmployerPipeline({ prospects, due, counts }:
     const t = templateByKey(key);
     setSubject(t.subject(p as any));
     setBody(t.body(p as any));
+    setObservation(""); setWhy(null);
     setCompose(p);
   }
   function changeTemplate(key: string) {
@@ -233,6 +261,45 @@ export function EmployerPipeline({ prospects, due, counts }:
               <p className="text-xs text-muted-2 mt-1">{templateByKey(tplKey).when}</p>
             </div>
 
+            {/* AI drafting — the template gives structure, this gives the
+                personal line that actually earns replies. */}
+            <div className="rounded-xl border border-line bg-paper p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-widest text-muted-2">Draft with AI</span>
+                {drafting && <span className="text-xs text-coral font-semibold">Writing…</span>}
+              </div>
+
+              <div>
+                <label className="label !text-xs">Anything specific you noticed? (optional, but this is what makes it land)</label>
+                <input className="input !h-9 text-xs"
+                  placeholder="e.g. they posted 12 agent roles last week / opened a Lekki office"
+                  value={observation} onChange={e => setObservation(e.target.value)} />
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                <button className="btn-coral !h-8 text-xs" disabled={drafting}
+                  onClick={() => draftWithAI()}>✦ Write it for me</button>
+                {[
+                  ["Lead with their cost of a bad hire", "cost_of_bad_hire"],
+                  ["Lead with speed", "speed"],
+                  ["Lead with proof — offer sample profiles", "proof"],
+                  ["Warmer, more personal", "warm"]
+                ].map(([label, key]) => (
+                  <button key={key} className="btn-ghost !h-8 text-xs" disabled={drafting}
+                    onClick={() => draftWithAI(String(label))}>{label}</button>
+                ))}
+              </div>
+
+              {why && (
+                <p className="text-xs text-muted-2 border-l-2 border-coral pl-2.5 leading-relaxed">
+                  <b className="text-ink">Why this angle:</b> {why}
+                </p>
+              )}
+              <p className="text-[10px] text-muted-2">
+                Read it before sending. AI writes the shape — you know the relationship.
+              </p>
+            </div>
+
             <div>
               <label className="label !text-xs">Subject</label>
               <input className="input !h-10" value={subject} onChange={e => setSubject(e.target.value)} />
@@ -242,15 +309,15 @@ export function EmployerPipeline({ prospects, due, counts }:
               <label className="label !text-xs">Body</label>
               <textarea className="input !h-auto py-2 font-mono text-xs" rows={16}
                 value={body} onChange={e => setBody(e.target.value)} />
-              {body.includes("[ADD ONE SPECIFIC OBSERVATION") && (
+              {/[[][A-Z][A-Z ._-]{3,}]/.test(body) && (
                 <p className="text-xs text-coral font-semibold mt-1.5">
-                  Replace the bracketed line with something specific about this company — it is the biggest driver of replies.
+                  There is still a placeholder in this email. Replace it — or let AI draft it above — before sending.
                 </p>
               )}
             </div>
 
             <div className="flex gap-3">
-              <button className="btn-coral" disabled={busy || body.includes("[ADD ONE SPECIFIC OBSERVATION")}
+              <button className="btn-coral" disabled={busy || /[[][A-Z][A-Z ._-]{3,}]/.test(body)}
                 onClick={() => post({ action: "send", id: compose.id, data: { subject, body, template_key: tplKey } },
                   () => setCompose(null))}>
                 {busy ? "Sending…" : "Send"}
