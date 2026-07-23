@@ -74,6 +74,15 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       return;
     }
     if (!j.title.trim()) { setErr("Title is required"); return; }
+
+    // A published role without a niche is matched against the entire pool
+    // regardless of field, which produces noise rather than candidates.
+    // Drafts can be saved without it; going live cannot.
+    if (j.status === "published" && !j.niche_id) {
+      setErr("Choose a niche before publishing. Matching uses it to decide which part of the talent pool this role is scored against — without it, every assessed candidate is compared regardless of field.");
+      return;
+    }
+
     setBusy(true); setErr(null);
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -270,11 +279,48 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
           <div><label className="label">Type</label>{sel("employment_type", TYPES, "Select…")}</div>
         </div>
         <div className="grid sm:grid-cols-3 gap-4">
-          <div><label className="label">Niche</label>
-            <select className="input" value={j.niche_id ?? ""} onChange={(e) => set("niche_id", e.target.value || null)}>
+          <div>
+            <label className="label">Niche <span className="text-coral">*</span></label>
+            <select className={`input ${!j.niche_id ? "border-coral" : ""}`}
+              value={j.niche_id ?? ""} onChange={(e) => set("niche_id", e.target.value || null)}>
               <option value="">Select…</option>
               {niches.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
-            </select></div>
+            </select>
+            {!j.niche_id ? (
+              <p className="text-xs text-coral mt-1 leading-relaxed">
+                Matching needs this. Without a niche the role is scored against every
+                candidate on the platform regardless of field — you will get noise, not matches.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-2 mt-1">Decides which part of the pool this role is matched against.</p>
+            )}
+          </div>
+
+          {/* What the matcher actually has to work with. Posting a role quickly
+              without these produces weak matches, and it is not obvious why. */}
+          <div className="sm:col-span-2">
+            <label className="label !text-xs">Matching readiness</label>
+            <div className="rounded-xl border border-line bg-paper p-3">
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-2">
+                {[
+                  ["Niche", !!j.niche_id, "which part of the pool to search"],
+                  ["Seniority", !!j.role_level, "filters out the wrong experience level"],
+                  ["Key requirements", (j.key_requirements?.length ?? 0) > 0, "what the AI ranks candidates against"],
+                  ["Description", (j.description?.trim().length ?? 0) > 80, "gives the AI context to reason with"]
+                ].map(([label, ok, why]: any) => (
+                  <span key={label} className="inline-flex items-center gap-1.5 text-xs">
+                    <span className={ok ? "text-ink" : "text-coral"}>{ok ? "✓" : "○"}</span>
+                    <span className={ok ? "text-muted-2" : "text-coral font-semibold"}>{label}</span>
+                  </span>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-2 leading-relaxed">
+                Matching compares this posting against candidates' assessed competency and
+                structured profiles — it never reads résumés. The more of the above you fill in,
+                the sharper the ranking.
+              </p>
+            </div>
+          </div>
           <div><label className="label">Closes</label>
             <input className="input" type="date" value={j.closes_at?.slice(0, 10) ?? ""}
               onChange={(e) => set("closes_at", e.target.value || null)} /></div>
