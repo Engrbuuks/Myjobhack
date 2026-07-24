@@ -30,14 +30,14 @@ export async function redactResumePdf(input: ArrayBuffer): Promise<RedactionResu
   const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
   // Same serverless constraint as text extraction: no worker file is bundled,
   // so run in the main thread instead of trying to spawn one.
-  // Point at the real worker file inside node_modules. This resolves correctly
-  // now that pdfjs-dist is externalised from the bundle (see next.config.mjs).
+  // Vercel prunes files nothing statically imports, so pdf.worker.mjs was
+  // never deployed — hence "Cannot find module .../pdf.worker.mjs".
+  // Importing the worker module here makes the bundler treat it as a real
+  // dependency and ship it. pdfjs then finds it where it expects.
   try {
-    const { createRequire } = await import("module");
-    const req = createRequire(import.meta.url);
-    pdfjs.GlobalWorkerOptions.workerSrc = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
   } catch {
-    /* If it cannot be resolved, pdfjs falls back to its own fake worker. */
+    /* If it will not load, pdfjs falls back to running in the main thread. */
   }
 
   const loading = pdfjs.getDocument({

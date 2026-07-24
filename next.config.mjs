@@ -4,15 +4,22 @@ const nextConfig = {
     /**
      * Keep PDF libraries OUT of the server bundle.
      *
-     * pdfjs-dist loads pdf.worker.mjs at runtime by path. When Next bundles the
-     * package into a chunk, that sibling file is not emitted, so extraction dies
-     * with: Cannot find module '.next/server/chunks/pdf.worker.mjs'.
-     *
-     * Listing them here leaves them in node_modules and requires them normally,
-     * so the worker sits beside the code that looks for it.
+     * pdfjs-dist loads pdf.worker.mjs at runtime by path. Bundling the package
+     * into a chunk loses that sibling file.
      * (Next 14 key — renamed to serverExternalPackages in Next 15.)
      */
-    serverComponentsExternalPackages: ["pdfjs-dist", "pdf-parse", "canvas"]
+    serverComponentsExternalPackages: ["pdfjs-dist", "pdf-parse", "canvas"],
+
+    /**
+     * Belt and braces: Vercel prunes files nothing statically imports, which is
+     * how pdf.worker.mjs went missing from the deployment. This forces it to be
+     * traced and shipped even if the import analysis misses it.
+     */
+    outputFileTracingIncludes: {
+      "/api/ai/parse-resume": ["./node_modules/pdfjs-dist/legacy/build/**"],
+      "/api/ai/resume-diagnostic": ["./node_modules/pdfjs-dist/legacy/build/**"],
+      "/api/employer/resume": ["./node_modules/pdfjs-dist/legacy/build/**"]
+    }
   }
 };
 export default nextConfig;

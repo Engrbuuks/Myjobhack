@@ -105,14 +105,14 @@ async function extractWithPdfJs(buf: Buffer): Promise<string> {
   // spawn one ("Setting up fake worker failed"). Point the worker source at
   // nothing and disable it — everything then runs in the main thread, which is
   // what we want for text extraction anyway.
-  // Point at the real worker file inside node_modules. This resolves correctly
-  // now that pdfjs-dist is externalised from the bundle (see next.config.mjs).
+  // Vercel prunes files nothing statically imports, so pdf.worker.mjs was
+  // never deployed — hence "Cannot find module .../pdf.worker.mjs".
+  // Importing the worker module here makes the bundler treat it as a real
+  // dependency and ship it. pdfjs then finds it where it expects.
   try {
-    const { createRequire } = await import("module");
-    const req = createRequire(import.meta.url);
-    pdfjs.GlobalWorkerOptions.workerSrc = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
   } catch {
-    /* If it cannot be resolved, pdfjs falls back to its own fake worker. */
+    /* If it will not load, pdfjs falls back to running in the main thread. */
   }
 
   const doc = await pdfjs.getDocument({
