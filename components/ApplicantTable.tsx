@@ -26,6 +26,11 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
   const [filterStage, setFilterStage] = useState<string>("all");
   const [filterBand, setFilterBand] = useState<string>("all");
   const [query, setQuery] = useState("");
+  // Filters driven by the job's own screening questions — location, shift,
+  // experience, whatever this particular form asks.
+  const [answerFilters, setAnswerFilters] = useState<Record<string, string>>({});
+  const [minFit, setMinFit] = useState<string>("");
+  const [maxFit, setMaxFit] = useState<string>("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [placeFor, setPlaceFor] = useState<Row | null>(null);
   const [salary, setSalary] = useState("");
@@ -34,6 +39,25 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
 
   const [asmtNote, setAsmtNote] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [showCompose, setShowCompose] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+
+  /** Email whoever is currently selected. */
+  async function emailSelected() {
+    const targets = picked.size ? Array.from(picked) : visible.map((r) => r.id);
+    if (!targets.length) return;
+    setEmailing(true); setAsmtNote(null);
+    const res = await fetch("/api/admin/email-applicants", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ application_ids: targets, subject: emailSubject, body: emailBody, job_id: jobId })
+    });
+    const j = await res.json();
+    setEmailing(false);
+    setAsmtNote(res.ok ? j.message : (j.error ?? "Could not send."));
+    if (res.ok) { setShowCompose(false); setEmailSubject(""); setEmailBody(""); setPicked(new Set()); }
+  }
 
   // How many applicants have never been scored? Guest applications were not
   // scored historically, so a job can show a whole page of blanks.
@@ -106,6 +130,24 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
       return r.name.toLowerCase().includes(q)
         || r.answers.some((a) => String(a.value).toLowerCase().includes(q));
     })
+    // Screening-answer filters — e.g. only applicants who chose Lagos.
+    .filter((r) => Object.entries(answerFilters).every(([fieldId, wanted]) => {
+      if (!wanted) return true;
+      const a = (r.answers ?? []).find((x: any) => x.field_id === fieldId);
+      if (!a) return false;
+      // multiselect: match if the chosen value is among their answers
+      return String(a.value).split(",").map((v: string) => v.trim()).includes(wanted);
+    }))
+    // Fit-score band — the most decisive filter once applicants are scored.
+    .filter((r) => {
+      const lo = minFit === "" ? null : Number(minFit);
+      const hi = maxFit === "" ? null : Number(maxFit);
+      if (lo === null && hi === null) return true;
+      if (r.ai_fit_score == null) return false;   // unscored can't satisfy a score filter
+      if (lo !== null && r.ai_fit_score < lo) return false;
+      if (hi !== null && r.ai_fit_score > hi) return false;
+      return true;
+    })
     .slice()
     .sort((a, b) => {
       switch (sortBy) {
@@ -121,6 +163,33 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
         default: return (b.ai_fit_score ?? -1) - (a.ai_fit_score ?? -1);
       }
     });
+
+  // Build a filter for every screening question that has a small, repeating
+  // set of answers. Free-text questions produce one unique answer per person,
+  // so filtering on them is meaningless.
+  const answerFilterFields = (() => {
+    const byField = new Map<string, { label: string; values: Map<string, number> }>();
+    rows.forEach((r) => {
+      (r.answers ?? []).forEach((a: any) => {
+        if (!a.field_id || !a.value) return;
+        const entry = byField.get(a.field_id) ?? { label: a.label, values: new Map() };
+        // multiselect answers hold several values in one string
+        String(a.value).split(",").map((v: string) => v.trim()).filter(Boolean)
+          .forEach((v: string) => entry.values.set(v, (entry.values.get(v) ?? 0) + 1));
+        byField.set(a.field_id, entry);
+      });
+    });
+    return Array.from(byField.entries())
+      // A question is filterable when answers repeat — 12 distinct values or
+      // fewer, and fewer options than applicants.
+      .filter(([, e]) => e.values.size > 1 && e.values.size <= 12 && e.values.size < rows.length)
+      .map(([field_id, e]) => ({
+        field_id, label: e.label,
+        options: Array.from(e.values.entries())
+          .sort((a, b) => b[1] - a[1])
+          .map(([value, count]) => ({ value, count }))
+      }));
+  })();
 
   // Which bands actually appear, so we don't offer empty filters.
   const availableBands = Array.from(new Set(
@@ -210,9 +279,40 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
           <input className="input !h-9 text-xs" placeholder="Name or answer text…"
             value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        {(filterStage !== "all" || filterBand !== "all" || query) && (
+        <div>
+          <label className="label !text-xs">Fit score</label>
+          <div className="flex items-center gap-1">
+            <input className="input !h-9 !w-16 text-xs" type="number" placeholder="min"
+              value={minFit} onChange={(e) => setMinFit(e.target.value)} />
+            <span className="text-xs text-muted-2">–</span>
+            <input className="input !h-9 !w-16 text-xs" type="number" placeholder="max"
+              value={maxFit} onChange={(e) => setMaxFit(e.target.value)} />
+          </div>
+        </div>
+
+        {/* One filter per screening question that has repeating answers.
+            For a two-location job this is where "Lagos vs Abuja" appears. */}
+        {answerFilterFields.map((f) => (
+          <div key={f.field_id}>
+            <label className="label !text-xs truncate max-w-36" title={f.label}>{f.label}</label>
+            <select className="input !h-9 !w-auto text-xs"
+              value={answerFilters[f.field_id] ?? ""}
+              onChange={(e) => setAnswerFilters({ ...answerFilters, [f.field_id]: e.target.value })}>
+              <option value="">Any</option>
+              {f.options.map((o) => (
+                <option key={o.value} value={o.value}>{o.value} ({o.count})</option>
+              ))}
+            </select>
+          </div>
+        ))}
+
+        {(filterStage !== "all" || filterBand !== "all" || query || minFit || maxFit
+          || Object.values(answerFilters).some(Boolean)) && (
           <button className="btn-ghost !h-9 text-xs"
-            onClick={() => { setFilterStage("all"); setFilterBand("all"); setQuery(""); }}>
+            onClick={() => {
+              setFilterStage("all"); setFilterBand("all"); setQuery("");
+              setMinFit(""); setMaxFit(""); setAnswerFilters({});
+            }}>
             Clear
           </button>
         )}
@@ -242,6 +342,11 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
             )}
           </div>
         )}
+        <button className="btn-ghost !h-8 text-xs" onClick={() => setShowCompose(true)}
+          disabled={visible.length === 0}
+          title="Email the applicants you have selected, or everyone matching the current filters">
+          ✉ Email {picked.size ? `${picked.size} selected` : `these ${visible.length}`}
+        </button>
         {jobId && unscored > 0 && (
           <button className="btn-ghost !h-8 text-xs" onClick={scoreUnscored} disabled={scoring}
             title="Rank these applicants by how well their CV matches the job description">
@@ -252,6 +357,54 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
         <div className="flex-1" />
         <ExportButton rows={exportRows} filename="applicants" label="Export" />
       </div>
+      {/* Compose — emails the selected applicants, or everyone matching the
+          current filters if none are individually selected. */}
+      {showCompose && (
+        <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4"
+          onClick={() => !emailing && setShowCompose(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xl space-y-4"
+            onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-display font-semibold text-lg">
+                Email {picked.size ? `${picked.size} selected` : `${visible.length} applicant${visible.length === 1 ? "" : "s"}`}
+              </h3>
+              <p className="text-sm text-muted-2">
+                {picked.size
+                  ? "Only the applicants you ticked will receive this."
+                  : "Everyone matching your current filters will receive this. Narrow the filters first if that is not what you want."}
+              </p>
+            </div>
+
+            <div>
+              <label className="label !text-xs">Subject</label>
+              <input className="input !h-10" value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                placeholder="e.g. Interview invitation — Lagos call centre role" />
+            </div>
+
+            <div>
+              <label className="label !text-xs">Message</label>
+              <textarea className="input !h-auto py-2" rows={8} value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
+                placeholder={"Write as you would to one person — each recipient is greeted by name.\n\nLeave a blank line between paragraphs."} />
+              <p className="text-xs text-muted-2 mt-1">
+                Each email opens with the recipient's first name. Your name is signed at the end.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button className="btn-coral" onClick={emailSelected}
+                disabled={emailing || !emailSubject.trim() || !emailBody.trim()}>
+                {emailing ? "Sending…" : `Send to ${picked.size || visible.length}`}
+              </button>
+              <button className="btn-ghost" onClick={() => setShowCompose(false)} disabled={emailing}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {visible.map((r) => (
         <div key={r.id} className="card p-5">
           <div className="flex flex-wrap items-center gap-4">

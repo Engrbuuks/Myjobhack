@@ -31,10 +31,10 @@ export async function POST(request: Request) {
   if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
 
   // The job description is what we score against — without it there is nothing to compare.
-  let jd = (job.description ?? "").slice(0, 12000);
+  let jd = (job.description ?? "").slice(0, 4000);
   if (jd.length < 200 && job.jd_document_id) {
     const ex = await extractDocumentText(admin as any, job.jd_document_id);
-    if (ex.text) jd = ex.text.slice(0, 12000);
+    if (ex.text) jd = ex.text.slice(0, 4000);
   }
   if (jd.length < 120)
     return NextResponse.json({
@@ -49,9 +49,17 @@ export async function POST(request: Request) {
   if (!apps?.length)
     return NextResponse.json({ ok: true, scored: 0, message: "Every applicant already has a fit score." });
 
-  let scored = 0, noCv = 0, unreadable = 0;
+  let scored = 0, noCv = 0, unreadable = 0, rateLimited = 0;
+
+  // The free Gemini tier allows roughly 10-15 requests per minute. Firing a
+  // batch in a tight loop means most calls come back 429. Pace them instead —
+  // ~5 seconds apart keeps us safely inside the limit.
+  const PACE_MS = Number(process.env.AI_PACE_MS) || 5000;
+  let first = true;
 
   for (const a of apps) {
+    if (!first) await new Promise(r => setTimeout(r, PACE_MS));
+    first = false;
     let cvText: string | null = null;
 
     if (a.guest_resume_path) {
@@ -73,7 +81,7 @@ export async function POST(request: Request) {
         `You are screening a candidate CV against a job description for "${job.title}".
 Be honest and specific — an inflated score is worse than a low one.
 Respond with ONLY this JSON: {"fit_score":0-100,"summary":"2-3 sentences naming the strongest match and the biggest gap"}
-JOB DESCRIPTION:\n${jd}\n\nCANDIDATE CV:\n${cvText.slice(0, 12000)}`
+JOB DESCRIPTION:\n${jd}\n\nCANDIDATE CV:\n${cvText.slice(0, 6000)}`
       );
       if (r.data?.fit_score != null) {
         await admin.from("applications").update({
@@ -82,15 +90,21 @@ JOB DESCRIPTION:\n${jd}\n\nCANDIDATE CV:\n${cvText.slice(0, 12000)}`
         }).eq("id", a.id);
         scored++;
       }
-    } catch { /* skip this one, keep going */ }
+    } catch (e: any) {
+      // A 429 means we are being throttled — worth reporting, not swallowing.
+      if (String(e?.message ?? "").includes("429") || String(e?.message ?? "").toLowerCase().includes("quota")) {
+        rateLimited++;
+      }
+    }
   }
 
   return NextResponse.json({
-    ok: true, scored, no_cv: noCv, unreadable,
+    ok: true, scored, no_cv: noCv, unreadable, rate_limited: rateLimited,
     remaining: Math.max(0, (apps.length - scored)),
     message: `Scored ${scored} applicant${scored === 1 ? "" : "s"}.` +
       (noCv ? ` ${noCv} had no CV attached.` : "") +
       (unreadable ? ` ${unreadable} had a CV we couldn't read (likely scans).` : "") +
+      (rateLimited ? ` ${rateLimited} hit the AI rate limit — wait a minute and run again.` : "") +
       (apps.length >= 40 ? " Run again to continue — they're processed in batches." : "")
   });
 }

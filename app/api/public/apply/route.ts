@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractDocumentText, extractTextFromPath } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
-import { MAX_FILE_BYTES, ALLOWED_DOC_TYPES, humanBytes, logUpload } from "@/lib/storage";
+import { MAX_FILE_BYTES, ALLOWED_DOC_TYPES, humanBytes, logUpload, uploadFile } from "@/lib/storage";
 import { evaluateRules } from "@/lib/rules";
 
 export const runtime = "nodejs";
@@ -48,10 +48,22 @@ export async function POST(request: Request) {
   const safe = (resume.name || "resume.pdf").replace(/[^\w.\-]+/g, "_").slice(-80);
   const path = `${new Date().getFullYear()}/${crypto.randomUUID()}-${safe}`;
   const buf = Buffer.from(await resume.arrayBuffer());
-  const { error: upErr } = await admin.storage.from("guest-uploads")
-    .upload(path, buf, { contentType: resume.type || "application/pdf" });
-  if (upErr) return NextResponse.json({ error: `Resume upload failed: ${upErr.message}` }, { status: 500 });
-  await logUpload({ bucket: "guest-uploads", path, profileId: null, kind: "guest_resume", bytes: resume.size });
+  // Goes to R2 when configured, Supabase otherwise — so uploads keep working
+  // either way and Supabase storage stops growing once R2 is on.
+  const up = await uploadFile({
+    supabase: admin as any,
+    path: `guest-resumes/${path}`,
+    body: buf,
+    contentType: resume.type || "application/pdf",
+    fallbackBucket: "guest-uploads"
+  });
+  if (up.error || !up.location)
+    return NextResponse.json({ error: `Resume upload failed: ${up.error}` }, { status: 500 });
+
+  await logUpload({
+    bucket: up.location.bucket, path: up.location.path, profileId: null,
+    kind: "guest_resume", bytes: resume.size, provider: up.location.provider
+  });
 
   // required answers + auto-shortlisting rules — guests get the same fair machine
   let answers: Record<string, any> = {};
@@ -72,8 +84,9 @@ export async function POST(request: Request) {
     job_id, talent_id: null, status,
     guest_name: name, guest_email: email, guest_phone: phone || null,
     answers: { ...answers, _location: [city, country].filter(Boolean).join(", ") },
-    guest_resume_path: path,
-    guest_resume_bucket: "guest-uploads"
+    guest_resume_path: up.location.path,
+    guest_resume_bucket: up.location.bucket,
+    guest_resume_provider: up.location.provider
   }).select("id").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -81,18 +94,29 @@ export async function POST(request: Request) {
   // always been scored; guests were not, which left a job with only guest
   // applicants completely unranked. Best effort: never blocks the application.
   try {
-    let jd = (job.description ?? "").slice(0, 12000);
+    // COST GUARD: scoring runs once per applicant, so a posting that attracts
+    // hundreds could quietly consume a lot. Past a threshold we stop scoring
+    // on arrival — the employer can still score in batches from the applicants
+    // page, which keeps them in control of the spend.
+    const { count: alreadyScored } = await admin.from("applications")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", job_id).not("ai_fit_score", "is", null);
+
+    const AUTO_SCORE_LIMIT = Number(process.env.AUTO_SCORE_LIMIT) || 150;
+    if ((alreadyScored ?? 0) >= AUTO_SCORE_LIMIT) throw new Error("auto-score limit reached for this job");
+
+    let jd = (job.description ?? "").slice(0, 4000);
     if (jd.length < 200 && (job as any).jd_document_id) {
       const ex = await extractDocumentText(admin as any, (job as any).jd_document_id);
-      if (ex.text) jd = ex.text.slice(0, 12000);
+      if (ex.text) jd = ex.text.slice(0, 4000);
     }
     if (jd.length >= 120 && path) {
-      const cv = await extractTextFromPath(admin as any, "guest-uploads", path);
+      const cv = await extractTextFromPath(admin as any, up.location.bucket, up.location.path);
       if (cv.text) {
         const r = await geminiJson(
           `You are screening a candidate CV against a job description for "${job.title}".
 Respond with ONLY this JSON: {"fit_score":0-100,"summary":"2-3 sentence honest assessment of fit, naming the strongest match and the biggest gap"}
-JOB DESCRIPTION:\n${jd}\n\nCANDIDATE CV:\n${cv.text.slice(0, 12000)}`
+JOB DESCRIPTION:\n${jd}\n\nCANDIDATE CV:\n${cv.text.slice(0, 6000)}`
         );
         if (r.data?.fit_score != null) {
           await admin.from("applications").update({

@@ -16,12 +16,14 @@ export async function extractDocumentText(
   supabase: SupabaseClient, documentId: string
 ): Promise<{ text: string | null; error: string | null; name?: string; diagnostic?: string }> {
   const { data: doc } = await supabase
-    .from("documents").select("bucket, path, mime, original_name").eq("id", documentId).single();
+    .from("documents").select("bucket, path, mime, original_name, storage_provider").eq("id", documentId).single();
   if (!doc) return { text: null, error: "Document not found" };
 
-  const { data: file, error: dlErr } = await supabase.storage.from(doc.bucket).download(doc.path);
-  if (dlErr || !file) return { text: null, error: dlErr?.message ?? "Download failed" };
-  const buf = Buffer.from(await file.arrayBuffer());
+  // Files may live in R2 or Supabase; the row records which.
+  const { locationFromDocument, downloadFile } = await import("@/lib/storage");
+  const dl = await downloadFile({ supabase, location: locationFromDocument(doc as any) });
+  if (dl.error || !dl.buffer) return { text: null, error: dl.error ?? "Download failed" };
+  const buf = dl.buffer;
 
   const name = doc.original_name ?? doc.path;
   const lowerPath = String(doc.path).toLowerCase();
@@ -146,10 +148,11 @@ function clean(t: string): string {
 export async function extractTextFromPath(
   supabase: SupabaseClient, bucket: string, path: string
 ): Promise<{ text: string | null; error: string | null }> {
-  const { data: file, error: dlErr } = await supabase.storage.from(bucket).download(path);
-  if (dlErr || !file) return { text: null, error: dlErr?.message ?? "Download failed" };
-
-  const buf = Buffer.from(await file.arrayBuffer());
+  const { downloadFile } = await import("@/lib/storage");
+  const provider = bucket === "r2" || bucket === process.env.R2_BUCKET ? "r2" : "supabase";
+  const dl = await downloadFile({ supabase, location: { provider: provider as any, bucket, path } });
+  if (dl.error || !dl.buffer) return { text: null, error: dl.error ?? "Download failed" };
+  const buf = dl.buffer;
   const header = buf.subarray(0, 5).toString("latin1");
   const lower = path.toLowerCase();
 
