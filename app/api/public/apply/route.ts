@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { extractDocumentText, extractTextFromPath } from "@/lib/extract";
+import { geminiJson } from "@/lib/gemini";
 import { MAX_FILE_BYTES, ALLOWED_DOC_TYPES, humanBytes, logUpload } from "@/lib/storage";
 import { evaluateRules } from "@/lib/rules";
 
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
   const { data: job } = await admin.from("jobs")
-    .select("id, title, status, org_id, form_id").eq("id", job_id).single();
+    .select("id, title, status, org_id, form_id, description, jd_document_id").eq("id", job_id).single();
   if (!job || job.status !== "published")
     return NextResponse.json({ error: "This role is no longer open." }, { status: 404 });
 
@@ -74,6 +76,33 @@ export async function POST(request: Request) {
     guest_resume_bucket: "guest-uploads"
   }).select("id").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // AI fit score — CV against the job description. Signed-in applicants have
+  // always been scored; guests were not, which left a job with only guest
+  // applicants completely unranked. Best effort: never blocks the application.
+  try {
+    let jd = (job.description ?? "").slice(0, 12000);
+    if (jd.length < 200 && (job as any).jd_document_id) {
+      const ex = await extractDocumentText(admin as any, (job as any).jd_document_id);
+      if (ex.text) jd = ex.text.slice(0, 12000);
+    }
+    if (jd.length >= 120 && path) {
+      const cv = await extractTextFromPath(admin as any, "guest-uploads", path);
+      if (cv.text) {
+        const r = await geminiJson(
+          `You are screening a candidate CV against a job description for "${job.title}".
+Respond with ONLY this JSON: {"fit_score":0-100,"summary":"2-3 sentence honest assessment of fit, naming the strongest match and the biggest gap"}
+JOB DESCRIPTION:\n${jd}\n\nCANDIDATE CV:\n${cv.text.slice(0, 12000)}`
+        );
+        if (r.data?.fit_score != null) {
+          await admin.from("applications").update({
+            ai_fit_score: Math.max(0, Math.min(100, Number(r.data.fit_score))),
+            ai_summary: String(r.data.summary ?? "")
+          }).eq("id", app.id);
+        }
+      }
+    }
+  } catch { /* scoring is best-effort */ }
 
   // tell the hiring side
   if (job.org_id) {

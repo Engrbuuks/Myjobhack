@@ -33,6 +33,24 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
   const [placing, setPlacing] = useState(false);
 
   const [asmtNote, setAsmtNote] = useState<string | null>(null);
+  const [scoring, setScoring] = useState(false);
+
+  // How many applicants have never been scored? Guest applications were not
+  // scored historically, so a job can show a whole page of blanks.
+  const unscored = rows.filter((r) => r.ai_fit_score == null).length;
+
+  async function scoreUnscored() {
+    if (!jobId) return;
+    setScoring(true); setAsmtNote(null);
+    const res = await fetch("/api/admin/score-applicants", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: jobId, limit: 40 })
+    });
+    const j = await res.json();
+    setScoring(false);
+    setAsmtNote(res.ok ? j.message : (j.error ?? "Could not score applicants."));
+    if (res.ok) setTimeout(() => router.refresh(), 1500);
+  }
   async function orderAssessments() {
     if (picked.size === 0 || !jobId) return;
     setBulkBusy(true); setAsmtNote(null);
@@ -223,6 +241,12 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
               </button>
             )}
           </div>
+        )}
+        {jobId && unscored > 0 && (
+          <button className="btn-ghost !h-8 text-xs" onClick={scoreUnscored} disabled={scoring}
+            title="Rank these applicants by how well their CV matches the job description">
+            {scoring ? "Scoring…" : `✦ Score ${unscored} unranked`}
+          </button>
         )}
         {asmtNote && <span className="text-xs font-semibold text-coral">{asmtNote}</span>}
         <div className="flex-1" />

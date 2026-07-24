@@ -135,3 +135,46 @@ async function extractWithPdfJs(buf: Buffer): Promise<string> {
 function clean(t: string): string {
   return t.replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, 24000);
 }
+
+/**
+ * Extract text from a file stored at a raw storage path.
+ *
+ * Guest applications save the CV as a path rather than a document record, so
+ * they need this variant. Without it, guests could never be scored — which is
+ * why a job with only guest applicants arrived completely unranked.
+ */
+export async function extractTextFromPath(
+  supabase: SupabaseClient, bucket: string, path: string
+): Promise<{ text: string | null; error: string | null }> {
+  const { data: file, error: dlErr } = await supabase.storage.from(bucket).download(path);
+  if (dlErr || !file) return { text: null, error: dlErr?.message ?? "Download failed" };
+
+  const buf = Buffer.from(await file.arrayBuffer());
+  const header = buf.subarray(0, 5).toString("latin1");
+  const lower = path.toLowerCase();
+
+  try {
+    if (header.startsWith("%PDF") || lower.endsWith(".pdf")) {
+      installPdfPolyfills();
+      try {
+        await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+      } catch { /* falls back to main thread */ }
+
+      const { PDFParse } = await import("pdf-parse");
+      const parsed = await new PDFParse({ data: new Uint8Array(buf) }).getText();
+      const text = clean(parsed.text ?? "");
+      return text.length >= 40
+        ? { text, error: null }
+        : { text: null, error: "No readable text layer — likely a scan." };
+    }
+
+    if (lower.endsWith(".docx") || (buf[0] === 0x50 && buf[1] === 0x4b)) {
+      const r = await mammoth.extractRawText({ buffer: buf });
+      const text = clean(r.value ?? "");
+      return text.length >= 40 ? { text, error: null } : { text: null, error: "No text found." };
+    }
+  } catch (e: any) {
+    return { text: null, error: e?.message ?? "parse error" };
+  }
+  return { text: null, error: "Unsupported file type." };
+}
