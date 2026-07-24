@@ -18,6 +18,22 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const R2_BUCKET = process.env.R2_BUCKET || "myjobhack";
 const SIGNED_URL_TTL = 3600; // 1 hour
 
+/**
+ * Namespace every object under a project prefix.
+ *
+ * This account also holds buckets for other projects. Even if R2_BUCKET is
+ * ever pointed at the wrong bucket, MYJOBHACK files stay inside their own
+ * folder rather than scattering through another project's storage — and they
+ * remain trivially identifiable and deletable.
+ */
+const NAMESPACE = process.env.R2_NAMESPACE || "myjobhack";
+
+/** Apply the project namespace, without double-prefixing an already-namespaced key. */
+export function namespaced(path: string): string {
+  const clean = path.replace(/^\/+/, "");
+  return clean.startsWith(`${NAMESPACE}/`) ? clean : `${NAMESPACE}/${clean}`;
+}
+
 export function r2Configured(): boolean {
   return !!(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY);
 }
@@ -56,11 +72,12 @@ export async function uploadFile(opts: {
 
   if (r2Configured()) {
     try {
+      const key = namespaced(path);
       await r2().send(new PutObjectCommand({
-        Bucket: R2_BUCKET, Key: path, Body: body,
+        Bucket: R2_BUCKET, Key: key, Body: body,
         ContentType: contentType || "application/octet-stream"
       }));
-      return { location: { provider: "r2", bucket: R2_BUCKET, path }, error: null };
+      return { location: { provider: "r2", bucket: R2_BUCKET, path: key }, error: null };
     } catch (e: any) {
       // Fall through to Supabase rather than losing the upload entirely.
       console.error("R2 upload failed, falling back to Supabase:", e?.message);
@@ -87,7 +104,7 @@ export async function signedUrlFor(opts: {
   if (location.provider === "r2") {
     try {
       const url = await getSignedUrl(r2(),
-        new GetObjectCommand({ Bucket: location.bucket, Key: location.path }),
+        new GetObjectCommand({ Bucket: location.bucket, Key: namespaced(location.path) }),
         { expiresIn });
       return { url, error: null };
     } catch (e: any) {
@@ -108,7 +125,7 @@ export async function downloadFile(opts: {
 
   if (location.provider === "r2") {
     try {
-      const res = await r2().send(new GetObjectCommand({ Bucket: location.bucket, Key: location.path }));
+      const res = await r2().send(new GetObjectCommand({ Bucket: location.bucket, Key: namespaced(location.path) }));
       const bytes = await res.Body?.transformToByteArray();
       return bytes ? { buffer: Buffer.from(bytes), error: null } : { buffer: null, error: "Empty object" };
     } catch (e: any) {
@@ -127,7 +144,7 @@ export async function deleteFile(opts: {
   const { supabase, location } = opts;
   if (location.provider === "r2") {
     try {
-      await r2().send(new DeleteObjectCommand({ Bucket: location.bucket, Key: location.path }));
+      await r2().send(new DeleteObjectCommand({ Bucket: location.bucket, Key: namespaced(location.path) }));
       return { error: null };
     } catch (e: any) { return { error: e?.message ?? "R2 delete failed" }; }
   }

@@ -49,8 +49,19 @@ export async function GET() {
     }
   }
 
+  // This Cloudflare account holds buckets for other projects too, so make the
+  // target explicit — a wrong bucket name is otherwise invisible until files
+  // start appearing somewhere they should not.
+  const bucketName = process.env.R2_BUCKET ?? "(not set — falling back to 'myjobhack')";
+  const namespace = process.env.R2_NAMESPACE ?? "myjobhack";
+
   return NextResponse.json({
     r2_configured: r2Configured(),
+    target: {
+      bucket: bucketName,
+      namespace,
+      note: `All MYJOBHACK objects are written under "${namespace}/" inside that bucket, so they stay separate from other projects in this account.`
+    },
     r2_test: r2Test,
     missing_env: ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"]
       .filter((k) => !process.env[k]),
