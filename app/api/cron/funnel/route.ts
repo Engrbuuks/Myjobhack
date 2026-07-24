@@ -53,6 +53,36 @@ const DRIPS: Drip[] = [
     })
   },
   {
+    // Has a CV but no structured work history — their profile is far weaker to
+    // employers than it needs to be, and the fix is now one click.
+    step: "d5_import_experience", minDays: 5, maxDays: 8,
+    qualifies: async (admin, p) => {
+      const { data: t } = await admin.from("talent_profiles")
+        .select("resume_document_id").eq("profile_id", p.id).maybeSingle();
+      if (!t?.resume_document_id) return false;
+      const { count } = await admin.from("work_experiences")
+        .select("id", { count: "exact", head: true }).eq("talent_id", p.id);
+      return (count ?? 0) === 0;
+    },
+    email: (first) => ({
+      subject: "Employers can't see your experience yet",
+      html: renderEmail({
+        kicker: "Two minutes",
+        heading: `${first}, your work history is empty`,
+        paragraphs: [
+          "Employers on MYJOBHACK evaluate a structured profile rather than a CV attachment. Your résumé is on file, but your work history section is blank — so you're being judged on less than you've actually done.",
+          "You don't need to retype it. We can read the roles straight out of the résumé you already uploaded, and you just check they're right."
+        ],
+        bullets: [
+          "Takes about two minutes",
+          "You review every entry before it saves",
+          "A fuller profile ranks higher when employers search"
+        ],
+        cta: { label: "Import my experience", url: `${APP()}/portal/seeker/experience` }
+      })
+    })
+  },
+  {
     step: "d7_toolkit", minDays: 7, maxDays: 9,
     qualifies: async (admin, p) => {
       const { data: s } = await admin.from("subscriptions").select("id").eq("profile_id", p.id).limit(1);
