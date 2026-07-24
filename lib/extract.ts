@@ -100,11 +100,27 @@ export async function extractDocumentText(
 /** Fallback: read text items straight from pdfjs, bypassing the wrapper. */
 async function extractWithPdfJs(buf: Buffer): Promise<string> {
   const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+
+  // Serverless bundles do not ship pdf.worker.mjs, so pdfjs fails trying to
+  // spawn one ("Setting up fake worker failed"). Point the worker source at
+  // nothing and disable it — everything then runs in the main thread, which is
+  // what we want for text extraction anyway.
+  // Point at the real worker file inside node_modules. This resolves correctly
+  // now that pdfjs-dist is externalised from the bundle (see next.config.mjs).
+  try {
+    const { createRequire } = await import("module");
+    const req = createRequire(import.meta.url);
+    pdfjs.GlobalWorkerOptions.workerSrc = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  } catch {
+    /* If it cannot be resolved, pdfjs falls back to its own fake worker. */
+  }
+
   const doc = await pdfjs.getDocument({
     data: new Uint8Array(buf),
     useSystemFonts: true,
     disableFontFace: true,     // no font rendering — we only want the text
-    isEvalSupported: false
+    isEvalSupported: false,
+    verbosity: 0
   }).promise;
 
   const pages: string[] = [];

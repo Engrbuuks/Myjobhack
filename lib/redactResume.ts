@@ -27,8 +27,26 @@ export type RedactionResult = {
 
 export async function redactResumePdf(input: ArrayBuffer): Promise<RedactionResult> {
   // Load pdfjs (legacy build works server-side under Node).
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const loading = pdfjs.getDocument({ data: new Uint8Array(input.slice(0)), useSystemFonts: true });
+  const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // Same serverless constraint as text extraction: no worker file is bundled,
+  // so run in the main thread instead of trying to spawn one.
+  // Point at the real worker file inside node_modules. This resolves correctly
+  // now that pdfjs-dist is externalised from the bundle (see next.config.mjs).
+  try {
+    const { createRequire } = await import("module");
+    const req = createRequire(import.meta.url);
+    pdfjs.GlobalWorkerOptions.workerSrc = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  } catch {
+    /* If it cannot be resolved, pdfjs falls back to its own fake worker. */
+  }
+
+  const loading = pdfjs.getDocument({
+    data: new Uint8Array(input.slice(0)),
+    useSystemFonts: true,
+    disableFontFace: true,
+    isEvalSupported: false,
+    verbosity: 0
+  });
   const doc = await loading.promise;
 
   const out = await PDFDocument.load(input);
