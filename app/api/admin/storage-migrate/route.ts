@@ -125,14 +125,49 @@ export async function POST(request: Request) {
     moved++;
   }
 
+  // Guest résumés live on the applications table, not documents — and there
+  // are more of them than anything else. Migrate them in the same pass.
+  let guestMoved = 0, guestFailed = 0;
+  const { data: guests } = await admin.from("applications")
+    .select("id, guest_resume_path, guest_resume_bucket")
+    .not("guest_resume_path", "is", null)
+    .eq("guest_resume_provider", "supabase")
+    .limit(batch);
+
+  for (const g of guests ?? []) {
+    const dl = await downloadFile({
+      supabase: admin as any,
+      location: { provider: "supabase", bucket: g.guest_resume_bucket || "guest-uploads", path: g.guest_resume_path }
+    });
+    if (dl.error || !dl.buffer) { guestFailed++; continue; }
+
+    const up = await uploadFile({ supabase: admin as any, path: g.guest_resume_path, body: dl.buffer });
+    if (up.error || up.location?.provider !== "r2") { guestFailed++; continue; }
+
+    await admin.from("applications").update({
+      guest_resume_provider: "r2",
+      guest_resume_bucket: up.location.bucket,
+      guest_resume_path: up.location.path
+    }).eq("id", g.id);
+    guestMoved++;
+  }
+
   const { count: remaining } = await admin.from("documents")
     .select("id", { count: "exact", head: true }).eq("storage_provider", "supabase");
+  const { count: guestsRemaining } = await admin.from("applications")
+    .select("id", { count: "exact", head: true })
+    .not("guest_resume_path", "is", null).eq("guest_resume_provider", "supabase");
 
   return NextResponse.json({
-    ok: true, moved, failed, remaining: remaining ?? 0,
+    ok: true,
+    documents: { moved, failed, remaining: remaining ?? 0 },
+    guest_resumes: { moved: guestMoved, failed: guestFailed, remaining: guestsRemaining ?? 0 },
+    moved, failed, remaining: remaining ?? 0,
     errors: errors.slice(0, 5),
-    message: `Moved ${moved} file${moved === 1 ? "" : "s"} to R2.` +
-      (failed ? ` ${failed} failed.` : "") +
-      ((remaining ?? 0) > 0 ? ` ${remaining} still to go — run again.` : " Migration complete.")
+    message: `Moved ${moved} document${moved === 1 ? "" : "s"} and ${guestMoved} guest résumé${guestMoved === 1 ? "" : "s"} to R2.` +
+      ((failed + guestFailed) ? ` ${failed + guestFailed} failed.` : "") +
+      (((remaining ?? 0) + (guestsRemaining ?? 0)) > 0
+        ? ` ${(remaining ?? 0) + (guestsRemaining ?? 0)} still to go — run again.`
+        : " Everything is on R2.")
   });
 }
