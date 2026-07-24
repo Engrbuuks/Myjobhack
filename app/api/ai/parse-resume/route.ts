@@ -26,8 +26,12 @@ export async function POST() {
 
   const ex = await extractDocumentText(supabase, talent.resume_document_id);
   if (ex.error || !ex.text)
+    // Pass the specific reason through — "we couldn't read it" tells the user
+    // nothing about whether to re-upload, convert, or type it in.
     return NextResponse.json({
-      error: "We couldn't read text from that file. If it's a scan or an image, the text can't be extracted — you'll need to add your roles manually."
+      error: ex.error ?? "We couldn't read text from that file.",
+      hint: "If your CV is a scan or a photo, export it as a text-based PDF (File → Save as PDF from Word or Google Docs) and re-upload, or add your roles manually below.",
+      diagnostic: ex.diagnostic ?? null
     }, { status: 422 });
 
   const text = ex.text.slice(0, 18000);

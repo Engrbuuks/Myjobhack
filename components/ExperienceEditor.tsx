@@ -28,7 +28,10 @@ export function ExperienceEditor({ initial }: { initial: Exp[] }) {
     try {
       const res = await fetch("/api/ai/parse-resume", { method: "POST" });
       const j = await res.json();
-      if (!res.ok) { setImportErr(j.error ?? "Could not read your résumé."); setImporting(false); return; }
+      if (!res.ok) {
+        setImportErr([j.error, j.hint].filter(Boolean).join(" "));
+        setImporting(false); return;
+      }
       if (!j.experiences?.length) {
         setImportErr("We read your résumé but couldn't find any work roles in it. Add them manually below.");
         setImporting(false); return;
