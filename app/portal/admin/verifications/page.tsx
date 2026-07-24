@@ -18,11 +18,10 @@ export default async function Verifications() {
         .order("created_at", { ascending: false }).limit(1).maybeSingle();
       let docUrl: string | null = null;
       if (cred?.document_id) {
-        const { data: doc } = await supabase.from("documents").select("bucket, path").eq("id", cred.document_id).single();
-        if (doc) {
-          const { data: s } = await supabase.storage.from(doc.bucket).createSignedUrl(doc.path, 3600);
-          docUrl = s?.signedUrl ?? null;
-        }
+        {
+        const { signedUrlForDocument } = await import("@/lib/storage");
+        docUrl = await signedUrlForDocument(supabase, cred.document_id, 3600);
+      }
       }
       return {
         id: e.id, type: "elite" as const, name: p?.full_name ?? "—", email: p?.email ?? "",
@@ -35,11 +34,10 @@ export default async function Verifications() {
       const { data: p } = await supabase.from("profiles").select("full_name, email").eq("id", c.talent_id).single();
       let docUrl: string | null = null;
       if (c.document_id) {
-        const { data: doc } = await supabase.from("documents").select("bucket, path").eq("id", c.document_id).single();
-        if (doc) {
-          const { data: s } = await supabase.storage.from(doc.bucket).createSignedUrl(doc.path, 3600);
-          docUrl = s?.signedUrl ?? null;
-        }
+        {
+        const { signedUrlForDocument } = await import("@/lib/storage");
+        docUrl = await signedUrlForDocument(supabase, c.document_id, 3600);
+      }
       }
       return {
         id: c.id, type: "credential" as const, name: p?.full_name ?? "—", email: p?.email ?? "",

@@ -34,12 +34,10 @@ export default async function AdminPayments() {
         .from("profiles").select("full_name, email").eq("id", p.profile_id).single();
       let proofUrl: string | null = null;
       if (p.proof_document_id) {
-        const { data: doc } = await supabase
-          .from("documents").select("bucket, path").eq("id", p.proof_document_id).single();
-        if (doc) {
-          const { data: s } = await supabase.storage.from(doc.bucket).createSignedUrl(doc.path, 3600);
-          proofUrl = s?.signedUrl ?? null;
-        }
+        {
+        const { signedUrlForDocument } = await import("@/lib/storage");
+        proofUrl = await signedUrlForDocument(supabase, p.proof_document_id, 3600);
+      }
       }
       return { ...p, name: prof?.full_name ?? "—", email: prof?.email ?? "", proofUrl };
     })

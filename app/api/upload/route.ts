@@ -35,18 +35,29 @@ export async function POST(request: Request) {
   const bucket = kind === "avatar" ? "avatars" : "documents";
   const path = `${user.id}/${kind}-${Date.now()}.${c.ext}`;
 
-  const { error: upErr } = await supabase.storage
-    .from(bucket)
-    .upload(path, c.buffer, { contentType: c.mime, upsert: false });
-  if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+  // Goes to R2 when configured, Supabase otherwise. This is the main upload
+  // path — every CV and document flows through here, so it is the one that
+  // actually keeps Supabase storage from growing.
+  const { uploadFile, logUpload } = await import("@/lib/storage");
+  const up = await uploadFile({
+    supabase, path, body: c.buffer, contentType: c.mime, fallbackBucket: bucket
+  });
+  if (up.error || !up.location)
+    return NextResponse.json({ error: up.error ?? "Upload failed" }, { status: 500 });
+
+  await logUpload({
+    bucket: up.location.bucket, path: up.location.path, profileId: user.id,
+    kind, bytes: c.size, provider: up.location.provider
+  });
 
   const { data: doc, error: dbErr } = await supabase
     .from("documents")
     .insert({
       owner_id: user.id,
       kind,
-      bucket,
-      path,
+      bucket: up.location.bucket,
+      path: up.location.path,
+      storage_provider: up.location.provider,
       original_name: file.name,
       mime: c.mime,
       size_bytes: c.size,

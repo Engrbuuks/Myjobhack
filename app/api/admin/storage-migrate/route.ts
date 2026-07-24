@@ -30,13 +30,37 @@ export async function GET() {
     .filter((r: any) => r.storage_provider === p)
     .reduce((t: number, r: any) => t + Number(r.bytes || 0), 0);
 
+  // A real write → read → delete against R2, so "configured" means "working"
+  // rather than "the variables are set to something".
+  let r2Test: any = { ran: false };
+  if (r2Configured()) {
+    const probePath = `_healthcheck/${Date.now()}.txt`;
+    const body = Buffer.from("myjobhack r2 healthcheck");
+    const up = await uploadFile({ supabase: admin as any, path: probePath, body, contentType: "text/plain" });
+    if (up.error || up.location?.provider !== "r2") {
+      r2Test = { ran: true, ok: false, stage: "write", error: up.error ?? "did not land on R2" };
+    } else {
+      const dl = await downloadFile({ supabase: admin as any, location: up.location });
+      r2Test = dl.buffer?.toString().includes("healthcheck")
+        ? { ran: true, ok: true }
+        : { ran: true, ok: false, stage: "read", error: dl.error ?? "content mismatch" };
+      const { deleteFile } = await import("@/lib/storage");
+      await deleteFile({ supabase: admin as any, location: up.location });
+    }
+  }
+
   return NextResponse.json({
     r2_configured: r2Configured(),
+    r2_test: r2Test,
+    missing_env: ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"]
+      .filter((k) => !process.env[k]),
     documents: { on_supabase: onSupabase ?? 0, on_r2: onR2 ?? 0 },
     guest_resumes_on_supabase: guestsOnSupabase ?? 0,
     approx_bytes: { supabase: bytesBy("supabase"), r2: bytesBy("r2") },
     verdict: !r2Configured()
       ? "R2 is not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET, then new uploads will go to R2 automatically."
+      : r2Test.ran && !r2Test.ok
+      ? `R2 credentials are set but the ${r2Test.stage} test failed: ${r2Test.error}. Check the bucket name and that the API token has read and write permissions.`
       : (onSupabase ?? 0) > 0
         ? `${onSupabase} documents are still on Supabase. POST to this endpoint to migrate them in batches.`
         : "Everything is on R2."

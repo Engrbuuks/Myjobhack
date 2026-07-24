@@ -202,3 +202,25 @@ export async function logUpload(opts: {
     });
   } catch { /* logging must never block an upload */ }
 }
+
+/**
+ * Signed URL for a document by ID, resolving whichever provider holds it.
+ *
+ * Prefer this over calling supabase.storage.createSignedUrl directly: a file
+ * moved to R2 would return a broken link from the Supabase call, and the
+ * failure is silent — the link simply 404s when someone clicks it.
+ *
+ * The CALLER must authorise the request first. This does no permission checks.
+ */
+export async function signedUrlForDocument(
+  supabase: SupabaseClient, documentId: string, expiresIn = SIGNED_URL_TTL
+): Promise<string | null> {
+  const { data: doc } = await supabase
+    .from("documents").select("bucket, path, storage_provider").eq("id", documentId).maybeSingle();
+  if (!doc) return null;
+
+  const { url } = await signedUrlFor({
+    supabase, location: locationFromDocument(doc as any), expiresIn
+  });
+  return url;
+}

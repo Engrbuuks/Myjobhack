@@ -17,10 +17,9 @@ export default async function RecruiterVerifications() {
     const { data: p } = await supabase.from("profiles").select("full_name, email").eq("id", c.talent_id).single();
     let docUrl: string | null = null;
     if (c.document_id) {
-      const { data: doc } = await supabase.from("documents").select("bucket, path").eq("id", c.document_id).single();
-      if (doc) {
-        const { data: s } = await supabase.storage.from(doc.bucket).createSignedUrl(doc.path, 3600);
-        docUrl = s?.signedUrl ?? null;
+      {
+        const { signedUrlForDocument } = await import("@/lib/storage");
+        docUrl = await signedUrlForDocument(supabase, c.document_id, 3600);
       }
     }
     return {

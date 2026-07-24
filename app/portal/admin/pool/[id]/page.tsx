@@ -26,10 +26,14 @@ export default async function TalentDetail({ params }: { params: { id: string } 
   let resumeMeta = "";
   if (talent?.resume_document_id) {
     const { data: doc } = await supabase
-      .from("documents").select("bucket, path, original_name, size_bytes, original_size_bytes")
+      .from("documents").select("bucket, path, original_name, size_bytes, original_size_bytes, storage_provider")
       .eq("id", talent.resume_document_id).single();
     if (doc) {
-      const { data: signed } = await supabase.storage.from(doc.bucket).createSignedUrl(doc.path, 3600);
+      const { locationFromDocument, signedUrlFor } = await import("@/lib/storage");
+      const { url: signedUrl } = await signedUrlFor({
+        supabase, location: locationFromDocument(doc as any), expiresIn: 3600
+      });
+      const signed = signedUrl ? { signedUrl } : null;
       resumeUrl = signed?.signedUrl ?? null;
       const kb = (n: number | null) => (n ? `${Math.round(n / 1024)}KB` : "?");
       resumeMeta = `${doc.original_name} · ${kb(doc.size_bytes)}${doc.original_size_bytes && doc.original_size_bytes > (doc.size_bytes ?? 0) ? ` (was ${kb(doc.original_size_bytes)})` : ""}`;
