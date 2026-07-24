@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import mammoth from "mammoth";
+import { installPdfPolyfills } from "@/lib/pdfPolyfill";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -40,10 +41,27 @@ export async function extractDocumentText(
 
   try {
     if (looksPdf) {
-      const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse({ data: new Uint8Array(buf) });
-      const parsed = await parser.getText();
-      const text = clean(parsed.text ?? "");
+      // PDFs containing images, logos or transforms make pdfjs reach for
+      // browser globals that do not exist in a serverless runtime.
+      installPdfPolyfills();
+
+      let raw = "";
+      try {
+        const { PDFParse } = await import("pdf-parse");
+        const parser = new PDFParse({ data: new Uint8Array(buf) });
+        const parsed = await parser.getText();
+        raw = parsed.text ?? "";
+      } catch (primaryErr: any) {
+        // Fallback: pdfjs directly, reading text items page by page. This path
+        // touches none of the rendering code, so it survives PDFs that break
+        // the higher-level wrapper.
+        try {
+          raw = await extractWithPdfJs(buf);
+        } catch {
+          throw primaryErr;   // report the original, more useful error
+        }
+      }
+      const text = clean(raw);
 
       // A PDF that parses but yields almost nothing is a scan — say so plainly
       // rather than reporting a generic failure.
@@ -77,6 +95,25 @@ export async function extractDocumentText(
     error: "That file type isn't supported. Upload a PDF or Word document.",
     diagnostic: `mime=${doc.mime ?? "none"} path=${lowerPath.slice(-12)} header=${JSON.stringify(header)}`
   };
+}
+
+/** Fallback: read text items straight from pdfjs, bypassing the wrapper. */
+async function extractWithPdfJs(buf: Buffer): Promise<string> {
+  const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useSystemFonts: true,
+    disableFontFace: true,     // no font rendering — we only want the text
+    isEvalSupported: false
+  }).promise;
+
+  const pages: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    pages.push((content.items as any[]).map((it) => it.str ?? "").join(" "));
+  }
+  return pages.join("\n\n");
 }
 
 function clean(t: string): string {
