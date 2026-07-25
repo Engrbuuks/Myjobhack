@@ -40,6 +40,31 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
   const [asmtNote, setAsmtNote] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
   const [emailing, setEmailing] = useState(false);
+  const [resumeErr, setResumeErr] = useState<string | null>(null);
+
+  /**
+   * Open a résumé. We fetch first rather than linking straight to the endpoint:
+   * if it returns an error, a plain link would dump raw JSON into a new tab,
+   * which reads as "the résumé is broken" rather than explaining the reason.
+   */
+  async function openResume(url: string) {
+    setResumeErr(null);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setResumeErr(j.error ?? "That résumé couldn't be opened.");
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener");
+      // Release it once the browser has had time to load it.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      setResumeErr("Network error opening that résumé.");
+    }
+  }
   const [showCompose, setShowCompose] = useState(false);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -354,6 +379,12 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
           </button>
         )}
         {asmtNote && <span className="text-xs font-semibold text-coral">{asmtNote}</span>}
+        {resumeErr && (
+          <span className="text-xs font-semibold text-coral">
+            {resumeErr}
+            <button className="ml-2 underline opacity-70" onClick={() => setResumeErr(null)}>dismiss</button>
+          </span>
+        )}
         <div className="flex-1" />
         <ExportButton rows={exportRows} filename="applicants" label="Export" />
       </div>
@@ -474,7 +505,8 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
                     </div>
                   ))}
                 {r.resumeUrl && (
-                  <a href={r.resumeUrl} target="_blank" rel="noopener" className="text-coral font-semibold">Open resume →</a>
+                  <button onClick={() => openResume(r.resumeUrl!)}
+                    className="text-coral font-semibold hover:underline">Open resume →</button>
                 )}
               </div>
               {r.ai_summary && (

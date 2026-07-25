@@ -18,6 +18,13 @@ export async function POST(request: Request) {
   if (!["credential", "elite"].includes(type) || !["verify", "reject"].includes(action) || !id)
     return NextResponse.json({ error: "type, id, action required" }, { status: 400 });
 
+  // A rejection without a reason is worse than no rejection — the person has no
+  // idea what to fix, and you get the support message instead.
+  if (action === "reject" && !String(notes ?? "").trim())
+    return NextResponse.json({
+      error: "Give a reason for the rejection — it goes to the candidate so they know what to correct."
+    }, { status: 400 });
+
   const admin = createAdminClient();
   const status = action === "verify" ? "verified" : "rejected";
 
@@ -32,6 +39,21 @@ export async function POST(request: Request) {
       await admin.from("talent_profiles").update({ verification: "verified" }).eq("profile_id", cred.talent_id);
     }
     const { data: cProf } = await admin.from("profiles").select("email, full_name").eq("id", cred.talent_id).single();
+    if (action === "reject" && cProf?.email) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
+      await sendEmail(cProf.email, "About the credential you uploaded", renderEmail({
+        kicker: "Credential review",
+        heading: "We couldn't verify this one — here's why",
+        paragraphs: [
+          `Hi ${(cProf.full_name || "there").split(" ")[0]},`,
+          `We reviewed ${cred.title || "the credential"}${cred.institution ? ` from ${cred.institution}` : ""} and weren't able to verify it.`,
+          `Reason: ${String(notes).trim()}`,
+          "You can upload a corrected version any time — this doesn't affect the rest of your profile, and it doesn't count against you."
+        ],
+        cta: { label: "Upload a new credential", url: `${appUrl}/portal/seeker/credentials` }
+      }));
+    }
+
     if (action === "verify" && cProf?.email) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
       await sendEmail(cProf.email, "Your credential is verified ✓", renderEmail({
@@ -49,8 +71,8 @@ export async function POST(request: Request) {
       title: action === "verify" ? "Credential verified ✓" : "Credential review update",
       body: action === "verify"
         ? `${cred.title || "Your credential"} from ${cred.institution} is verified. Your profile now carries verified status.`
-        : `We couldn't verify ${cred.title || "your credential"}. ${notes ?? "Contact the team for details."}`,
-      link: "/portal/seeker/profile"
+        : `We couldn't verify ${cred.title || "your credential"}. Reason: ${String(notes).trim()} You can upload a corrected version any time.`,
+      link: action === "reject" ? "/portal/seeker/credentials" : "/portal/seeker/profile"
     });
   } else {
     const { data: em } = await admin.from("elite_memberships").select("talent_id, distinction").eq("id", id).single();

@@ -172,12 +172,67 @@ export function locationFromDocument(doc: { bucket?: string | null; path: string
 
 export const MAX_FILE_BYTES = 8 * 1024 * 1024;      // 8 MB per file
 
+/** General document uploads — logos, proofs, course assets. Images allowed. */
 export const ALLOWED_DOC_TYPES = [
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "image/png", "image/jpeg", "image/webp"
 ];
+
+/**
+ * Résumés only: PDF and DOCX.
+ *
+ * Images are excluded deliberately. A photographed or scanned CV has no text
+ * layer, so it cannot be parsed for work history, cannot be scored against a
+ * job description, and cannot be redacted before an employer sees it. Accepting
+ * one means the candidate silently loses every feature that depends on reading
+ * their CV — better to refuse it at upload with an explanation.
+ */
+export const RESUME_MIME_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+];
+
+/**
+ * Verify a résumé by its actual bytes, not its declared type.
+ *
+ * A phone photo renamed to .pdf passes a mime check but is still an image.
+ * PDFs start with %PDF; DOCX files are zip archives starting with PK.
+ */
+export function checkResumeFile(buf: Buffer, declaredMime?: string, filename?: string): {
+  ok: boolean; error?: string;
+} {
+  const header = buf.subarray(0, 4);
+  const isPdf = header.toString("latin1").startsWith("%PDF");
+  const isZip = header[0] === 0x50 && header[1] === 0x4b;   // PK — docx container
+  const name = (filename ?? "").toLowerCase();
+
+  if (isPdf) return { ok: true };
+  if (isZip && name.endsWith(".docx")) return { ok: true };
+
+  // Name the actual problem rather than saying "invalid file".
+  const looksImage =
+    (header[0] === 0xff && header[1] === 0xd8) ||                       // jpeg
+    (header[0] === 0x89 && header.toString("latin1", 1, 4) === "PNG") || // png
+    buf.subarray(8, 12).toString("latin1") === "WEBP" ||
+    (declaredMime ?? "").startsWith("image/");
+
+  if (looksImage) return {
+    ok: false,
+    error: "That looks like an image or a photo of a CV. Employers here need a text-based document — we read your CV to fill in your experience, score you against roles, and protect your contact details. Export it as a PDF from Word or Google Docs and upload that instead."
+  };
+
+  if (isZip) return {
+    ok: false,
+    error: "That file isn't a Word document. If it's a .doc, open it and save as .docx or PDF first."
+  };
+
+  return {
+    ok: false,
+    error: "Résumés must be a PDF or a Word (.docx) document."
+  };
+}
 
 export function humanBytes(n: number): string {
   if (n < 1024) return `${n} B`;

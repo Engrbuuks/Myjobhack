@@ -30,6 +30,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Resume must be PDF or DOCX" }, { status: 400 });
 
   const input = Buffer.from(await file.arrayBuffer());
+  // The declared type can lie — a photo renamed to .pdf passes the check above.
+  // Verify the actual bytes before storing it as someone's résumé.
+  if (kind === "resume") {
+    const { checkResumeFile } = await import("@/lib/storage");
+    const check = checkResumeFile(Buffer.from(input), file.type, file.name);
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+  }
+
   const c = await compressUpload(input, file.type, file.name);
 
   const bucket = kind === "avatar" ? "avatars" : "documents";

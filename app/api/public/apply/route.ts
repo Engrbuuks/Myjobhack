@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractDocumentText, extractTextFromPath } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
-import { MAX_FILE_BYTES, ALLOWED_DOC_TYPES, humanBytes, logUpload, uploadFile } from "@/lib/storage";
+import { MAX_FILE_BYTES, RESUME_MIME_TYPES, checkResumeFile, humanBytes, logUpload, uploadFile } from "@/lib/storage";
 import { evaluateRules } from "@/lib/rules";
 
 export const runtime = "nodejs";
@@ -42,12 +42,23 @@ export async function POST(request: Request) {
   // store resume
   if (resume.size > MAX_FILE_BYTES)
     return NextResponse.json({ error: `Resume is too large. Maximum ${humanBytes(MAX_FILE_BYTES)}.` }, { status: 400 });
-  if (resume.type && !ALLOWED_DOC_TYPES.includes(resume.type))
-    return NextResponse.json({ error: "Resume must be a PDF or Word document." }, { status: 400 });
+  // Résumés must be readable: PDF or DOCX only. An image CV cannot be parsed,
+  // scored, or redacted — so accepting one quietly breaks everything downstream.
+  if (resume.type && !RESUME_MIME_TYPES.includes(resume.type))
+    return NextResponse.json({
+      error: resume.type.startsWith("image/")
+        ? "That looks like an image or a photo of a CV. Please upload a PDF or Word document — we read your CV to match you to roles."
+        : "Résumés must be a PDF or a Word (.docx) document."
+    }, { status: 400 });
 
   const safe = (resume.name || "resume.pdf").replace(/[^\w.\-]+/g, "_").slice(-80);
   const path = `${new Date().getFullYear()}/${crypto.randomUUID()}-${safe}`;
   const buf = Buffer.from(await resume.arrayBuffer());
+
+  // Check the actual bytes — a photo renamed to .pdf passes the mime check.
+  const fileCheck = checkResumeFile(buf, resume.type, (resume as any).name);
+  if (!fileCheck.ok)
+    return NextResponse.json({ error: fileCheck.error }, { status: 400 });
   // Goes to R2 when configured, Supabase otherwise — so uploads keep working
   // either way and Supabase storage stops growing once R2 is on.
   const up = await uploadFile({

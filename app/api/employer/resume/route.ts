@@ -27,18 +27,46 @@ export async function GET(request: Request) {
   if (!isStaff && !isEmployer) return NextResponse.json({ error: "Not permitted" }, { status: 403 });
 
   // Resolve the résumé path + the talent it belongs to.
-  let bucket = "documents"; let path: string | null = null; let talentId: string | null = talentIdQ;
+  // Résumés live in one of three places: a guest upload bucket, the documents
+  // bucket, or R2. Resolving this wrongly returned an empty response with no
+  // error, which looked like "the résumé won't open".
+  let location: { provider: "r2" | "supabase"; bucket: string; path: string } | null = null;
+  let talentId: string | null = talentIdQ;
+
   if (applicationId) {
     const { data: app } = await admin.from("applications")
-      .select("talent_id, resume_document_id, guest_resume_path").eq("id", applicationId).maybeSingle();
+      .select("talent_id, resume_document_id, guest_resume_path, guest_resume_bucket, guest_resume_provider")
+      .eq("id", applicationId).maybeSingle();
     talentId = app?.talent_id ?? talentId;
-    if (app?.guest_resume_path) { path = app.guest_resume_path; }
-    else if (app?.resume_document_id) {
-      const { data: doc } = await admin.from("documents").select("bucket, path").eq("id", app.resume_document_id).single();
-      if (doc) { bucket = doc.bucket; path = doc.path; }
+
+    if (app?.guest_resume_path) {
+      location = {
+        provider: (app.guest_resume_provider === "r2" ? "r2" : "supabase"),
+        bucket: app.guest_resume_bucket || "guest-uploads",
+        path: app.guest_resume_path
+      };
+    } else if (app?.resume_document_id) {
+      const { data: doc } = await admin.from("documents")
+        .select("bucket, path, storage_provider").eq("id", app.resume_document_id).maybeSingle();
+      if (doc) {
+        const { locationFromDocument } = await import("@/lib/storage");
+        location = locationFromDocument(doc as any);
+      }
+    }
+  } else if (talentId) {
+    // Fall back to the talent's profile résumé.
+    const { data: tp } = await admin.from("talent_profiles")
+      .select("resume_document_id").eq("profile_id", talentId).maybeSingle();
+    if (tp?.resume_document_id) {
+      const { data: doc } = await admin.from("documents")
+        .select("bucket, path, storage_provider").eq("id", tp.resume_document_id).maybeSingle();
+      if (doc) {
+        const { locationFromDocument } = await import("@/lib/storage");
+        location = locationFromDocument(doc as any);
+      }
     }
   }
-  if (!path) return NextResponse.json({ error: "No résumé on file." }, { status: 404 });
+  if (!location) return NextResponse.json({ error: "No résumé on file for this applicant." }, { status: 404 });
 
   // Has this employer earned the raw file? (unlock or recorded placement)
   let released = isStaff;
@@ -51,18 +79,44 @@ export async function GET(request: Request) {
   }
 
   // Fetch the original bytes.
-  const { data: file, error } = await admin.storage.from(bucket).download(path);
-  if (error || !file) return NextResponse.json({ error: "Could not read résumé." }, { status: 500 });
-  const ab = await file.arrayBuffer();
+  const { downloadFile } = await import("@/lib/storage");
+  const dl = await downloadFile({ supabase: admin as any, location });
+  if (dl.error || !dl.buffer)
+    return NextResponse.json({ error: `Could not read résumé: ${dl.error ?? "empty file"}` }, { status: 500 });
+  const ab = dl.buffer.buffer.slice(dl.buffer.byteOffset, dl.buffer.byteOffset + dl.buffer.byteLength) as ArrayBuffer;
 
-  // Released → original, watermarked with the non-circumvention notice.
+  // Watermarking and redaction only work on PDFs. A DOCX résumé used to throw,
+  // get swallowed by the catch, and show "preview unavailable" — which looked
+  // like the résumé simply would not open.
+  const isPdf = dl.buffer.subarray(0, 4).toString("latin1").startsWith("%PDF");
+  const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+  // Released → they have engaged, so send the original.
   if (released) {
+    if (!isPdf) {
+      // Nothing to watermark, but they are entitled to the file.
+      return new NextResponse(ab, {
+        headers: { "Content-Type": DOCX_MIME, "Content-Disposition": "attachment; filename=resume.docx" }
+      });
+    }
     try {
       const stamped = await watermarkResumePdf(ab);
-      return new NextResponse(Buffer.from(stamped), { headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline; filename=resume.pdf" } });
+      return new NextResponse(Buffer.from(stamped), {
+        headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline; filename=resume.pdf" }
+      });
     } catch {
-      return new NextResponse(ab, { headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline; filename=resume.pdf" } });
+      return new NextResponse(ab, {
+        headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline; filename=resume.pdf" }
+      });
     }
+  }
+
+  // Not released → redact before showing. Only possible on PDFs.
+  if (!isPdf) {
+    return NextResponse.json({
+      error: "This résumé is a Word document, which we can't redact for preview. Unlock the candidate to open the full file.",
+      reason: "docx_no_preview"
+    }, { status: 409 });
   }
 
   try {
@@ -74,8 +128,12 @@ export async function GET(request: Request) {
         ...(warning ? { "X-Redaction-Warning": warning } : {})
       }
     });
-  } catch {
-    // If redaction fails, DO NOT leak the raw file — deny instead.
-    return NextResponse.json({ error: "Résumé preview unavailable — unlock the candidate to view the full document." }, { status: 409 });
+  } catch (e: any) {
+    // Never leak the raw file — but say WHY, so a failure is diagnosable
+    // rather than a dead end.
+    return NextResponse.json({
+      error: `We couldn't prepare a redacted preview of this résumé: ${e?.message ?? "unknown error"}. Unlock the candidate to open the original.`,
+      reason: "redaction_failed"
+    }, { status: 409 });
   }
 }

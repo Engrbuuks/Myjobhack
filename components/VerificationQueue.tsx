@@ -15,27 +15,92 @@ export function VerificationQueue({ items, chapters }: {
   const [err, setErr] = useState<string | null>(null);
   const [chapterSel, setChapterSel] = useState<Record<string, string>>({});
 
-  async function act(item: Item, action: "verify" | "reject") {
+  const [rejecting, setRejecting] = useState<Item | null>(null);
+  const [reason, setReason] = useState("");
+
+  // The reasons that come up most often, so a reviewer isn't writing prose
+  // for every rejection — but can still edit or write their own.
+  const COMMON_REASONS = [
+    "The document is too blurred or low-resolution to read.",
+    "This looks like a photo of a screen rather than the document itself.",
+    "The name on the document doesn't match the name on your profile.",
+    "The institution or award couldn't be confirmed from what was uploaded.",
+    "Part of the document is cut off — please upload the full page.",
+    "This appears to be a different document to the one described."
+  ];
+
+  async function act(item: Item, action: "verify" | "reject", notes?: string) {
     setBusy(item.id); setErr(null);
     const res = await fetch("/api/admin/verify", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        type: item.type, id: item.id, action,
+        type: item.type, id: item.id, action, notes: notes ?? null,
         chapter_id: item.type === "elite" ? chapterSel[item.id] || null : undefined
       })
     });
     const json = await res.json();
     setBusy(null);
     if (!res.ok) { setErr(json.error); return; }
+    setRejecting(null); setReason("");
     router.refresh();
   }
 
+  const rejectDialog = rejecting && (
+    <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4"
+      onClick={() => busy === null && setRejecting(null)}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div>
+          <h3 className="font-display font-semibold text-lg">Why are you rejecting this?</h3>
+          <p className="text-sm text-muted-2">
+            {rejecting.name} · {rejecting.line1}
+          </p>
+          <p className="text-sm text-muted-2 mt-1">
+            This is sent to them by email and shown in their portal, so they know what to fix.
+          </p>
+        </div>
+
+        <div>
+          <label className="label !text-xs">Common reasons</label>
+          <div className="flex flex-wrap gap-1.5">
+            {COMMON_REASONS.map((r) => (
+              <button key={r} type="button" onClick={() => setReason(r)}
+                className={`text-left text-xs px-2.5 py-1.5 rounded-pill border transition ${
+                  reason === r ? "bg-ink text-white border-ink" : "border-line hover:border-coral"}`}>
+                {r.length > 42 ? r.slice(0, 40) + "…" : r}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="label !text-xs">Reason <span className="text-coral">*</span></label>
+          <textarea className="input !h-auto py-2" rows={3} value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Explain what was wrong and what they should upload instead." />
+        </div>
+
+        {err && <p className="text-sm text-coral">{err}</p>}
+
+        <div className="flex gap-3">
+          <button className="btn-coral" disabled={busy !== null || !reason.trim()}
+            onClick={() => act(rejecting, "reject", reason.trim())}>
+            {busy ? "Sending…" : "Reject and notify"}
+          </button>
+          <button className="btn-ghost" onClick={() => setRejecting(null)} disabled={busy !== null}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (items.length === 0)
-    return <div className="card p-10 text-center text-sm text-muted">All verification queues are clear. ✓</div>;
+    return <>{rejectDialog}<div className="card p-10 text-center text-sm text-muted">All verification queues are clear. ✓</div></>;
 
   return (
     <div className="space-y-3 max-w-3xl">
-      {err && <p className="text-coral text-sm">{err}</p>}
+      {rejectDialog}
+      {err && !rejecting && <p className="text-coral text-sm">{err}</p>}
       {items.map((it) => (
         <div key={`${it.type}-${it.id}`} className="card p-5">
           <div className="flex flex-wrap items-center gap-4">
@@ -62,7 +127,7 @@ export function VerificationQueue({ items, chapters }: {
               {busy === it.id ? "…" : "Verify ✓"}
             </button>
             <button className="text-sm font-semibold text-muted hover:text-coral" disabled={busy === it.id}
-              onClick={() => act(it, "reject")}>Reject</button>
+              onClick={() => { setReason(""); setRejecting(it); }}>Reject</button>
           </div>
         </div>
       ))}

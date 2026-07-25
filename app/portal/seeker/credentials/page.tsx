@@ -11,7 +11,7 @@ export default async function CredentialsPage() {
 
   const { data: creds } = await supabase
     .from("credentials")
-    .select("id, kind, institution, title, year, status, created_at")
+    .select("id, kind, institution, title, year, status, created_at, reviewer_notes, reviewed_at")
     .eq("talent_id", user.id)
     .order("created_at", { ascending: false });
 

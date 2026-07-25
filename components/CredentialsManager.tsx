@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 type Cred = {
   id: string; kind: string; institution: string; title: string;
   year: number | null; status: string; created_at: string;
+  reviewer_notes?: string | null; reviewed_at?: string | null;
 };
 
 const KINDS = [
@@ -59,7 +60,7 @@ export function CredentialsManager({ initial }: { initial: Cred[] }) {
         year: year ? Number(year) : null,
         document_id: upJson.document.id,
         status: "pending"
-      }).select("id, kind, institution, title, year, status, created_at").single();
+      }).select("id, kind, institution, title, year, status, created_at, reviewer_notes, reviewed_at").single();
 
       if (error) { setErr(error.message); setBusy(false); return; }
 
@@ -78,16 +79,31 @@ export function CredentialsManager({ initial }: { initial: Cred[] }) {
       {creds.length > 0 && (
         <div className="space-y-3">
           {creds.map((c) => (
-            <div key={c.id} className="rounded-xl border border-line bg-white p-4 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="font-semibold truncate">{c.title}</div>
-                <div className="text-sm text-muted-2 truncate">
-                  {KINDS.find((k) => k[0] === c.kind)?.[1] ?? c.kind} · {c.institution}{c.year ? ` · ${c.year}` : ""}
+            <div key={c.id} className="rounded-xl border border-line bg-white p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{c.title}</div>
+                  <div className="text-sm text-muted-2 truncate">
+                    {KINDS.find((k) => k[0] === c.kind)?.[1] ?? c.kind} · {c.institution}{c.year ? ` · ${c.year}` : ""}
+                  </div>
                 </div>
+                <span className={`shrink-0 px-3 py-1 rounded-pill text-xs font-bold capitalize ${STATUS_STYLE[c.status] ?? "bg-paper-2 text-muted"}`}>
+                  {c.status === "in_review" ? "In review" : c.status}
+                </span>
               </div>
-              <span className={`shrink-0 px-3 py-1 rounded-pill text-xs font-bold capitalize ${STATUS_STYLE[c.status] ?? "bg-paper-2 text-muted"}`}>
-                {c.status === "in_review" ? "In review" : c.status}
-              </span>
+
+              {/* A rejection is only useful if the person knows what to fix. */}
+              {c.status === "rejected" && c.reviewer_notes && (
+                <div className="mt-3 rounded-xl p-3" style={{ background: "#FFF4F2" }}>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-coral mb-1">
+                    Why this wasn't verified
+                  </div>
+                  <p className="text-sm text-ink leading-relaxed">{c.reviewer_notes}</p>
+                  <p className="text-xs text-muted-2 mt-2">
+                    Upload a corrected version below — this doesn't count against you.
+                  </p>
+                </div>
+              )}
             </div>
           ))}
         </div>

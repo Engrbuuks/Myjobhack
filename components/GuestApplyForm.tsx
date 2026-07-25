@@ -134,11 +134,14 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
         ))}
 
         <label className="flex items-center gap-3 rounded-xl border border-dashed border-white/25 p-4 cursor-pointer hover:border-coral transition mb-4 mt-4">
-          <input type="file" className="hidden" accept=".pdf,.doc,.docx"
+          <input type="file" className="hidden" accept=".pdf,.docx"
             onChange={(e) => setResume(e.target.files?.[0] ?? null)} />
           <span className="w-9 h-9 rounded-full bg-coral/20 text-coral grid place-items-center shrink-0">↑</span>
           <span className="text-sm text-white/70 truncate">{resume?.name ?? "Attach resume * — PDF or Word, max 5MB"}</span>
         </label>
+          <p className="text-xs opacity-60 mt-1.5">
+            PDF or Word (.docx) only — no photos or scans. We read your CV to match you to roles.
+          </p>
 
         <button className="btn-coral w-full justify-center !h-12" onClick={submit}
           disabled={busy || !name || !email || !resume}>

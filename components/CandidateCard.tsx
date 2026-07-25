@@ -4,6 +4,26 @@ import type { CandidateCard as Card } from "@/lib/candidateCard";
 
 export function CandidateCard({ card, onUnlock }: { card: Card; onUnlock?: (talentId: string) => void }) {
   const [unlocking, setUnlocking] = useState(false);
+  const [resumeErr, setResumeErr] = useState<string | null>(null);
+
+  /** Fetch before opening, so an error reads as a message not raw JSON. */
+  async function openResume(url: string) {
+    setResumeErr(null);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setResumeErr(j.error ?? "That résumé couldn't be opened.");
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      setResumeErr("Network error opening that résumé.");
+    }
+  }
 
   return (
     <div className="card p-5">
@@ -97,11 +117,20 @@ export function CandidateCard({ card, onUnlock }: { card: Card; onUnlock?: (tale
       )}
 
       {/* Footer: contact + résumé gate */}
+      {resumeErr && (
+        <p className="text-xs text-coral mt-2 leading-relaxed">
+          {resumeErr}
+          <button className="ml-2 underline opacity-70" onClick={() => setResumeErr(null)}>dismiss</button>
+        </p>
+      )}
       <div className="pt-3 border-t border-line flex items-center justify-between gap-3">
         {card.released ? (
           <>
             <span className="text-xs text-green-600 font-semibold">✓ Contact unlocked</span>
-            {card.resume_url && <a href={card.resume_url} target="_blank" rel="noopener" className="text-coral text-sm font-semibold">Open full résumé →</a>}
+            {card.resume_url && (
+              <button onClick={() => openResume(card.resume_url!)}
+                className="text-coral text-sm font-semibold hover:underline">Open full résumé →</button>
+            )}
           </>
         ) : (
           <>

@@ -359,6 +359,9 @@ export function ProfileWizard(p: Props) {
               </>
             )}
           </label>
+          <p className="text-xs opacity-60 mt-1.5">
+            PDF or Word (.docx) only — no photos or scans. We read your CV to match you to roles.
+          </p>
           <p className="text-muted text-xs mt-4">
             Your resume powers matching today and the Resume Review once you unlock the Career Toolkit.
           </p>
