@@ -250,8 +250,15 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
     { key: "resume", label: "Résumé" },
     { key: "applied", label: "Date applied" },
     { key: "resume_hint", label: "Résumé mentions (unverified)" },
+    { key: "cv_link", label: "CV link" },
     ...formFields.map((f) => ({ key: `field:${f.id}`, label: f.label }))
   ];
+
+  /**
+   * Absolute origin for CV links in the export. A relative path is useless in
+   * a spreadsheet — Excel won't make it clickable and it resolves nowhere.
+   */
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const exportRows = visible.map((r) => {
     const byId = new Map((r.answers ?? []).map((a) => [a.field_id, a]));
@@ -264,6 +271,10 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
       resume: r.resumeUrl ? "yes" : "no",
       applied: new Date(r.created_at).toLocaleDateString(),
       resume_hint: r.resume_hint ?? "",
+      // Opens the same redaction-aware endpoint the table uses, so the CSV
+      // grants no access the viewer didn't already have — they must be signed
+      // in, and an employer still sees the redacted copy until they unlock.
+      cv_link: r.resumeUrl ? `${origin}${r.resumeUrl}` : "",
       ...Object.fromEntries(formFields.map((f) => {
         const a = byId.get(f.id);
         const raw = a?.raw !== undefined ? a.raw : a?.value;

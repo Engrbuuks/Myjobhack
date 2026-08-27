@@ -90,7 +90,7 @@ export default async function Applicants({ params }: { params: { id: string } })
 
   const scanRows = rows.map((r) => ({
     id: r.id, name: r.name, signals: r.signals,
-    scanned: r.scanned, hasResume: r.hasResume,
+    scanned: r.scanned, hasResume: r.hasResume, resumeUrl: r.resumeUrl,
     declared: matchedField
       ? (r.answers.find((a) => a.field_id === matchedField.id)?.value ?? null)
       : null

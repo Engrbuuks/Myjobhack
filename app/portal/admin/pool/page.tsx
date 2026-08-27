@@ -15,11 +15,16 @@ export default async function PoolPage({ searchParams }: { searchParams: Record<
     querySegment(supabase, filters)
   ]);
   const tmap = new Map((taxonomies ?? []).map((t) => [t.id, t.label]));
+  // Absolute, so the link is clickable from a spreadsheet. It points at the
+  // redaction-aware endpoint, which still requires the viewer to be signed in.
+  const APP = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
   const exportRows = (rows as any[]).map((r) => ({
     name: r.profile?.full_name ?? "", email: r.profile?.email ?? "",
     niche: r.niche_id ? tmap.get(r.niche_id) : "", goal: r.career_goal_id ? tmap.get(r.career_goal_id) : "",
     level: r.expected_role_level ?? "", competency: r.competency_band ?? "",
-    completion: r.profile_completion ?? 0
+    completion: r.profile_completion ?? 0,
+    cv_link: r.resume_document_id || r.profile_id
+      ? `${APP}/api/employer/resume?talent_id=${r.profile_id}` : ""
   }));
   // Data quality: location is compulsory but historic signups may predate that.
   const { createAdminClient: _adminForQuality } = await import("@/lib/supabase/admin");

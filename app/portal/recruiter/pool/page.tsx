@@ -15,10 +15,13 @@ export default async function RecruiterPool({ searchParams }: { searchParams: Re
   ]);
   const tmap = new Map((taxonomies ?? []).map((t) => [t.id, t.label]));
 
+  const APP = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
   const exportRows = (rows as any[]).map((r) => ({
     name: r.profile?.full_name ?? "", niche: r.niche_id ? tmap.get(r.niche_id) : "",
     level: r.expected_role_level ?? "", competency: r.competency_band ?? "",
-    years: r.years_experience ?? 0, completion: r.profile_completion ?? 0
+    years: r.years_experience ?? 0, completion: r.profile_completion ?? 0,
+    // Opens the redacted copy — contact details stay protected until unlock.
+    cv_link: r.profile_id ? `${APP}/api/employer/resume?talent_id=${r.profile_id}` : ""
   }));
 
   return (

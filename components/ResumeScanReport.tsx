@@ -28,6 +28,8 @@ export type ScanRow = {
   hasResume: boolean;
   /** What they actually said, if they answered the matching question. */
   declared: string | null;
+  /** Redaction-aware CV endpoint, so the report can be checked against the source. */
+  resumeUrl?: string | null;
 };
 
 export function ResumeScanReport({ rows, questionLabel }: {
@@ -78,8 +80,11 @@ export function ResumeScanReport({ rows, questionLabel }: {
   // The people this whole exercise is for: no answer, but a scan guess.
   const gapsFilled = readable.filter((r) => !r.declared && r.signals?.top && !r.signals?.ambiguous);
 
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+
   const exportRows = scanned.map((r) => ({
     name: r.name,
+    cv_link: r.resumeUrl ? `${origin}${r.resumeUrl}` : "",
     declared_answer: r.declared ?? "",
     resume_guess: r.signals?.top ?? "",
     confidence: r.signals?.unreadable ? "unreadable"
