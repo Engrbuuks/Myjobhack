@@ -225,57 +225,13 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
     return `applicants-${slug}`;
   })();
 
-  /**
-   * CSV columns come from the FORM DEFINITION, not from the answers.
-   *
-   * toCsv derives its columns from the first row when none are supplied, and
-   * each applicant only carries the questions they actually answered — so a
-   * question the first person skipped disappeared from the export entirely,
-   * for everybody. Declaring the columns here means every field on the form is
-   * a column, in the order it is asked, blank where someone did not answer.
-   *
-   * Columns are keyed by field id rather than label, so two questions worded
-   * the same way stay separate.
-   */
-  const exportColumns = [
-    { key: "name", label: "Name" },
-    { key: "email", label: "Email" },
-    { key: "status", label: "Stage" },
-    { key: "ai_fit", label: "Fit score" },
-    { key: "band", label: "Competency band" },
-    { key: "rules_passed", label: "Passed screening" },
-    { key: "source", label: "Applied as" },
-    { key: "resume", label: "Résumé" },
-    { key: "applied", label: "Date applied" },
-    ...formFields.map((f) => ({ key: `field:${f.id}`, label: f.label }))
-  ];
-
-  const exportRows = visible.map((r) => {
-    const byId = new Map((r.answers ?? []).map((a) => [a.field_id, a]));
-    return {
-      name: r.name, email: r.email, status: r.status,
-      ai_fit: r.ai_fit_score ?? "",
-      band: (r as any).card?.competency_band ?? "",
-      rules_passed: r.rules_passed == null ? "" : r.rules_passed ? "yes" : "no",
-      source: r.guest ? "Guest" : "Registered",
-      resume: r.resumeUrl ? "yes" : "no",
-      applied: new Date(r.created_at).toLocaleDateString(),
-      ...Object.fromEntries(formFields.map((f) => {
-        const a = byId.get(f.id);
-        const raw = a?.raw !== undefined ? a.raw : a?.value;
-        // Booleans read as yes/no in a spreadsheet; multiselects as one cell.
-        const cell = raw == null || raw === "" ? ""
-          : Array.isArray(raw) ? raw.join("; ")
-          : typeof raw === "boolean" ? (raw ? "yes" : "no")
-          : String(raw);
-        return [`field:${f.id}`, cell];
-      })),
-      // A job with no custom form still exports whatever answers exist.
-      ...(formFields.length === 0
-        ? Object.fromEntries((r.answers ?? []).map((a) => [a.label, a.value]))
-        : {})
-    };
-  });
+  // Flatten rows for CSV export
+  const exportRows = visible.map((r) => ({
+    name: r.name, email: r.email, status: r.status,
+    ai_fit: r.ai_fit_score ?? "", rules_passed: r.rules_passed == null ? "" : r.rules_passed ? "yes" : "no",
+    applied: new Date(r.created_at).toLocaleDateString(),
+    ...Object.fromEntries(r.answers.map((a) => [a.label, a.value]))
+  }));
 
   async function setStatus(id: string, status: string) {
     setBusy(id);
@@ -391,7 +347,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
           </span>
         )}
         <div className="flex-1" />
-        <ExportButton rows={exportRows} columns={formFields.length ? exportColumns : undefined} filename={exportName} label="Export" />
+        <ExportButton rows={exportRows} filename={exportName} label="Export" />
       </div>
       {/* Compose — emails the selected applicants, or everyone matching the
           current filters if none are individually selected. */}
