@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/renewals",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/funnel",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/matching",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}

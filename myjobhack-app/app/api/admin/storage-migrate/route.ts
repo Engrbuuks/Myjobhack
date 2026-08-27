@@ -1,0 +1,173 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { r2Configured, uploadFile, downloadFile } from "@/lib/storage";
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+/**
+ * Status: how much is on each provider.
+ */
+export async function GET() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const admin = createAdminClient();
+  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
+  if (me?.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
+
+  const { count: onSupabase } = await admin.from("documents")
+    .select("id", { count: "exact", head: true }).eq("storage_provider", "supabase");
+  const { count: onR2 } = await admin.from("documents")
+    .select("id", { count: "exact", head: true }).eq("storage_provider", "r2");
+  const { count: guestsOnSupabase } = await admin.from("applications")
+    .select("id", { count: "exact", head: true })
+    .not("guest_resume_path", "is", null).eq("guest_resume_provider", "supabase");
+
+  const { data: sizes } = await admin.from("upload_log").select("bytes, storage_provider");
+  const bytesBy = (p: string) => (sizes ?? [])
+    .filter((r: any) => r.storage_provider === p)
+    .reduce((t: number, r: any) => t + Number(r.bytes || 0), 0);
+
+  // A real write → read → delete against R2, so "configured" means "working"
+  // rather than "the variables are set to something".
+  let r2Test: any = { ran: false };
+  if (r2Configured()) {
+    const probePath = `_healthcheck/${Date.now()}.txt`;
+    const body = Buffer.from("myjobhack r2 healthcheck");
+    const up = await uploadFile({ supabase: admin as any, path: probePath, body, contentType: "text/plain" });
+    if (up.error || up.location?.provider !== "r2") {
+      r2Test = { ran: true, ok: false, stage: "write", error: up.error ?? "did not land on R2" };
+    } else {
+      const dl = await downloadFile({ supabase: admin as any, location: up.location });
+      r2Test = dl.buffer?.toString().includes("healthcheck")
+        ? { ran: true, ok: true }
+        : { ran: true, ok: false, stage: "read", error: dl.error ?? "content mismatch" };
+      const { deleteFile } = await import("@/lib/storage");
+      await deleteFile({ supabase: admin as any, location: up.location });
+    }
+  }
+
+  // This Cloudflare account holds buckets for other projects too, so make the
+  // target explicit — a wrong bucket name is otherwise invisible until files
+  // start appearing somewhere they should not.
+  const bucketName = process.env.R2_BUCKET ?? "(not set — falling back to 'myjobhack')";
+  const namespace = process.env.R2_NAMESPACE ?? "myjobhack";
+
+  return NextResponse.json({
+    r2_configured: r2Configured(),
+    target: {
+      bucket: bucketName,
+      namespace,
+      note: `All MYJOBHACK objects are written under "${namespace}/" inside that bucket, so they stay separate from other projects in this account.`
+    },
+    r2_test: r2Test,
+    missing_env: ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"]
+      .filter((k) => !process.env[k]),
+    documents: { on_supabase: onSupabase ?? 0, on_r2: onR2 ?? 0 },
+    guest_resumes_on_supabase: guestsOnSupabase ?? 0,
+    approx_bytes: { supabase: bytesBy("supabase"), r2: bytesBy("r2") },
+    verdict: !r2Configured()
+      ? "R2 is not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET, then new uploads will go to R2 automatically."
+      : r2Test.ran && !r2Test.ok
+      ? `R2 credentials are set but the ${r2Test.stage} test failed: ${r2Test.error}. Check the bucket name and that the API token has read and write permissions.`
+      : (onSupabase ?? 0) > 0
+        ? `${onSupabase} documents are still on Supabase. POST to this endpoint to migrate them in batches.`
+        : "Everything is on R2."
+  }, { headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * Move a batch of files from Supabase to R2.
+ *
+ * Copies first, verifies, then flips the pointer — the Supabase original is
+ * left in place so a failed migration never loses a file. Clean up only once
+ * you are satisfied everything reads correctly from R2.
+ */
+export async function POST(request: Request) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const admin = createAdminClient();
+  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
+  if (me?.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
+
+  if (!r2Configured())
+    return NextResponse.json({ error: "R2 is not configured — nothing to migrate to." }, { status: 400 });
+
+  const { limit } = await request.json().catch(() => ({ limit: 25 }));
+  const batch = Math.min(Number(limit) || 25, 50);
+
+  const { data: docs } = await admin.from("documents")
+    .select("id, bucket, path, mime").eq("storage_provider", "supabase").limit(batch);
+
+  if (!docs?.length)
+    return NextResponse.json({ ok: true, moved: 0, message: "No documents left on Supabase." });
+
+  let moved = 0, failed = 0;
+  const errors: string[] = [];
+
+  for (const d of docs) {
+    const dl = await downloadFile({
+      supabase: admin as any,
+      location: { provider: "supabase", bucket: d.bucket || "documents", path: d.path }
+    });
+    if (dl.error || !dl.buffer) { failed++; errors.push(`${d.path}: ${dl.error}`); continue; }
+
+    const up = await uploadFile({
+      supabase: admin as any, path: d.path, body: dl.buffer, contentType: d.mime || undefined
+    });
+    if (up.error || up.location?.provider !== "r2") { failed++; errors.push(`${d.path}: ${up.error ?? "did not land on R2"}`); continue; }
+
+    // Only now flip the pointer. The Supabase copy stays as a safety net.
+    await admin.from("documents").update({ storage_provider: "r2" }).eq("id", d.id);
+    moved++;
+  }
+
+  // Guest résumés live on the applications table, not documents — and there
+  // are more of them than anything else. Migrate them in the same pass.
+  let guestMoved = 0, guestFailed = 0;
+  const { data: guests } = await admin.from("applications")
+    .select("id, guest_resume_path, guest_resume_bucket")
+    .not("guest_resume_path", "is", null)
+    .eq("guest_resume_provider", "supabase")
+    .limit(batch);
+
+  for (const g of guests ?? []) {
+    const dl = await downloadFile({
+      supabase: admin as any,
+      location: { provider: "supabase", bucket: g.guest_resume_bucket || "guest-uploads", path: g.guest_resume_path }
+    });
+    if (dl.error || !dl.buffer) { guestFailed++; continue; }
+
+    const up = await uploadFile({ supabase: admin as any, path: g.guest_resume_path, body: dl.buffer });
+    if (up.error || up.location?.provider !== "r2") { guestFailed++; continue; }
+
+    await admin.from("applications").update({
+      guest_resume_provider: "r2",
+      guest_resume_bucket: up.location.bucket,
+      guest_resume_path: up.location.path
+    }).eq("id", g.id);
+    guestMoved++;
+  }
+
+  const { count: remaining } = await admin.from("documents")
+    .select("id", { count: "exact", head: true }).eq("storage_provider", "supabase");
+  const { count: guestsRemaining } = await admin.from("applications")
+    .select("id", { count: "exact", head: true })
+    .not("guest_resume_path", "is", null).eq("guest_resume_provider", "supabase");
+
+  return NextResponse.json({
+    ok: true,
+    documents: { moved, failed, remaining: remaining ?? 0 },
+    guest_resumes: { moved: guestMoved, failed: guestFailed, remaining: guestsRemaining ?? 0 },
+    moved, failed, remaining: remaining ?? 0,
+    errors: errors.slice(0, 5),
+    message: `Moved ${moved} document${moved === 1 ? "" : "s"} and ${guestMoved} guest résumé${guestMoved === 1 ? "" : "s"} to R2.` +
+      ((failed + guestFailed) ? ` ${failed + guestFailed} failed.` : "") +
+      (((remaining ?? 0) + (guestsRemaining ?? 0)) > 0
+        ? ` ${(remaining ?? 0) + (guestsRemaining ?? 0)} still to go — run again.`
+        : " Everything is on R2.")
+  });
+}

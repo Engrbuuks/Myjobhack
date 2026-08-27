@@ -1,0 +1,135 @@
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
+import { PageHeader } from "@/components/PageHeader";
+import { SegmentFilterBar } from "@/components/SegmentFilterBar";
+import { RequestCredentialsButton } from "@/components/RequestCredentialsButton";
+import { PoolSelectionProvider, RowCheckbox } from "@/components/PoolSelectionBar";
+import { ExportButton } from "@/components/ExportButton";
+import { filtersFromSearchParams, querySegment } from "@/lib/segment";
+
+export default async function PoolPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
+  const supabase = createClient();
+  const filters = filtersFromSearchParams(searchParams);
+  const [{ data: taxonomies }, rows] = await Promise.all([
+    supabase.from("taxonomies").select("id, kind, label").eq("active", true).order("sort"),
+    querySegment(supabase, filters)
+  ]);
+  const tmap = new Map((taxonomies ?? []).map((t) => [t.id, t.label]));
+  const exportRows = (rows as any[]).map((r) => ({
+    name: r.profile?.full_name ?? "", email: r.profile?.email ?? "",
+    niche: r.niche_id ? tmap.get(r.niche_id) : "", goal: r.career_goal_id ? tmap.get(r.career_goal_id) : "",
+    level: r.expected_role_level ?? "", competency: r.competency_band ?? "",
+    completion: r.profile_completion ?? 0
+  }));
+  // Data quality: location is compulsory but historic signups may predate that.
+  const { createAdminClient: _adminForQuality } = await import("@/lib/supabase/admin");
+  const _admin = _adminForQuality();
+  const { data: _people } = await _admin.from("profiles")
+    .select("id, country, city").in("role", ["job_seeker", "elite_member"]);
+  const _missingLocation = (_people ?? []).filter((p: any) => !p.country?.trim() || !p.city?.trim()).length;
+  const _totalPeople = (_people ?? []).length;
+
+  const allProfileIds: string[] = [];
+  for (const r of rows as any[]) allProfileIds.push(r.profile_id);
+  const qs = new URLSearchParams(
+    Object.entries(filters).filter(([, v]) => v) as [string, string][]
+  ).toString();
+
+  return (
+    <>
+      <PageHeader
+        title="Talent CRM"
+        sub="Slice the pool on the four axes. Any segment you build here can be sent training invites in one click."
+        action={
+          <Link href={`/portal/admin/invites${qs ? `?${qs}` : ""}`} className="btn-coral">
+            Invite this segment ✉
+          </Link>
+        }
+      />
+      {_missingLocation > 0 && (
+        <div className="card p-4 mb-4 border-coral/40" style={{ background: "#FFF4F2" }}>
+          <div className="font-semibold text-sm text-ink">
+            {_missingLocation} of {_totalPeople} people have no country or city
+          </div>
+          <p className="text-sm text-muted-2 mt-1">
+            Employers filter and match on location, so these profiles are effectively invisible in the pool.
+            Location is now compulsory for new signups and enforced before applying — these are historic accounts.
+            Use Campaigns to ask them to complete it.
+          </p>
+        </div>
+      )}
+      <SegmentFilterBar taxonomies={taxonomies ?? []} />
+      <div className="flex justify-end mb-3"><ExportButton rows={exportRows} filename="talent-pool" label="Export pool" /></div>
+
+      <div className="mb-4 text-sm text-muted">
+        <b className="font-display text-2xl text-ink mr-2">{rows.length}</b>
+        talent in this segment {rows.length === 500 && "(showing first 500)"}
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="card p-10 text-center text-sm text-muted">
+          No talent matches this segment yet. Loosen a filter, or wait — the pool is filling.
+        </div>
+      ) : (
+        <PoolSelectionProvider allIds={allProfileIds}>
+          <div className="card overflow-hidden">
+          <table className="w-full text-sm table-fixed">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-muted border-b border-line">
+                <th className="w-9 pl-3 pr-1 py-3"></th>
+                <th className="px-3 py-3 font-bold">Name</th>
+                <th className="px-3 py-3 font-bold hidden md:table-cell w-[16%]">Niche</th>
+                <th className="px-3 py-3 font-bold hidden lg:table-cell w-[14%]">Goal</th>
+                <th className="px-3 py-3 font-bold hidden sm:table-cell w-[10%]">Level</th>
+                <th className="px-3 py-3 font-bold hidden xl:table-cell w-[16%]">Expectation</th>
+                <th className="px-3 py-3 font-bold w-[8%]">Done</th>
+                <th className="px-3 py-3 w-[18%]"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.profile_id} className="border-b border-line last:border-0 hover:bg-paper transition align-middle">
+                  <td className="pl-3 pr-1 py-3"><RowCheckbox id={r.profile_id} /></td>
+                  <td className="px-3 py-3">
+                    <div className="font-semibold truncate flex items-center gap-2">
+                      {r.profile?.full_name || "—"}
+                      {r.competency_band && (
+                        <span className={`shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                          r.competency_band === "expert" ? "bg-ink text-white" :
+                          r.competency_band === "strong" ? "bg-green-100 text-green-700" :
+                          r.competency_band === "proficient" ? "bg-blue-100 text-blue-700" : "bg-coral-soft text-coral"
+                        }`}>{r.competency_band}</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-2 truncate">{r.headline || r.profile?.email}</div>
+                  </td>
+                  <td className="px-3 py-3 truncate hidden md:table-cell">{r.niche_id ? tmap.get(r.niche_id) : "—"}</td>
+                  <td className="px-3 py-3 truncate hidden lg:table-cell">{r.career_goal_id ? tmap.get(r.career_goal_id) : "—"}</td>
+                  <td className="px-3 py-3 capitalize hidden sm:table-cell">{r.expected_role_level ?? "—"}</td>
+                  <td className="px-3 py-3 truncate hidden xl:table-cell">
+                    {r.salary_min
+                      ? `${r.salary_currency} ${Number(r.salary_min).toLocaleString()}`
+                      : "—"}
+                    <span className="text-muted-2"> · {r.preferred_work_mode ?? "—"}</span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={`inline-grid place-items-center min-w-9 h-6 px-1.5 rounded-pill text-xs font-bold ${
+                      r.profile_completion >= 100 ? "bg-ink text-white" : "bg-coral-soft text-coral"
+                    }`}>{r.profile_completion}%</span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                      <RequestCredentialsButton profileId={r.profile_id} compact />
+                      <Link href={`/portal/admin/pool/${r.profile_id}`} className="text-coral font-semibold">View →</Link>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        </PoolSelectionProvider>
+      )}
+    </>
+  );
+}
