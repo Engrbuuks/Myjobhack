@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { ApplicantTable } from "@/components/ApplicantTable";
 import { ApplicantCharts } from "@/components/ApplicantCharts";
 import { buildCandidateCard } from "@/lib/candidateCard";
+import { GapFiller } from "@/components/GapFiller";
+import { describeSignals } from "@/lib/resumeScan";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +59,10 @@ export default async function Applicants({ params }: { params: { id: string } })
         email: prof?.email ?? a.guest_email ?? "",
         contact_locked: false, card,
         answers,
-        resumeUrl: hasResume ? `/api/employer/resume?application_id=${a.id}` : null
+        resumeUrl: hasResume ? `/api/employer/resume?application_id=${a.id}` : null,
+        // Keyword hits from the CV scan — filterable and exportable, clearly
+        // labelled as unverified so it is never read as a declared answer.
+        resume_hint: describeSignals(a.resume_signals as any) || null
       };
     })
   );
@@ -69,6 +74,7 @@ export default async function Applicants({ params }: { params: { id: string } })
       <PageHeader title={`Applicants — ${job?.title ?? ""}`}
         sub={`${rows.length} applicant${rows.length === 1 ? "" : "s"} · ${shortlisted} shortlisted · sort, filter and search below`}
         action={<Link href={`/portal/admin/jobs/${params.id}`} className="btn-ghost">← Edit job</Link>} />
+      <GapFiller jobId={params.id} formFields={formFields} />
       <ApplicantCharts rows={rows as any} openings={job?.openings ?? 1} formFields={formFields} />
       <ApplicantTable rows={rows as any} statusEndpoint="/api/employer/application-status" jobId={params.id} formFields={formFields} />
     </>

@@ -15,6 +15,8 @@ type Row = {
   created_at: string; name: string; email: string; guest?: boolean;
   answers: { field_id?: string; label: string; value: string; raw?: any }[];
   resumeUrl: string | null;
+  /** Keyword hits found in the CV — shown as a hint, not an answer. */
+  resume_hint?: string | null;
 };
 const STATUSES = ["submitted", "shortlisted", "interviewing", "offered", "hired", "rejected"];
 
@@ -247,6 +249,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
     { key: "source", label: "Applied as" },
     { key: "resume", label: "Résumé" },
     { key: "applied", label: "Date applied" },
+    { key: "resume_hint", label: "Résumé mentions (unverified)" },
     ...formFields.map((f) => ({ key: `field:${f.id}`, label: f.label }))
   ];
 
@@ -260,6 +263,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
       source: r.guest ? "Guest" : "Registered",
       resume: r.resumeUrl ? "yes" : "no",
       applied: new Date(r.created_at).toLocaleDateString(),
+      resume_hint: r.resume_hint ?? "",
       ...Object.fromEntries(formFields.map((f) => {
         const a = byId.get(f.id);
         const raw = a?.raw !== undefined ? a.raw : a?.value;

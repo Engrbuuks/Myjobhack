@@ -58,6 +58,8 @@ export type FilterableRow = {
   guest?: boolean;
   resumeUrl: string | null;
   card?: { competency_band?: string | null } | null;
+  /** What the CV mentions, from a keyword scan. A hint, never a declared answer. */
+  resume_hint?: string | null;
   answers: { field_id?: string; label: string; value: string; raw?: any }[];
 };
 
@@ -160,6 +162,7 @@ export function valueFor(row: FilterableRow, field: FilterField): any {
     case "core:source":     return row.guest ? "Guest" : "Registered";
     case "core:resume":     return row.resumeUrl ? "uploaded" : null;
     case "core:rules":      return row.rules_passed;
+    case "core:resume_hint": return row.resume_hint ?? null;
     default:                return null;
   }
 }
@@ -298,7 +301,10 @@ const CORE_FIELDS: FilterField[] = [
   { key: "core:source",  label: "Applied as",      type: "select", source: "core",
     options: ["Guest", "Registered"] },
   { key: "core:resume",  label: "Résumé",          type: "file",   source: "core" },
-  { key: "core:rules",   label: "Passed screening", type: "boolean", source: "core" }
+  { key: "core:rules",   label: "Passed screening", type: "boolean", source: "core" },
+  // Populated by the résumé keyword scan. Kept clearly separate from the
+  // applicant's own answers so a guess is never mistaken for a declaration.
+  { key: "core:resume_hint", label: "Résumé mentions", type: "text", source: "core" }
 ];
 
 /**
