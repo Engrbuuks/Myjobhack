@@ -7,6 +7,7 @@ import { ApplicantCharts } from "@/components/ApplicantCharts";
 import { buildCandidateCard } from "@/lib/candidateCard";
 import { GapFiller } from "@/components/GapFiller";
 import { describeSignals } from "@/lib/resumeScan";
+import { ResumeScanReport } from "@/components/ResumeScanReport";
 
 export const dynamic = "force-dynamic";
 
@@ -62,12 +63,38 @@ export default async function Applicants({ params }: { params: { id: string } })
         resumeUrl: hasResume ? `/api/employer/resume?application_id=${a.id}` : null,
         // Keyword hits from the CV scan — filterable and exportable, clearly
         // labelled as unverified so it is never read as a declared answer.
-        resume_hint: describeSignals(a.resume_signals as any) || null
+        resume_hint: describeSignals(a.resume_signals as any) || null,
+        // Raw signals feed the scan report; the hint string above is for the table.
+        signals: (a.resume_signals ?? null) as any,
+        scanned: !!a.resume_scanned_at,
+        hasResume
       };
     })
   );
 
   const shortlisted = rows.filter((r) => r.status === "shortlisted").length;
+
+  /**
+   * Which question do the scan keywords correspond to? Match a fixed-choice
+   * field whose options overlap the terms that were scanned — that is what
+   * lets the report check the scan's guesses against real answers.
+   */
+  const scannedTerms: string[] = Array.from(new Set(
+    rows.flatMap((r) => (r.signals?.terms ?? []) as string[])
+  ));
+  const matchedField = scannedTerms.length
+    ? formFields.find((f) =>
+        (f.options ?? []).some((o) =>
+          scannedTerms.some((t) => t.toLowerCase() === String(o).toLowerCase())))
+    : undefined;
+
+  const scanRows = rows.map((r) => ({
+    id: r.id, name: r.name, signals: r.signals,
+    scanned: r.scanned, hasResume: r.hasResume,
+    declared: matchedField
+      ? (r.answers.find((a) => a.field_id === matchedField.id)?.value ?? null)
+      : null
+  }));
 
   return (
     <>
@@ -75,6 +102,7 @@ export default async function Applicants({ params }: { params: { id: string } })
         sub={`${rows.length} applicant${rows.length === 1 ? "" : "s"} · ${shortlisted} shortlisted · sort, filter and search below`}
         action={<Link href={`/portal/admin/jobs/${params.id}`} className="btn-ghost">← Edit job</Link>} />
       <GapFiller jobId={params.id} formFields={formFields} />
+      <ResumeScanReport rows={scanRows as any} questionLabel={matchedField?.label ?? null} />
       <ApplicantCharts rows={rows as any} openings={job?.openings ?? 1} formFields={formFields} />
       <ApplicantTable rows={rows as any} statusEndpoint="/api/employer/application-status" jobId={params.id} formFields={formFields} />
     </>
