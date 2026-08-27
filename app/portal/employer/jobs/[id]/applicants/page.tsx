@@ -23,12 +23,12 @@ export default async function EmployerApplicants({ params }: { params: { id: str
   const fieldMap = new Map<string, string>();
   // Carry the field TYPE through as well — only fixed-choice and numeric fields
   // are worth counting. Free text produces one unique answer per person.
-  let formFields: { id: string; label: string; type: string }[] = [];
+  let formFields: { id: string; label: string; type: string; options?: string[] | null }[] = [];
   if (job.form_id) {
     const { data: fields } = await admin.from("form_fields")
-      .select("id, label, field_type, sort").eq("form_id", job.form_id).order("sort");
+      .select("id, label, field_type, options, sort").eq("form_id", job.form_id).order("sort");
     (fields ?? []).forEach((f: any) => fieldMap.set(f.id, f.label));
-    formFields = (fields ?? []).map((f: any) => ({ id: f.id, label: f.label, type: f.field_type }));
+    formFields = (fields ?? []).map((f: any) => ({ id: f.id, label: f.label, type: f.field_type, options: f.options ?? null }));
   }
 
   // Which candidates has this employer unlocked or placed? (email is masked otherwise)
@@ -82,7 +82,7 @@ export default async function EmployerApplicants({ params }: { params: { id: str
           </p>
         </div>
       )}
-      <ApplicantTable rows={rows} statusEndpoint="/api/employer/application-status" jobId={params.id} />
+      <ApplicantTable rows={rows} statusEndpoint="/api/employer/application-status" jobId={params.id} formFields={formFields} />
     </>
   );
 }

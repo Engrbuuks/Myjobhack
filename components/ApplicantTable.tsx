@@ -6,17 +6,23 @@ import { InterviewScheduler } from "@/components/InterviewScheduler";
 import { ExportButton } from "@/components/ExportButton";
 import { CandidateCard } from "@/components/CandidateCard";
 import { PayButton } from "@/components/PayButton";
+import { ApplicantFilterBar } from "@/components/ApplicantFilterBar";
+import { buildFilterFields, applyRules, describeRule, type Rule, type MatchMode } from "@/lib/applicantFilter";
 
 type Row = {
   id: string; talent_id?: string | null; status: string; rules_passed: boolean | null; card?: any; contact_locked?: boolean;
   ai_fit_score: number | null; ai_summary: string | null;
   created_at: string; name: string; email: string; guest?: boolean;
-  answers: { label: string; value: string }[];
+  answers: { field_id?: string; label: string; value: string; raw?: any }[];
   resumeUrl: string | null;
 };
 const STATUSES = ["submitted", "shortlisted", "interviewing", "offered", "hired", "rejected"];
 
-export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; statusEndpoint?: string; jobId?: string }) {
+export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }: {
+  rows: Row[]; statusEndpoint?: string; jobId?: string;
+  /** The job's own form definition — every field on it becomes filterable. */
+  formFields?: { id: string; label: string; type: string; options?: string[] | null }[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState<string | null>(null);
@@ -26,11 +32,11 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
   const [filterStage, setFilterStage] = useState<string>("all");
   const [filterBand, setFilterBand] = useState<string>("all");
   const [query, setQuery] = useState("");
-  // Filters driven by the job's own screening questions — location, shift,
-  // experience, whatever this particular form asks.
-  const [answerFilters, setAnswerFilters] = useState<Record<string, string>>({});
-  const [minFit, setMinFit] = useState<string>("");
-  const [maxFit, setMaxFit] = useState<string>("");
+  // Filters over every field on the job's application form, plus the core
+  // application columns. Built from the form definition, so a question with
+  // no answers yet — or one everybody answered differently — is still here.
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [matchMode, setMatchMode] = useState<MatchMode>("all");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [placeFor, setPlaceFor] = useState<Row | null>(null);
   const [salary, setSalary] = useState("");
@@ -142,37 +148,27 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
     hired: 6, offered: 5, interviewing: 4, shortlisted: 3, submitted: 2, rules_failed: 1, rejected: 0, withdrawn: 0
   };
 
-  const visible = rows
-    .filter((r) => filterStage === "all" || r.status === filterStage)
-    .filter((r) => {
-      if (filterBand === "all") return true;
-      const b = (r as any).card?.competency_band ?? null;
-      return filterBand === "none" ? !b : b === filterBand;
-    })
-    .filter((r) => {
-      if (!query.trim()) return true;
-      const q = query.toLowerCase();
-      return r.name.toLowerCase().includes(q)
-        || r.answers.some((a) => String(a.value).toLowerCase().includes(q));
-    })
-    // Screening-answer filters — e.g. only applicants who chose Lagos.
-    .filter((r) => Object.entries(answerFilters).every(([fieldId, wanted]) => {
-      if (!wanted) return true;
-      const a = (r.answers ?? []).find((x: any) => x.field_id === fieldId);
-      if (!a) return false;
-      // multiselect: match if the chosen value is among their answers
-      return String(a.value).split(",").map((v: string) => v.trim()).includes(wanted);
-    }))
-    // Fit-score band — the most decisive filter once applicants are scored.
-    .filter((r) => {
-      const lo = minFit === "" ? null : Number(minFit);
-      const hi = maxFit === "" ? null : Number(maxFit);
-      if (lo === null && hi === null) return true;
-      if (r.ai_fit_score == null) return false;   // unscored can't satisfy a score filter
-      if (lo !== null && r.ai_fit_score < lo) return false;
-      if (hi !== null && r.ai_fit_score > hi) return false;
-      return true;
-    })
+  // Every filterable field: the job's questions, then the core columns.
+  const filterFields = buildFilterFields(formFields, rows as any);
+
+  const filtered = applyRules(
+    (rows as any)
+      .filter((r: Row) => filterStage === "all" || r.status === filterStage)
+      .filter((r: Row) => {
+        if (filterBand === "all") return true;
+        const b = (r as any).card?.competency_band ?? null;
+        return filterBand === "none" ? !b : b === filterBand;
+      })
+      .filter((r: Row) => {
+        if (!query.trim()) return true;
+        const q = query.toLowerCase();
+        return r.name.toLowerCase().includes(q)
+          || r.answers.some((a) => String(a.value).toLowerCase().includes(q));
+      }),
+    filterFields, rules, matchMode
+  ) as Row[];
+
+  const visible = filtered
     .slice()
     .sort((a, b) => {
       switch (sortBy) {
@@ -188,33 +184,6 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
         default: return (b.ai_fit_score ?? -1) - (a.ai_fit_score ?? -1);
       }
     });
-
-  // Build a filter for every screening question that has a small, repeating
-  // set of answers. Free-text questions produce one unique answer per person,
-  // so filtering on them is meaningless.
-  const answerFilterFields = (() => {
-    const byField = new Map<string, { label: string; values: Map<string, number> }>();
-    rows.forEach((r) => {
-      (r.answers ?? []).forEach((a: any) => {
-        if (!a.field_id || !a.value) return;
-        const entry = byField.get(a.field_id) ?? { label: a.label, values: new Map() };
-        // multiselect answers hold several values in one string
-        String(a.value).split(",").map((v: string) => v.trim()).filter(Boolean)
-          .forEach((v: string) => entry.values.set(v, (entry.values.get(v) ?? 0) + 1));
-        byField.set(a.field_id, entry);
-      });
-    });
-    return Array.from(byField.entries())
-      // A question is filterable when answers repeat — 12 distinct values or
-      // fewer, and fewer options than applicants.
-      .filter(([, e]) => e.values.size > 1 && e.values.size <= 12 && e.values.size < rows.length)
-      .map(([field_id, e]) => ({
-        field_id, label: e.label,
-        options: Array.from(e.values.entries())
-          .sort((a, b) => b[1] - a[1])
-          .map(([value, count]) => ({ value, count }))
-      }));
-  })();
 
   // Which bands actually appear, so we don't offer empty filters.
   const availableBands = Array.from(new Set(
@@ -239,6 +208,22 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
     }
     setBulkBusy(false); setPicked(new Set()); router.refresh();
   }
+
+  /**
+   * Name the export after what it contains. A folder of files all called
+   * "applicants.csv" is unusable a week later; "applicants-years-of-experience-
+   * is-at-least-3.csv" says what you pulled.
+   */
+  const byFieldKey = new Map(filterFields.map((f) => [f.key, f]));
+  const exportName = (() => {
+    const live = rules.filter((r) => byFieldKey.has(r.key));
+    if (!live.length) return "applicants";
+    const slug = live
+      .map((r) => describeRule(byFieldKey.get(r.key)!, r))
+      .join(` ${matchMode === "all" ? "and" : "or"} `)
+      .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70);
+    return `applicants-${slug}`;
+  })();
 
   // Flatten rows for CSV export
   const exportRows = visible.map((r) => ({
@@ -304,40 +289,9 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
           <input className="input !h-9 text-xs" placeholder="Name or answer text…"
             value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <div>
-          <label className="label !text-xs">Fit score</label>
-          <div className="flex items-center gap-1">
-            <input className="input !h-9 !w-16 text-xs" type="number" placeholder="min"
-              value={minFit} onChange={(e) => setMinFit(e.target.value)} />
-            <span className="text-xs text-muted-2">–</span>
-            <input className="input !h-9 !w-16 text-xs" type="number" placeholder="max"
-              value={maxFit} onChange={(e) => setMaxFit(e.target.value)} />
-          </div>
-        </div>
-
-        {/* One filter per screening question that has repeating answers.
-            For a two-location job this is where "Lagos vs Abuja" appears. */}
-        {answerFilterFields.map((f) => (
-          <div key={f.field_id}>
-            <label className="label !text-xs truncate max-w-36" title={f.label}>{f.label}</label>
-            <select className="input !h-9 !w-auto text-xs"
-              value={answerFilters[f.field_id] ?? ""}
-              onChange={(e) => setAnswerFilters({ ...answerFilters, [f.field_id]: e.target.value })}>
-              <option value="">Any</option>
-              {f.options.map((o) => (
-                <option key={o.value} value={o.value}>{o.value} ({o.count})</option>
-              ))}
-            </select>
-          </div>
-        ))}
-
-        {(filterStage !== "all" || filterBand !== "all" || query || minFit || maxFit
-          || Object.values(answerFilters).some(Boolean)) && (
+        {(filterStage !== "all" || filterBand !== "all" || query) && (
           <button className="btn-ghost !h-9 text-xs"
-            onClick={() => {
-              setFilterStage("all"); setFilterBand("all"); setQuery("");
-              setMinFit(""); setMaxFit(""); setAnswerFilters({});
-            }}>
+            onClick={() => { setFilterStage("all"); setFilterBand("all"); setQuery(""); }}>
             Clear
           </button>
         )}
@@ -345,6 +299,13 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
           {visible.length} of {rows.length}
         </span>
       </div>
+
+      {/* Every field on this job's form, filterable on its own terms. */}
+      <ApplicantFilterBar
+        fields={filterFields} rows={rows as any}
+        rules={rules} setRules={setRules}
+        mode={matchMode} setMode={setMatchMode}
+        matched={visible.length} total={rows.length} />
 
       <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-paper-2 border border-line">
         <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
@@ -386,7 +347,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId }: { rows: Row[]; s
           </span>
         )}
         <div className="flex-1" />
-        <ExportButton rows={exportRows} filename="applicants" label="Export" />
+        <ExportButton rows={exportRows} filename={exportName} label="Export" />
       </div>
       {/* Compose — emails the selected applicants, or everyone matching the
           current filters if none are individually selected. */}
