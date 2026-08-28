@@ -28,8 +28,35 @@ export default async function IntelligencePage({
   const windowDays = Number(searchParams.days) || 180;
 
   const data = await getIntelligence(assumptions, windowDays);
-  const { data: niches } = await createAdminClient()
-    .from("taxonomies").select("id, label").eq("kind", "niche").eq("active", true).order("sort");
+  /**
+   * Niches with their talent counts, biggest first.
+   *
+   * Also counts how many of those people have an INDEXED CV, because coverage
+   * is measured against indexed text — a niche with 200 members and nothing
+   * indexed will read 0% for every skill and look like a catastrophe.
+   */
+  const adminDb = createAdminClient();
+  const [{ data: nicheRows }, { data: talentRows }, { data: indexedRows }] = await Promise.all([
+    adminDb.from("taxonomies").select("id, label").eq("kind", "niche").eq("active", true).order("sort"),
+    adminDb.from("talent_profiles").select("profile_id, niche_id"),
+    adminDb.from("resume_index").select("profile_id").not("profile_id", "is", null)
+  ]);
+
+  const indexedIds = new Set((indexedRows ?? []).map((r: any) => r.profile_id));
+  const counts = new Map<string, { talent: number; indexed: number }>();
+  for (const t of (talentRows ?? []) as any[]) {
+    if (!t.niche_id) continue;
+    const c = counts.get(t.niche_id) ?? { talent: 0, indexed: 0 };
+    c.talent++;
+    if (indexedIds.has(t.profile_id)) c.indexed++;
+    counts.set(t.niche_id, c);
+  }
+
+  const niches = (nicheRows ?? []).map((n: any) => ({
+    id: n.id, label: n.label,
+    talent: counts.get(n.id)?.talent ?? 0,
+    indexed: counts.get(n.id)?.indexed ?? 0
+  })).sort((a, b) => b.talent - a.talent || a.label.localeCompare(b.label));
 
   return (
     <>

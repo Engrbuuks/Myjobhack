@@ -5,7 +5,10 @@ import { geminiGrounded } from "@/lib/gemini";
 import { benchmarkPrompt, measureAgainstBenchmark, classifySources, boardsFor, type BenchmarkRow } from "@/lib/benchmark";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// Kept inside what lower Vercel plans actually allow. Asking for more than
+// the plan permits means the platform kills the function and returns its own
+// HTML error page, which the client can only report as an opaque 502.
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 /**
@@ -73,6 +76,18 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  try {
+    return await handlePost(request);
+  } catch (e: any) {
+    // Anything unhandled still leaves as JSON, so the UI can say what broke
+    // instead of surfacing a platform error page.
+    return NextResponse.json({
+      error: `The lookup failed unexpectedly: ${e?.message ?? "unknown error"}`
+    }, { status: 500 });
+  }
+}
+
+async function handlePost(request: Request) {
   const g = await gate(); if ("error" in g) return g.error;
   const { admin, userId } = g as any;
 
@@ -87,12 +102,25 @@ export async function POST(request: Request) {
   const boardList: string[] = Array.isArray(boards) && boards.length
     ? boards.map((b: any) => String(b).trim()).filter(Boolean).slice(0, 12)
     : boardsFor(reg);
-  const res = await geminiGrounded(benchmarkPrompt(niche.label, role_level ?? "", reg, boardList));
+  const res = await geminiGrounded(
+    benchmarkPrompt(niche.label, role_level ?? "", reg, boardList),
+    { timeoutMs: 45_000 }   // headroom under maxDuration to return a real message
+  );
 
-  if (res.error || !res.data)
-    return NextResponse.json({
-      error: res.error ?? "The web lookup returned nothing usable. Try again, or add skills by hand."
-    }, { status: 502 });
+  if (res.error || !res.data) {
+    const detail = res.error ?? "";
+    const friendly =
+      /timed out/i.test(detail)
+        ? "The web search took too long and was stopped. Try a narrower niche, or run it again — grounded searches vary a lot in speed."
+      : /API key|API_KEY|not set/i.test(detail)
+        ? "GEMINI_API_KEY is missing or rejected. Check it in Vercel → Settings → Environment Variables, then redeploy."
+      : /quota|rate|429|exhausted/i.test(detail)
+        ? "Gemini's quota is exhausted for now. It resets on Google's schedule — try later, or add skills by hand in the meantime."
+      : /tool|search/i.test(detail)
+        ? "This Gemini model doesn't support web grounding on your key. Set GEMINI_MODEL in Vercel to a current model such as gemini-flash-latest."
+        : "The web lookup returned nothing usable. Try again, or add skills by hand.";
+    return NextResponse.json({ error: `${friendly}`, detail }, { status: 502 });
+  }
 
   const skills = Array.isArray(res.data?.skills) ? res.data.skills : [];
   if (!skills.length)

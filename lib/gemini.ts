@@ -76,31 +76,54 @@ export async function geminiJson(prompt: string): Promise<{ data: any | null; er
  * NOTE: the API rejects responseMimeType: "application/json" when a tool is
  * enabled, so JSON has to be requested in the prompt and parsed out of prose.
  */
-export async function geminiGrounded(prompt: string): Promise<{
+export async function geminiGrounded(prompt: string, opts: { timeoutMs?: number } = {}): Promise<{
   data: any | null; error: string | null; sources: { title: string; uri: string }[]; model?: string;
 }> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { data: null, error: "GEMINI_API_KEY is not set in Vercel → Settings → Environment Variables.", sources: [] };
 
+  // A grounded call runs real searches and can take 30s+. Without our own
+  // deadline the serverless platform kills the function first and returns its
+  // own HTML error page — which is not JSON, so the caller gets an opaque 502
+  // instead of anything explaining what happened.
+  const budgetMs = opts.timeoutMs ?? 40_000;
+  const deadline = Date.now() + budgetMs;
+
+  // The grounding tool is named differently across model generations. Trying
+  // both means a model swap can't silently disable the feature.
+  const TOOL_SHAPES = [{ google_search: {} }, { google_search_retrieval: {} }];
+
   const errors: string[] = [];
+  outer:
   for (const model of Array.from(new Set(MODELS))) {
-    try {
+    for (const tool of TOOL_SHAPES) {
+      const remaining = deadline - Date.now();
+      if (remaining < 4_000) { errors.push("ran out of time before all models were tried"); break outer; }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), remaining);
+      try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
         {
           method: "POST",
+          signal: controller.signal,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            tools: [{ google_search: {} }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 8192 }
+            tools: [tool],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 4096 }
           })
         }
       );
       const json = await res.json().catch(() => null);
       if (!res.ok) {
-        errors.push(`${model}: ${json?.error?.message ?? `HTTP ${res.status}`}`);
-        continue;
+        const msg = json?.error?.message ?? `HTTP ${res.status}`;
+        errors.push(`${model}: ${msg}`);
+        // An unsupported tool name is worth retrying with the other shape;
+        // anything else means this model is out.
+        if (/tool|function|search/i.test(msg)) continue;
+        break;
       }
 
       const cand = json?.candidates?.[0];
@@ -115,6 +138,8 @@ export async function geminiGrounded(prompt: string): Promise<{
         .filter((s) => s.uri);
 
       if (!text) { errors.push(`${model}: no text returned`); continue; }
+      // A grounded answer with no sources is the model's memory, not the web.
+      if (!sources.length) errors.push(`${model}: answered without citing any source`);
 
       const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
       for (const candidate of [stripped, text.match(/\{[\s\S]*\}/)?.[0], text.match(/\[[\s\S]*\]/)?.[0]]) {
@@ -122,9 +147,14 @@ export async function geminiGrounded(prompt: string): Promise<{
         try { return { data: JSON.parse(candidate), error: null, sources, model }; } catch {}
       }
       errors.push(`${model}: unparseable JSON (starts: ${text.slice(0, 60).replace(/\s+/g, " ")}…)`);
-    } catch (e: any) {
-      errors.push(`${model}: ${e?.message ?? "network error"}`);
+      } catch (e: any) {
+        errors.push(e?.name === "AbortError"
+          ? `${model}: timed out after ${Math.round(budgetMs / 1000)}s`
+          : `${model}: ${e?.message ?? "network error"}`);
+      } finally {
+        clearTimeout(timer);
+      }
     }
   }
-  return { data: null, error: errors.join(" · "), sources: [] };
+  return { data: null, error: errors.join(" · ") || "No model returned a usable answer.", sources: [] };
 }

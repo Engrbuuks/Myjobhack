@@ -11,7 +11,9 @@ import { ExportButton } from "@/components/ExportButton";
  * benchmark is fetched from the live web rather than inferred from postings
  * that don't exist yet.
  */
-export function BenchmarkBoard({ niches }: { niches: { id: string; label: string }[] }) {
+export function BenchmarkBoard({ niches }: {
+  niches: { id: string; label: string; talent: number; indexed: number }[];
+}) {
   const [nicheId, setNicheId] = useState(niches[0]?.id ?? "");
   const [level, setLevel] = useState("");
   const [region, setRegion] = useState("Nigeria");
@@ -88,7 +90,13 @@ export function BenchmarkBoard({ niches }: { niches: { id: string; label: string
             <label className="label !text-xs">Niche</label>
             <select className="input !h-10 !w-auto text-sm" value={nicheId}
               onChange={(e) => setNicheId(e.target.value)}>
-              {niches.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+              {/* Counts up front: the niche worth benchmarking first is the one
+                  with the most people in it. */}
+              {niches.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.talent} · {n.label}{n.indexed < n.talent ? ` (${n.indexed} CVs indexed)` : ""}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -168,6 +176,26 @@ export function BenchmarkBoard({ niches }: { niches: { id: string; label: string
             </div>
           </div>
         )}
+        {(() => {
+          const n = niches.find((x) => x.id === nicheId);
+          if (!n || n.talent === 0) return null;
+          if (n.indexed === 0) return (
+            <p className="text-xs text-coral font-medium mt-3">
+              {n.label} has {n.talent} {n.talent === 1 ? "person" : "people"} but no indexed CVs, so every
+              skill will read 0% coverage. Index them on{" "}
+              <Link href="/portal/admin/cv-search" className="underline">Search CVs</Link> first,
+              or the gaps will look far worse than they are.
+            </p>
+          );
+          if (n.indexed < n.talent * 0.5) return (
+            <p className="text-xs text-muted-2 mt-3">
+              Only {n.indexed} of {n.talent} CVs in {n.label} are indexed — coverage figures
+              understate what the pool actually has until the rest are done.
+            </p>
+          );
+          return null;
+        })()}
+
         {data?.pool_indexed === 0 && (
           <p className="text-xs text-coral font-medium mt-3">
             No CVs are indexed, so coverage will read 0% for everything. Build the index
