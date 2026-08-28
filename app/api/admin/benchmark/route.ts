@@ -45,7 +45,74 @@ function tableMissing(err: any): string | null {
 export async function GET(request: Request) {
   const g = await gate(); if ("error" in g) return g.error;
   const admin = g.admin;
-  const nicheId = new URL(request.url).searchParams.get("niche_id");
+  const url = new URL(request.url);
+
+  // ?diagnose=1 — check each step separately and report which one breaks.
+  // Chasing this through platform logs is slow and the logs often show only
+  // "function crashed"; this returns the answer in the browser.
+  if (url.searchParams.get("diagnose") === "1") {
+    const steps: { step: string; ok: boolean; detail: string }[] = [];
+    const add = (step: string, ok: boolean, detail: string) => steps.push({ step, ok, detail });
+
+    const key = process.env.GEMINI_API_KEY;
+    add("GEMINI_API_KEY present", !!key,
+      key ? `set, ${key.length} characters, starts "${key.slice(0, 6)}…"` : "missing from this deployment's environment");
+    add("GEMINI_MODEL", true, process.env.GEMINI_MODEL || "not set — falling back to gemini-flash-latest");
+    add("Build marker", true, "benchmark route rev 2 (timeout + diagnostics)");
+
+    if (key) {
+      // 1 · Plain call, no tools. Isolates key/quota problems from grounding.
+      try {
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL || "gemini-flash-latest"}:generateContent?key=${key}`,
+          { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: "Reply with the single word: ok" }] }] }) });
+        const j = await r.json().catch(() => null);
+        add("Gemini reachable (no tools)", r.ok,
+          r.ok ? "responded normally" : `HTTP ${r.status}: ${j?.error?.message ?? "no message"}`);
+      } catch (e: any) {
+        add("Gemini reachable (no tools)", false, `network error: ${e?.message}`);
+      }
+
+      // 2 · Same call WITH grounding. If 1 passes and this fails, the model
+      //     or key doesn't support web search — which is the whole feature.
+      for (const toolName of ["google_search", "google_search_retrieval"]) {
+        try {
+          const r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL || "gemini-flash-latest"}:generateContent?key=${key}`,
+            { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: "What is the capital of Nigeria? One word." }] }],
+                tools: [{ [toolName]: {} }]
+              }) });
+          const j = await r.json().catch(() => null);
+          const cited = j?.candidates?.[0]?.groundingMetadata?.groundingChunks?.length ?? 0;
+          add(`Grounding via ${toolName}`, r.ok,
+            r.ok ? `worked, cited ${cited} source${cited === 1 ? "" : "s"}`
+                 : `HTTP ${r.status}: ${j?.error?.message ?? "no message"}`);
+        } catch (e: any) {
+          add(`Grounding via ${toolName}`, false, `network error: ${e?.message}`);
+        }
+      }
+    }
+
+    // 3 · Does the table exist?
+    const { error: tErr } = await admin.from("skill_benchmarks").select("id").limit(1);
+    add("skill_benchmarks table", !tErr, tErr ? tErr.message : "present");
+
+    // 4 · Is anything indexed to measure against?
+    const { count, error: rErr } = await admin.from("resume_index")
+      .select("id", { count: "exact", head: true }).eq("unreadable", false);
+    add("resume_index readable rows", !rErr, rErr ? rErr.message : `${count ?? 0} CVs indexed`);
+
+    const failed = steps.filter((s) => !s.ok);
+    return NextResponse.json({
+      verdict: failed.length ? `First failure: ${failed[0].step} — ${failed[0].detail}` : "Everything checks out.",
+      steps
+    });
+  }
+
+  const nicheId = url.searchParams.get("niche_id");
 
   let q = admin.from("skill_benchmarks").select("*").order("importance").order("skill");
   if (nicheId) q = q.eq("niche_id", nicheId);
