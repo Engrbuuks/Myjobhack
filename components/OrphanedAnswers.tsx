@@ -19,16 +19,37 @@ export function OrphanedAnswers({ jobId }: { jobId: string }) {
 
   async function load() {
     const r = await callApi(`/api/admin/repair-answers?job_id=${jobId}`);
-    if (r.ok) { setData(r.data); setLoadError(null); }
+    if (r.ok) {
+      setData(r.data);
+      setLoadError(null);
+      // Seed the selections from the suggestions, so what is shown on screen
+      // and what the button will act on are never out of step.
+      const seeded: Record<string, string> = {};
+      for (const o of (r.data as any)?.orphans ?? []) {
+        if (o.suggestions?.[0]?.id) seeded[o.orphaned_field_id] = o.suggestions[0].id;
+      }
+      setTarget((t) => ({ ...seeded, ...t }));
+    }
     // A failure here used to render nothing at all, so a broken route looked
     // identical to "no orphaned answers". Say which it is.
     else setLoadError(r.error);
   }
   useEffect(() => { load(); }, [jobId]);
 
-  async function repair(fromId: string) {
-    const to = target[fromId];
-    if (!to) return;
+  /**
+   * `to` must fall back to the suggested field.
+   *
+   * The dropdown DISPLAYED the suggestion via a defaulted value, but that
+   * default never reached state — so unless the user opened the dropdown and
+   * picked something themselves, target[fromId] was undefined and this
+   * function returned silently. The button looked live and did nothing.
+   */
+  async function repair(fromId: string, suggestedId?: string) {
+    const to = target[fromId] ?? suggestedId;
+    if (!to) {
+      setNote("Choose which question these answers belong to first.");
+      return;
+    }
     setBusy(fromId); setNote(null);
     let ok = false;
     try {
@@ -89,7 +110,7 @@ export function OrphanedAnswers({ jobId }: { jobId: string }) {
               ))}
             </select>
             <button className="btn-coral !h-9 text-sm"
-              onClick={() => repair(o.orphaned_field_id)}
+              onClick={() => repair(o.orphaned_field_id, o.suggestions[0]?.id)}
               disabled={busy === o.orphaned_field_id ||
                 !(target[o.orphaned_field_id] ?? o.suggestions[0]?.id)}>
               {busy === o.orphaned_field_id ? "Restoring…" : "Restore these answers"}

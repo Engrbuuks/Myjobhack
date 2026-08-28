@@ -43,10 +43,15 @@ create table if not exists resume_index (
 );
 
 -- One index row per person and per guest application.
-create unique index if not exists resume_index_profile_uniq
-  on resume_index(profile_id) where profile_id is not null;
-create unique index if not exists resume_index_application_uniq
-  on resume_index(application_id) where application_id is not null;
+--
+-- These are CONSTRAINTS rather than partial unique indexes on purpose: ON
+-- CONFLICT can only target a real constraint, and Postgres treats NULLs as
+-- distinct in a unique index anyway — so many guest rows (profile_id null)
+-- and many pool rows (application_id null) coexist happily.
+alter table resume_index drop constraint if exists resume_index_profile_key;
+alter table resume_index add constraint resume_index_profile_key unique (profile_id);
+alter table resume_index drop constraint if exists resume_index_application_key;
+alter table resume_index add constraint resume_index_application_key unique (application_id);
 
 -- The index that makes pool-wide keyword search fast.
 create index if not exists resume_index_tsv_idx on resume_index using gin(tsv);
