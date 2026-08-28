@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { callApi, postJson } from "@/lib/apiClient";
 
 /**
  * Fill gaps in a job's answers, two ways.
@@ -30,32 +31,36 @@ export function GapFiller({ jobId, formFields }: {
   async function checkStatus(id: string) {
     setFieldId(id); setStatus(null); setAskNote(null);
     if (!id) return;
-    const res = await fetch(`/api/admin/request-answers?job_id=${jobId}&field_id=${id}`);
-    if (res.ok) setStatus(await res.json());
+    const res = await callApi(`/api/admin/request-answers?job_id=${jobId}&field_id=${id}`);
+    if (res.ok) setStatus(res.data); else setAskNote(res.error);
   }
 
   async function scan() {
     setScanning(true); setScanNote(null);
-    const res = await fetch("/api/admin/scan-resumes", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job_id: jobId, terms: terms.split(",").map((t) => t.trim()).filter(Boolean), rescan })
-    });
-    const j = await res.json();
-    setScanning(false);
-    setScanNote(res.ok ? j.message : (j.error ?? "Could not scan."));
-    if (res.ok) setTimeout(() => router.refresh(), 1200);
+    let ok = false;
+    try {
+      const res = await postJson("/api/admin/scan-resumes", {
+        job_id: jobId, terms: terms.split(",").map((t) => t.trim()).filter(Boolean), rescan
+      });
+      ok = res.ok;
+      setScanNote(res.ok ? (res.data?.message ?? "Done.") : res.error);
+    } finally {
+      setScanning(false);
+    }
+    if (ok) setTimeout(() => router.refresh(), 1200);
   }
 
   async function ask() {
     setAsking(true); setAskNote(null);
-    const res = await fetch("/api/admin/request-answers", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job_id: jobId, field_id: fieldId })
-    });
-    const j = await res.json();
-    setAsking(false);
-    setAskNote(res.ok ? j.message : (j.error ?? "Could not send."));
-    if (res.ok) { checkStatus(fieldId); setTimeout(() => router.refresh(), 1500); }
+    let ok = false;
+    try {
+      const res = await postJson("/api/admin/request-answers", { job_id: jobId, field_id: fieldId });
+      ok = res.ok;
+      setAskNote(res.ok ? (res.data?.message ?? "Sent.") : res.error);
+    } finally {
+      setAsking(false);
+    }
+    if (ok) { checkStatus(fieldId); setTimeout(() => router.refresh(), 1500); }
   }
 
   if (!open) {

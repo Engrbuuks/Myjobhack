@@ -30,14 +30,30 @@ async function gate() {
   return { admin };
 }
 
+/**
+ * Postgres 42P01 = relation does not exist. If the migration hasn't been run,
+ * every query fails the same way — so say that plainly instead of returning a
+ * generic error the user can do nothing with.
+ */
+function migrationError(err: any): string | null {
+  const msg = String(err?.message ?? err ?? "");
+  if (err?.code === "42P01" || /relation .* does not exist|could not find the table/i.test(msg))
+    return "The resume_index table doesn't exist yet. Run migration 0046_resume_index.sql in the Supabase SQL editor, then try again.";
+  return null;
+}
+
 export async function GET() {
   const g = await gate(); if ("error" in g) return g.error;
   const admin = g.admin;
 
   const { count: withResume } = await admin.from("talent_profiles")
     .select("profile_id", { count: "exact", head: true }).not("resume_document_id", "is", null);
-  const { count: indexed } = await admin.from("resume_index")
+  const { count: indexed, error: idxErr } = await admin.from("resume_index")
     .select("id", { count: "exact", head: true }).not("profile_id", "is", null);
+  if (idxErr) {
+    const m = migrationError(idxErr);
+    return NextResponse.json({ error: m ?? idxErr.message }, { status: m ? 400 : 500 });
+  }
   const { count: unreadable } = await admin.from("resume_index")
     .select("id", { count: "exact", head: true }).eq("unreadable", true);
   const { count: guestsIndexed } = await admin.from("resume_index")
@@ -62,8 +78,12 @@ export async function POST(request: Request) {
   const includeGuests = !!body.include_guests;
 
   // Who still needs indexing?
-  const { data: alreadyRows } = await admin.from("resume_index")
+  const { data: alreadyRows, error: readErr } = await admin.from("resume_index")
     .select("profile_id").not("profile_id", "is", null);
+  if (readErr) {
+    const m = migrationError(readErr);
+    return NextResponse.json({ error: m ?? readErr.message }, { status: m ? 400 : 500 });
+  }
   const already = new Set((alreadyRows ?? []).map((r: any) => r.profile_id));
 
   const { data: pool } = await admin.from("talent_profiles")
@@ -74,6 +94,17 @@ export async function POST(request: Request) {
   const queue = (pool ?? [])
     .filter((p: any) => reindex || !already.has(p.profile_id))
     .slice(0, limit);
+
+  if (!queue.length && !includeGuests) {
+    const { count: poolCount } = await admin.from("talent_profiles")
+      .select("profile_id", { count: "exact", head: true }).not("resume_document_id", "is", null);
+    return NextResponse.json({
+      message: (poolCount ?? 0) === 0
+        ? "Nobody in the pool has a résumé on file yet, so there is nothing to index."
+        : "Every pool CV is already indexed. Tick reindex to rebuild.",
+      indexed: 0, guest_indexed: 0, unreadable: 0, remaining: 0
+    });
+  }
 
   let indexed = 0, unreadable = 0;
   const errors: string[] = [];
@@ -86,7 +117,7 @@ export async function POST(request: Request) {
     const isUnreadable = text.length < 40;
     if (isUnreadable) unreadable++;
 
-    await admin.from("resume_index").upsert({
+    const { error: writeErr } = await admin.from("resume_index").upsert({
       profile_id: person.profile_id,
       document_id: person.resume_document_id,
       // Collapse whitespace: PDF extraction produces ragged line breaks that
@@ -97,6 +128,15 @@ export async function POST(request: Request) {
       extract_error: r.error ?? null,
       indexed_at: new Date().toISOString()
     }, { onConflict: "profile_id" });
+    // A failed write used to be invisible: the loop counted it as indexed and
+    // reported success while nothing was stored.
+    if (writeErr) {
+      const m = migrationError(writeErr);
+      return NextResponse.json({
+        error: m ?? `Indexing failed while writing: ${writeErr.message}`,
+        indexed
+      }, { status: m ? 400 : 500 });
+    }
     indexed++;
   }
 
@@ -122,7 +162,7 @@ export async function POST(request: Request) {
         app.guest_resume_path
       );
       const text = (r.text ?? "").trim();
-      await admin.from("resume_index").upsert({
+      const { error: gErr } = await admin.from("resume_index").upsert({
         application_id: app.id,
         content: text.replace(/\s+/g, " ").slice(0, 200_000),
         content_chars: text.length,
@@ -130,6 +170,9 @@ export async function POST(request: Request) {
         extract_error: r.error ?? null,
         indexed_at: new Date().toISOString()
       }, { onConflict: "application_id" });
+      if (gErr) return NextResponse.json({
+        error: `Indexing failed on a guest application: ${gErr.message}`, indexed, guest_indexed: guestIndexed
+      }, { status: 500 });
       guestIndexed++;
       if (text.length < 40) unreadable++;
     }

@@ -45,8 +45,9 @@ export async function GET(request: Request) {
     : { data: [] as any[] };
   const liveIds = new Set((fields ?? []).map((f: any) => f.id));
 
-  const { data: apps } = await admin.from("applications")
+  const { data: apps, error: appsErr } = await admin.from("applications")
     .select("id, answers, created_at").eq("job_id", jobId);
+  if (appsErr) return NextResponse.json({ error: appsErr.message }, { status: 500 });
 
   // Group orphaned answers by the dead field id they point at.
   const groups = new Map<string, { values: Map<string, number>; count: number; last: string }>();
@@ -123,7 +124,11 @@ export async function POST(request: Request) {
     answers[to_field_id] = orphanValue;
     delete answers[from_field_id];
     const { error } = await admin.from("applications").update({ answers }).eq("id", a.id);
-    if (!error) moved++;
+    // A silently failed update looked identical to a successful one.
+    if (error) return NextResponse.json({
+      error: `Restored ${moved} before hitting an error: ${error.message}`, moved, skipped
+    }, { status: 500 });
+    moved++;
   }
 
   return NextResponse.json({

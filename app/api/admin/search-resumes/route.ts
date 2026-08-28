@@ -97,7 +97,14 @@ export async function POST(request: Request) {
   }
 
   const { data: hits, error } = await query.limit(limit);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const msg = String(error.message ?? "");
+    if ((error as any).code === "42P01" || /relation .* does not exist|could not find the table/i.test(msg))
+      return NextResponse.json({
+        error: "The resume_index table doesn't exist yet. Run migration 0046_resume_index.sql in the Supabase SQL editor, then build the index."
+      }, { status: 400 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   if (!hits?.length) {
     const { count: total } = await admin.from("resume_index")
       .select("id", { count: "exact", head: true }).eq("unreadable", false);

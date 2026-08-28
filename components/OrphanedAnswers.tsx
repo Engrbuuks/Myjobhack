@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { callApi, postJson } from "@/lib/apiClient";
 
 /**
  * Answers stranded by past form edits, and a way to put them back.
@@ -14,10 +15,14 @@ export function OrphanedAnswers({ jobId }: { jobId: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [target, setTarget] = useState<Record<string, string>>({});
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function load() {
-    const r = await fetch(`/api/admin/repair-answers?job_id=${jobId}`);
-    if (r.ok) setData(await r.json());
+    const r = await callApi(`/api/admin/repair-answers?job_id=${jobId}`);
+    if (r.ok) { setData(r.data); setLoadError(null); }
+    // A failure here used to render nothing at all, so a broken route looked
+    // identical to "no orphaned answers". Say which it is.
+    else setLoadError(r.error);
   }
   useEffect(() => { load(); }, [jobId]);
 
@@ -25,17 +30,28 @@ export function OrphanedAnswers({ jobId }: { jobId: string }) {
     const to = target[fromId];
     if (!to) return;
     setBusy(fromId); setNote(null);
-    const r = await fetch("/api/admin/repair-answers", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job_id: jobId, from_field_id: fromId, to_field_id: to })
-    });
-    const j = await r.json();
-    setNote(r.ok ? j.message : (j.error ?? "Could not restore those answers."));
-    setBusy(null);
+    let ok = false;
+    try {
+      const r = await postJson("/api/admin/repair-answers", {
+        job_id: jobId, from_field_id: fromId, to_field_id: to
+      });
+      ok = r.ok;
+      setNote(r.ok ? (r.data?.message ?? "Done.") : r.error);
+    } finally {
+      setBusy(null);
+    }
     load();
-    if (r.ok) setTimeout(() => router.refresh(), 1200);
+    if (ok) setTimeout(() => router.refresh(), 1200);
   }
 
+  if (loadError) {
+    return (
+      <div className="card p-4 mb-4 border-coral/40" style={{ background: "#FFF4F2" }}>
+        <div className="font-semibold text-sm text-ink mb-1">Couldn&rsquo;t check for stranded answers</div>
+        <p className="text-sm text-muted">{loadError}</p>
+      </div>
+    );
+  }
   if (!data || !data.orphans?.length) return null;
 
   return (

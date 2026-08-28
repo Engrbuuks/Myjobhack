@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ExportButton } from "@/components/ExportButton";
+import { callApi, postJson } from "@/lib/apiClient";
 
 /**
  * Search the whole pool by what people's CVs actually say.
@@ -18,34 +19,39 @@ export function ResumeSearch() {
   const [indexing, setIndexing] = useState(false);
   const [indexNote, setIndexNote] = useState<string | null>(null);
   const [includeGuests, setIncludeGuests] = useState(true);
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   async function loadCoverage() {
-    const r = await fetch("/api/admin/index-resumes");
-    if (r.ok) setCoverage(await r.json());
+    const r = await callApi("/api/admin/index-resumes");
+    if (r.ok) { setCoverage(r.data); setSetupError(null); }
+    else setSetupError(r.error);
   }
   useEffect(() => { loadCoverage(); }, []);
 
   async function runIndex() {
-    setIndexing(true); setIndexNote(null);
-    const r = await fetch("/api/admin/index-resumes", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ include_guests: includeGuests })
-    });
-    const j = await r.json();
-    setIndexNote(r.ok ? j.message : (j.error ?? "Could not index."));
-    setIndexing(false);
+    setIndexing(true); setIndexNote(null); setSetupError(null);
+    try {
+      const r = await postJson("/api/admin/index-resumes", { include_guests: includeGuests });
+      if (r.ok) setIndexNote(r.data?.message ?? "Done.");
+      else setSetupError(r.error);
+    } finally {
+      // In a finally block so a failure can never leave the button stuck
+      // on "Indexing…" with nothing on screen.
+      setIndexing(false);
+    }
     loadCoverage();
   }
 
   async function search() {
     if (!query.trim()) return;
-    setBusy(true); setRes(null);
-    const r = await fetch("/api/admin/search-resumes", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, mode })
-    });
-    setRes(await r.json());
-    setBusy(false);
+    setBusy(true); setRes(null); setSetupError(null);
+    try {
+      const r = await postJson("/api/admin/search-resumes", { query, mode });
+      if (r.ok) setRes(r.data);
+      else setSetupError(r.error);
+    } finally {
+      setBusy(false);
+    }
   }
 
   const results = res?.results ?? [];
@@ -62,6 +68,13 @@ export function ResumeSearch() {
 
   return (
     <div className="space-y-4">
+      {setupError && (
+        <div className="card p-4 border-coral/40" style={{ background: "#FFF4F2" }}>
+          <div className="font-semibold text-sm text-ink mb-1">This didn&rsquo;t work</div>
+          <p className="text-sm text-muted">{setupError}</p>
+        </div>
+      )}
+
       {/* Index coverage — searching an empty index silently returns nothing,
           so the state of the index is shown before anyone searches. */}
       <div className="card p-4">
