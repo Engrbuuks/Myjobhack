@@ -8,6 +8,7 @@ import { buildCandidateCard } from "@/lib/candidateCard";
 import { GapFiller } from "@/components/GapFiller";
 import { describeSignals } from "@/lib/resumeScan";
 import { ResumeScanReport } from "@/components/ResumeScanReport";
+import { OrphanedAnswers } from "@/components/OrphanedAnswers";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,7 @@ export default async function Applicants({ params }: { params: { id: string } })
       <PageHeader title={`Applicants — ${job?.title ?? ""}`}
         sub={`${rows.length} applicant${rows.length === 1 ? "" : "s"} · ${shortlisted} shortlisted · sort, filter and search below`}
         action={<Link href={`/portal/admin/jobs/${params.id}`} className="btn-ghost">← Edit job</Link>} />
+      <OrphanedAnswers jobId={params.id} />
       <GapFiller jobId={params.id} formFields={formFields} />
       <ResumeScanReport rows={scanRows as any} questionLabel={matchedField?.label ?? null} />
       <ApplicantCharts rows={rows as any} openings={job?.openings ?? 1} formFields={formFields} />

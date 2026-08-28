@@ -32,6 +32,7 @@ export function FormBuilder({ jobId, formId, initial }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [warn, setWarn] = useState<{ message: string; count: number } | null>(null);
 
   const add = () => setFields((f) => [...f, {
     sort: f.length, label: "", field_type: "text", options: "", required: true, elig_op: "", elig_value: ""
@@ -46,9 +47,34 @@ export function FormBuilder({ jobId, formId, initial }: {
   const upd = (i: number, k: keyof Field, v: any) =>
     setFields((f) => f.map((x, idx) => (idx === i ? { ...x, [k]: v } : x)));
 
-  async function saveAll() {
-    setBusy(true); setErr(null); setSaved(false);
+  /**
+   * Save the form WITHOUT breaking existing applications.
+   *
+   * This used to delete every field and re-insert them, which handed each
+   * question a brand-new UUID on every save. But applications.answers is a
+   * jsonb map keyed by field_id — so the moment anyone edited a form, every
+   * answer already collected pointed at an id that no longer existed. The
+   * applicants page filters answers to known field ids, so those answers
+   * silently vanished from the table and the exports. The data was still in
+   * the database; only the link to the question was destroyed.
+   *
+   * Now: existing fields keep their id and are updated in place, new fields
+   * get an id generated up front, and only fields you actually removed are
+   * deleted — after warning you if answers depend on them.
+   */
+  async function saveAll(confirmedDelete = false) {
+    setBusy(true); setErr(null); setSaved(false); setWarn(null);
     const supabase = createClient();
+
+    // A blank label used to make the field disappear on save, silently
+    // deleting a question and orphaning its answers. Refuse instead.
+    const blank = fields.findIndex((f) => !f.label.trim());
+    if (blank >= 0) {
+      setErr(`Question ${blank + 1} has no label. Give it one, or remove the row.`);
+      setBusy(false);
+      return;
+    }
+
     let fid = formId;
     if (!fid) {
       const { data: { user } } = await supabase.auth.getUser();
@@ -59,25 +85,65 @@ export function FormBuilder({ jobId, formId, initial }: {
       const { error: je } = await supabase.from("jobs").update({ form_id: fid }).eq("id", jobId);
       if (je) { setErr(je.message); setBusy(false); return; }
     }
-    // wipe & rewrite (simple, atomic enough for admin editing)
-    await supabase.from("form_fields").delete().eq("form_id", fid);
-    const rows = fields
-      .filter((f) => f.label.trim())
-      .map((f, idx) => ({
-        form_id: fid, sort: idx, label: f.label.trim(), field_type: f.field_type as any,
-        options: ["select", "multiselect"].includes(f.field_type) && f.options.trim()
-          ? f.options.split(",").map((s) => s.trim()).filter(Boolean)
-          : null,
-        required: f.required,
-        eligibility: f.elig_op
-          ? { op: f.elig_op, value: f.field_type === "number" ? Number(f.elig_value) : f.elig_value }
-          : null
-      }));
+
+    // Which fields did the user actually remove?
+    const keptIds = new Set(fields.map((f) => f.id).filter(Boolean) as string[]);
+    const removedIds = initial.map((f) => f.id).filter((id) => !keptIds.has(id));
+
+    // Deleting a question throws away answers people already gave. Say so
+    // before doing it, rather than after.
+    if (removedIds.length && !confirmedDelete) {
+      // Applications link to the form through the job, not directly.
+      const { data: withAnswers } = await supabase
+        .from("applications").select("answers").eq("job_id", jobId).limit(500);
+      const affected = (withAnswers ?? []).filter((a: any) =>
+        removedIds.some((id) => (a.answers ?? {})[id] != null)).length;
+      const labels = initial.filter((f) => removedIds.includes(f.id)).map((f) => f.label);
+      setWarn({
+        message: affected > 0
+          ? `Removing ${labels.join(", ")} will orphan answers from ${affected} applicant${affected === 1 ? "" : "s"}. Those answers stay in the database but stop showing in the table and exports.`
+          : `Removing ${labels.join(", ")}. No applicant has answered ${labels.length === 1 ? "it" : "them"} yet, so nothing is lost.`,
+        count: affected
+      });
+      setBusy(false);
+      return;
+    }
+
+    // Generate ids for new fields up front so the whole set goes in one
+    // upsert — existing rows keep their id, new rows get a stable one.
+    const rows = fields.map((f, idx) => ({
+      id: f.id ?? crypto.randomUUID(),
+      form_id: fid, sort: idx, label: f.label.trim(), field_type: f.field_type as any,
+      options: ["select", "multiselect"].includes(f.field_type) && f.options.trim()
+        ? f.options.split(",").map((s) => s.trim()).filter(Boolean)
+        : null,
+      required: f.required,
+      eligibility: f.elig_op
+        ? { op: f.elig_op, value: f.field_type === "number" ? Number(f.elig_value) : f.elig_value }
+        : null
+    }));
+
     if (rows.length) {
-      const { error } = await supabase.from("form_fields").insert(rows);
+      const { error } = await supabase.from("form_fields").upsert(rows, { onConflict: "id" });
       if (error) { setErr(error.message); setBusy(false); return; }
     }
-    setBusy(false); setSaved(true); router.refresh();
+
+    if (removedIds.length) {
+      const { error } = await supabase.from("form_fields").delete().in("id", removedIds);
+      if (error) { setErr(error.message); setBusy(false); return; }
+    }
+
+    // Adopt the saved ids, so a second save in the same session updates
+    // rather than inserting duplicates.
+    setFields(rows.map((r, idx) => ({
+      id: r.id, sort: idx, label: r.label, field_type: r.field_type,
+      options: Array.isArray(r.options) ? r.options.join(", ") : "",
+      required: r.required,
+      elig_op: (r.eligibility as any)?.op ?? "",
+      elig_value: (r.eligibility as any)?.value != null ? String((r.eligibility as any).value) : ""
+    })));
+
+    setBusy(false); setSaved(true); setWarn(null); router.refresh();
   }
 
   return (
@@ -152,13 +218,34 @@ export function FormBuilder({ jobId, formId, initial }: {
         ))}
       </div>
 
+      {warn && (
+        <div className="rounded-xl border border-coral/40 p-4 mt-5" style={{ background: "#FFF4F2" }}>
+          <div className="font-semibold text-sm text-ink mb-1">
+            {warn.count > 0 ? "This will orphan existing answers" : "Confirm removal"}
+          </div>
+          <p className="text-sm text-muted mb-3">{warn.message}</p>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-coral !h-9 text-sm" onClick={() => saveAll(true)} disabled={busy}>
+              {busy ? "Saving…" : "Remove and save"}
+            </button>
+            <button className="btn-ghost !h-9 text-sm" onClick={() => setWarn(null)} disabled={busy}>
+              Keep the question
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-4 mt-5">
-        <button className="btn-coral" onClick={saveAll} disabled={busy}>
+        <button className="btn-coral" onClick={() => saveAll()} disabled={busy || !!warn}>
           {busy ? "Saving…" : "Save form"}
         </button>
         {saved && <span className="text-sm text-muted">Saved ✓</span>}
         {err && <span className="text-sm text-coral">{err}</span>}
       </div>
+      <p className="text-xs text-muted-2 mt-3">
+        Editing a question keeps the answers already collected against it. Only removing a
+        question breaks that link, and you&rsquo;ll be warned first.
+      </p>
     </div>
   );
 }
