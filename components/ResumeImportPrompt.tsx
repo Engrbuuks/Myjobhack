@@ -34,7 +34,9 @@ export async function ResumeImportPrompt() {
             before it's saved.
           </p>
         </div>
-        <Link href="/portal/seeker/experience" className="btn-coral !h-11 shrink-0">
+        {/* ?import=1 runs the read straight away — the button says "import",
+            so landing on a page with another button to press reads as failure. */}
+        <Link href="/portal/seeker/experience?import=1" className="btn-coral !h-11 shrink-0">
           Import from my CV →
         </Link>
       </div>

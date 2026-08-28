@@ -128,7 +128,7 @@ export default async function SeekerDashboard() {
               section is empty, so you're being judged on less than you've actually done. We can read
               your roles straight out of the résumé you already uploaded — you just check them.
             </p>
-            <Link href="/portal/seeker/experience" className="btn-coral !h-10 text-sm">
+            <Link href="/portal/seeker/experience?import=1" className="btn-coral !h-10 text-sm">
               Import my experience →
             </Link>
           </div>

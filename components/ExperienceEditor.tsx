@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 type Exp = {
@@ -20,6 +20,13 @@ export function ExperienceEditor({ initial }: { initial: Exp[] }) {
   const [suggested, setSuggested] = useState<Exp[] | null>(null);
   const [importNote, setImportNote] = useState<string | null>(null);
   const [importErr, setImportErr] = useState<string | null>(null);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  // Imported roles live in memory until Save. Without a visible marker people
+  // assume the import itself persisted, and leave the page losing everything.
+  const [dirty, setDirty] = useState(false);
+  const searchParams = useSearchParams();
+  const autoRan = useRef(false);
   const [confidence, setConfidence] = useState<string>("medium");
 
   /** Read the uploaded résumé and propose entries — never writes directly. */
@@ -47,42 +54,88 @@ export function ExperienceEditor({ initial }: { initial: Exp[] }) {
     setImporting(false);
   }
 
+  // Arriving with ?import=1 means the person pressed "Import from my CV" on
+  // the dashboard. Run the read immediately rather than making them find and
+  // press a second button that looks like the one they just pressed.
+  useEffect(() => {
+    if (autoRan.current) return;
+    if (searchParams.get("import") !== "1") return;
+    if (rows.length > 0) return;               // they already have roles
+    autoRan.current = true;
+    importFromResume();
+  }, [searchParams]);
+
   /** Add the confirmed suggestions into the editable list. */
   function acceptSuggestions(picked: Exp[]) {
     setRows([...rows, ...picked]);
     setSuggested(null); setImportNote(null);
+    setDirty(true); setSavedMsg(null);
   }
 
   function blank(): Exp {
     return { id: `new-${Date.now()}`, title: "", company: "", employment_type: "full_time",
       start_date: null, end_date: null, is_current: false, location: null, summary: null, sort: rows.length };
   }
-  function update(i: number, patch: Partial<Exp>) { setRows(rows.map((r, j) => j === i ? { ...r, ...patch } : r)); }
-  function add() { setRows([...rows, blank()]); }
-  function remove(i: number) { setRows(rows.filter((_, j) => j !== i)); }
+  function update(i: number, patch: Partial<Exp>) { setDirty(true); setSavedMsg(null); setRows(rows.map((r, j) => j === i ? { ...r, ...patch } : r)); }
+  function add() { setDirty(true); setRows([...rows, blank()]); }
+  function remove(i: number) { setDirty(true); setRows(rows.filter((_, j) => j !== i)); }
 
   async function save() {
-    setBusy(true);
+    setBusy(true); setSaveErr(null); setSavedMsg(null);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setBusy(false); return; }
+    if (!user) { setSaveErr("Your session expired. Reload the page and sign in again."); setBusy(false); return; }
 
-    // Upsert current rows, delete removed ones.
-    const existingIds = initial.map((r) => r.id);
-    const keptIds = rows.filter((r) => !r.id.startsWith("new-")).map((r) => r.id);
-    const toDelete = existingIds.filter((id) => !keptIds.includes(id));
-    if (toDelete.length) await supabase.from("work_experiences").delete().in("id", toDelete);
+    /**
+     * Whether a row already exists in the database is decided by comparing
+     * against the ids we were given, NOT by an id prefix.
+     *
+     * The prefix check was `id.startsWith("new-")`, but rows created by the
+     * résumé import are prefixed "import-". They therefore took the UPDATE
+     * branch and ran `where id = 'import-1756…'` — an id that exists nowhere
+     * and isn't even a valid UUID. The update matched nothing, the error was
+     * never checked, and the save reported success having inserted nothing.
+     * Every imported role was silently discarded.
+     */
+    const existingIds = new Set(initial.map((r) => r.id));
+    const keptIds = rows.filter((r) => existingIds.has(r.id)).map((r) => r.id);
+    const toDelete = initial.map((r) => r.id).filter((id) => !keptIds.includes(id));
 
+    if (toDelete.length) {
+      const { error } = await supabase.from("work_experiences").delete().in("id", toDelete);
+      if (error) { setSaveErr(`Couldn't remove a role: ${error.message}`); setBusy(false); return; }
+    }
+
+    let inserted = 0, updated = 0;
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
+      if (!r.title.trim() && !r.company.trim()) continue;   // skip an empty blank row
       const payload = {
         talent_id: user.id, title: r.title, company: r.company, employment_type: r.employment_type as any,
         start_date: r.start_date || null, end_date: r.is_current ? null : (r.end_date || null),
         is_current: r.is_current, location: r.location || null, summary: r.summary || null, sort: i
       };
-      if (r.id.startsWith("new-")) await supabase.from("work_experiences").insert(payload);
-      else await supabase.from("work_experiences").update(payload).eq("id", r.id);
+      if (existingIds.has(r.id)) {
+        const { error } = await supabase.from("work_experiences").update(payload).eq("id", r.id);
+        // Silent failures are what made this look like it worked.
+        if (error) { setSaveErr(`Couldn't save "${r.title || r.company}": ${error.message}`); setBusy(false); return; }
+        updated++;
+      } else {
+        const { error } = await supabase.from("work_experiences").insert(payload);
+        if (error) { setSaveErr(`Couldn't save "${r.title || r.company}": ${error.message}`); setBusy(false); return; }
+        inserted++;
+      }
     }
-    setBusy(false); router.refresh();
+
+    setBusy(false);
+    setDirty(false);
+    setSavedMsg(
+      inserted || updated
+        ? `Saved — ${inserted ? `${inserted} role${inserted === 1 ? "" : "s"} added` : ""}` +
+          `${inserted && updated ? ", " : ""}` +
+          `${updated ? `${updated} updated` : ""}. Employers can see this now.`
+        : "Nothing to save yet — add a role first."
+    );
+    router.refresh();
   }
 
   return (
@@ -164,7 +217,7 @@ export function ExperienceEditor({ initial }: { initial: Exp[] }) {
               Discard
             </button>
             <span className="text-xs text-muted-2 self-center">
-              You can edit every field afterwards — nothing is saved until you press Save.
+              You can edit every field afterwards. Nothing reaches your profile until you press Save.
             </span>
           </div>
         </div>
@@ -198,10 +251,30 @@ export function ExperienceEditor({ initial }: { initial: Exp[] }) {
           </div>
         </div>
       ))}
-      <div className="flex gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button className="btn-ghost" onClick={add}>+ Add experience</button>
-        <button className="btn-coral" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save experience"}</button>
+        <button className="btn-coral" onClick={save} disabled={busy}>
+          {busy ? "Saving…" : dirty ? "Save experience — unsaved changes" : "Save experience"}
+        </button>
+        {savedMsg && <span className="text-sm text-muted font-medium">{savedMsg}</span>}
+        {saveErr && <span className="text-sm text-coral font-medium">{saveErr}</span>}
       </div>
+
+      {/* Imported roles exist only in the browser until this is pressed. A
+          sticky reminder is the difference between an import that lands and
+          one the person believes worked and then loses on navigation. */}
+      {dirty && (
+        <div className="sticky bottom-4 z-30 card p-4 border-coral/50 flex flex-wrap items-center gap-3"
+          style={{ background: "#FFF4F2" }}>
+          <span className="text-sm font-semibold text-ink">
+            You have unsaved changes — nothing is on your profile yet.
+          </span>
+          <div className="flex-1" />
+          <button className="btn-coral !h-9 text-sm" onClick={save} disabled={busy}>
+            {busy ? "Saving…" : "Save now"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
