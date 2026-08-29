@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { geminiGrounded } from "@/lib/gemini";
+import { geminiGrounded, geminiJson } from "@/lib/gemini";
 import { benchmarkPrompt, measureAgainstBenchmark, classifySources, boardsFor, type BenchmarkRow } from "@/lib/benchmark";
 
 export const runtime = "nodejs";
@@ -169,10 +169,28 @@ async function handlePost(request: Request) {
   const boardList: string[] = Array.isArray(boards) && boards.length
     ? boards.map((b: any) => String(b).trim()).filter(Boolean).slice(0, 12)
     : boardsFor(reg);
-  const res = await geminiGrounded(
-    benchmarkPrompt(niche.label, role_level ?? "", reg, boardList),
-    { timeoutMs: 45_000 }   // headroom under maxDuration to return a real message
-  );
+  const prompt = benchmarkPrompt(niche.label, role_level ?? "", reg, boardList);
+  let res = await geminiGrounded(prompt, { timeoutMs: 45_000 });
+
+  /**
+   * Grounding is metered separately from ordinary generation, and a free-tier
+   * key gets little or none of it — so a 429 here does NOT mean the key is
+   * broken; plain calls keep working.
+   *
+   * Rather than leave the feature dead, fall back to an ungrounded answer and
+   * label it honestly. A model answering from memory is worth something as a
+   * starting list, but it is NOT web-verified and must never be presented as
+   * though it were: it is stored with source "model", carries no citations,
+   * and stays unapproved until a human checks it.
+   */
+  let ungrounded = false;
+  if (res.error && /quota|429|exhausted|rate/i.test(res.error)) {
+    const fb = await geminiJson(prompt);
+    if (fb.data) {
+      ungrounded = true;
+      res = { data: fb.data, error: null, sources: [], model: fb.model };
+    }
+  }
 
   if (res.error || !res.data) {
     const detail = res.error ?? "";
@@ -200,7 +218,7 @@ async function handlePost(request: Request) {
     skill: String(s.skill ?? "").trim().slice(0, 80),
     importance: ["core", "important", "nice"].includes(s.importance) ? s.importance : "important",
     why: String(s.why ?? "").trim().slice(0, 500),
-    source: "web",
+    source: ungrounded ? "model" : "web",
     sources: res.sources.slice(0, 8),
     approved: false,
     generated_at: new Date().toISOString(),
@@ -231,6 +249,14 @@ async function handlePost(request: Request) {
   // than from the model's account of its own behaviour.
   const mix = classifySources(res.sources);
 
+  if (ungrounded) {
+    return NextResponse.json({
+      message: `Google's web-search quota is exhausted, so these ${rows.length} skills for ${niche.label} came from the model's own knowledge — NOT from a live web search. There are no sources to check, they may be out of date, and they lean towards the global market rather than ${reg}. Treat them as a draft list to edit, and enable billing on your Google AI Studio key for the web-verified version.`,
+      added: rows.length, ungrounded: true, sources: [], source_mix: null,
+      boards_searched: boardList, model: res.model
+    });
+  }
+
   return NextResponse.json({
     message: `Found ${rows.length} skills the market asks for in ${niche.label}` +
       (mix.distinct_hosts
@@ -244,6 +270,30 @@ async function handlePost(request: Request) {
     boards_searched: boardList,
     model: res.model
   });
+}
+
+/** Add a skill by hand — always available, never quota-dependent. */
+export async function PUT(request: Request) {
+  const g = await gate(); if ("error" in g) return g.error;
+  const { admin, userId } = g as any;
+  const { niche_id, skill, importance, why, role_level, region } = await request.json().catch(() => ({} as any));
+  if (!niche_id || !String(skill ?? "").trim())
+    return NextResponse.json({ error: "A niche and a skill name are required." }, { status: 400 });
+
+  const { data: niche } = await admin.from("taxonomies").select("label").eq("id", niche_id).maybeSingle();
+
+  const { error } = await admin.from("skill_benchmarks").insert({
+    niche_id, niche_label: niche?.label ?? "", role_level: role_level || null,
+    region: (region || "Nigeria").trim(),
+    skill: String(skill).trim().slice(0, 80),
+    importance: ["core", "important", "nice"].includes(importance) ? importance : "important",
+    why: String(why ?? "").trim().slice(0, 500),
+    // Entered by a human, so approved on arrival — no review step needed.
+    source: "manual", sources: [], approved: true,
+    approved_by: userId, approved_at: new Date().toISOString(), created_by: userId
+  });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, message: `Added "${skill}".` });
 }
 
 export async function PATCH(request: Request) {

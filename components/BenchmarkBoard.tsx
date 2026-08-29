@@ -25,6 +25,11 @@ export function BenchmarkBoard({ niches }: {
   const [mix, setMix] = useState<any>(null);
   const [boards, setBoards] = useState("");
   const [showBoards, setShowBoards] = useState(false);
+  const [ungrounded, setUngrounded] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newSkill, setNewSkill] = useState("");
+  const [newImp, setNewImp] = useState("important");
+  const [newWhy, setNewWhy] = useState("");
 
   async function load(id = nicheId) {
     const r = await callApi(`/api/admin/benchmark${id ? `?niche_id=${id}` : ""}`);
@@ -43,6 +48,7 @@ export function BenchmarkBoard({ niches }: {
         setNote(r.data?.message ?? "Done.");
         setSources(r.data?.sources ?? []);
         setMix(r.data?.source_mix ?? null);
+        setUngrounded(!!r.data?.ungrounded);
         if (!boards.trim() && r.data?.boards_searched) setBoards(r.data.boards_searched.join(", "));
       }
       else setErr(r.error);
@@ -55,6 +61,20 @@ export function BenchmarkBoard({ niches }: {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...body })
     });
+    load();
+  }
+
+  async function addManual() {
+    if (!newSkill.trim()) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await callApi("/api/admin/benchmark", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ niche_id: nicheId, skill: newSkill, importance: newImp, why: newWhy, region })
+      });
+      if (r.ok) { setNewSkill(""); setNewWhy(""); setNote(r.data?.message ?? "Added."); }
+      else setErr(r.error);
+    } finally { setBusy(false); }
     load();
   }
 
@@ -139,6 +159,17 @@ export function BenchmarkBoard({ niches }: {
 
         {note && <p className="text-sm text-ink font-medium mt-3">{note}</p>}
 
+        {ungrounded && (
+          <div className="rounded-xl border border-coral/40 p-3 mt-3" style={{ background: "#FFF4F2" }}>
+            <div className="font-semibold text-sm text-ink mb-1">Not web-verified</div>
+            <p className="text-xs text-muted">
+              Google&rsquo;s search quota is exhausted, so this list came from the model&rsquo;s own
+              knowledge rather than a live search. No sources to check, possibly out of date, and
+              skewed towards the global market. Useful as a draft to edit — not as evidence.
+              Enabling billing on your Google AI Studio key restores the searched version.
+            </p>
+          </div>
+        )}
         {mix?.warning && (
           <p className="text-sm text-coral font-medium mt-2">⚠ {mix.warning}</p>
         )}
@@ -202,6 +233,43 @@ export function BenchmarkBoard({ niches }: {
             on <Link href="/portal/admin/cv-search" className="underline">Search CVs</Link> first.
           </p>
         )}
+        <div className="mt-4 pt-4 border-t border-line">
+          <button className="text-xs text-muted hover:text-ink underline"
+            onClick={() => setAddOpen((a) => !a)}>
+            {addOpen ? "Hide" : "＋ Add a skill yourself"}
+          </button>
+          {addOpen && (
+            <div className="flex flex-wrap items-end gap-3 mt-3">
+              <div className="flex-1 min-w-40">
+                <label className="label !text-xs">Skill</label>
+                <input className="input !h-10 text-sm" value={newSkill} placeholder="QuickBooks"
+                  onChange={(e) => setNewSkill(e.target.value)} />
+              </div>
+              <div>
+                <label className="label !text-xs">Importance</label>
+                <select className="input !h-10 !w-auto text-sm" value={newImp}
+                  onChange={(e) => setNewImp(e.target.value)}>
+                  <option value="core">Core</option>
+                  <option value="important">Important</option>
+                  <option value="nice">Nice to have</option>
+                </select>
+              </div>
+              <div className="flex-1 min-w-40">
+                <label className="label !text-xs">Why (optional)</label>
+                <input className="input !h-10 text-sm" value={newWhy} placeholder="Every firm here runs it"
+                  onChange={(e) => setNewWhy(e.target.value)} />
+              </div>
+              <button className="btn-ghost !h-10 text-sm" onClick={addManual} disabled={busy || !newSkill.trim()}>
+                Add
+              </button>
+              <p className="text-xs text-muted-2 w-full">
+                Your own entries need no review and never depend on a quota. Anything you know the
+                market wants is worth adding here — it is measured against CVs the same way.
+              </p>
+            </div>
+          )}
+        </div>
+
         {data?.unapproved > 0 && (
           <p className="text-xs text-muted-2 mt-3">
             {data.unapproved} skill{data.unapproved === 1 ? " is" : "s are"} awaiting your review.
@@ -246,6 +314,14 @@ export function BenchmarkBoard({ niches }: {
                           unreviewed
                         </span>
                       )}
+                      {/* Provenance stays visible: a searched claim, a
+                          remembered one and your own judgement are not
+                          interchangeable. */}
+                      <span className="rounded-pill border border-line px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-2">
+                        {c.source === "web" ? "web-sourced"
+                          : c.source === "manual" ? "yours"
+                          : "model knowledge"}
+                      </span>
                     </div>
                     {c.why && <p className="text-sm text-muted mt-1.5">{c.why}</p>}
                     {(c.sources ?? []).length > 0 && (
