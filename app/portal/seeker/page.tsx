@@ -32,13 +32,6 @@ export default async function SeekerDashboard() {
   const doneCount = checklist.filter((c) => c.done).length;
   const nextStep = checklist.find((c) => !c.done);
 
-  // Someone with a CV on file but no structured work history has a profile
-  // employers cannot properly evaluate. They will not find the import button
-  // on their own, so surface it here.
-  const { count: expCount } = await supabase.from("work_experiences")
-    .select("id", { count: "exact", head: true }).eq("talent_id", user!.id);
-  const canImportResume = !!talent?.resume_document_id && (expCount ?? 0) === 0;
-
   const tiles = [
     { href: "/portal/seeker/jobs", title: "Open roles", desc: "Auto-shortlisting works for you", icon: "◎" },
     { href: "/portal/seeker/trainings", title: "Trainings", desc: "Invites that match your skills", icon: "✦" },
@@ -118,21 +111,10 @@ export default async function SeekerDashboard() {
 
       <div className="mt-6 max-w-2xl">
         <ResumeImportPrompt />
-        {canImportResume && (
-          <div className="card p-5 mb-5 border-coral/40" style={{ background: "#FFF4F2" }}>
-            <div className="font-display font-semibold text-lg mb-1">
-              Your résumé is on file — but employers can't see your experience
-            </div>
-            <p className="text-sm text-muted-2 mb-4 leading-relaxed">
-              Employers here evaluate a structured profile, not a CV attachment. Your work history
-              section is empty, so you're being judged on less than you've actually done. We can read
-              your roles straight out of the résumé you already uploaded — you just check them.
-            </p>
-            <Link href="/portal/seeker/experience?import=1" className="btn-coral !h-10 text-sm">
-              Import my experience →
-            </Link>
-          </div>
-        )}
+        {/* A second import card lived here with the same trigger conditions
+            and the same destination as ResumeImportPrompt above — two coral
+            cards stacked, saying the same thing twice. Removed; the component
+            is the better version and owns this prompt. */}
         <MatchedJobs />
       </div>
     </>

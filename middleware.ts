@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/auth", "/jobs", "/join", "/roles", "/trainings", "/api/public", "/a/", "/j/", "/invoice/", "/logo-mark.png", "/robots.txt", "/sitemap.xml"];
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/auth", "/jobs", "/join", "/roles", "/trainings", "/api/public", "/a/", "/unsubscribe", "/j/", "/invoice/", "/logo-mark.png", "/robots.txt", "/sitemap.xml"];
 
 export async function middleware(request: NextRequest) {
   const reqHeaders = new Headers(request.headers);
@@ -32,7 +32,7 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  if (user && ((isPublic && !path.startsWith("/jobs") && !path.startsWith("/roles") && !path.startsWith("/join") && !path.startsWith("/trainings") && !path.startsWith("/api/public") && !path.startsWith("/api/auth") && !path.startsWith("/a/") && !path.startsWith("/invoice/") && !path.startsWith("/j/") && !path.startsWith("/logo-mark")) || path === "/")) {
+  if (user && ((isPublic && !path.startsWith("/jobs") && !path.startsWith("/roles") && !path.startsWith("/join") && !path.startsWith("/trainings") && !path.startsWith("/api/public") && !path.startsWith("/api/auth") && !path.startsWith("/a/") && !path.startsWith("/unsubscribe") && !path.startsWith("/invoice/") && !path.startsWith("/j/") && !path.startsWith("/logo-mark")) || path === "/")) {
     const { data: profile } = await supabase
       .from("profiles").select("role").eq("id", user.id).single();
     const dest: Record<string, string> = {

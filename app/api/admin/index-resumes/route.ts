@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
 import { extractDocumentText, extractTextFromPath } from "@/lib/extract";
 
 export const runtime = "nodejs";
@@ -24,10 +25,11 @@ async function gate() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!["admin", "recruiter"].includes(me?.role ?? ""))
-    return { error: NextResponse.json({ error: "Admins only" }, { status: 403 }) };
-  return { admin };
+  // Capability check, not just a role check: a coordinator and an owner are
+  // both "admin" but should not reach the same actions.
+  const perm = await requirePermission("pool.search");
+  if (!perm.ok) return { error: perm.response as any };
+  return { admin, userId: user.id };
 }
 
 /**

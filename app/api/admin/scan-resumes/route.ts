@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
 import { extractDocumentText, extractTextFromPath } from "@/lib/extract";
 import { scanText } from "@/lib/resumeScan";
 
@@ -24,9 +25,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!["admin", "recruiter"].includes(me?.role ?? ""))
-    return NextResponse.json({ error: "Admins only" }, { status: 403 });
+  const perm = await requirePermission("applicants.view");
+  if (!perm.ok) return perm.response;
 
   const body = await request.json().catch(() => ({}));
   const jobId = body.job_id as string | undefined;

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { InterviewScheduler } from "@/components/InterviewScheduler";
@@ -7,6 +7,7 @@ import { ExportButton } from "@/components/ExportButton";
 import { CandidateCard } from "@/components/CandidateCard";
 import { PayButton } from "@/components/PayButton";
 import { ApplicantFilterBar } from "@/components/ApplicantFilterBar";
+import { callApi, postJson } from "@/lib/apiClient";
 import { buildFilterFields, applyRules, describeRule, type Rule, type MatchMode } from "@/lib/applicantFilter";
 
 type Row = {
@@ -76,20 +77,36 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
   const [showCompose, setShowCompose] = useState(false);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
+  const [allowance, setAllowance] = useState<any>(null);
+
+  // What is left of today's send allowance, fetched when the compose box
+  // opens. Knowing this AFTER sending is useless — the damage is a silent
+  // failure of receipts and answer requests for the rest of the day.
+  useEffect(() => {
+    if (!showCompose) return;
+    (async () => {
+      const r = await callApi("/api/admin/email-applicants");
+      if (r.ok) setAllowance(r.data);
+    })();
+  }, [showCompose]);
 
   /** Email whoever is currently selected. */
   async function emailSelected() {
     const targets = picked.size ? Array.from(picked) : visible.map((r) => r.id);
     if (!targets.length) return;
     setEmailing(true); setAsmtNote(null);
-    const res = await fetch("/api/admin/email-applicants", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ application_ids: targets, subject: emailSubject, body: emailBody, job_id: jobId })
-    });
-    const j = await res.json();
-    setEmailing(false);
-    setAsmtNote(res.ok ? j.message : (j.error ?? "Could not send."));
-    if (res.ok) { setShowCompose(false); setEmailSubject(""); setEmailBody(""); setPicked(new Set()); }
+    let ok = false;
+    try {
+      const res = await postJson("/api/admin/email-applicants", {
+        application_ids: targets, subject: emailSubject, body: emailBody, job_id: jobId
+      });
+      ok = res.ok;
+      setAsmtNote(res.ok ? (res.data?.message ?? "Sent.") : res.error);
+      if (res.data?.allowance) setAllowance(res.data.allowance);
+    } finally {
+      setEmailing(false);
+    }
+    if (ok) { setShowCompose(false); setEmailSubject(""); setEmailBody(""); setPicked(new Set()); }
   }
 
   // How many applicants have never been scored? Guest applications were not
@@ -425,6 +442,32 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
                   : "Everyone matching your current filters will receive this. Narrow the filters first if that is not what you want."}
               </p>
             </div>
+
+            {allowance && (() => {
+              const want = picked.size || visible.length;
+              const over = want > allowance.remaining;
+              return (
+                <div className={`rounded-xl border p-3 ${over ? "border-coral/50" : "border-line"}`}
+                  style={over ? { background: "#FFF4F2" } : undefined}>
+                  <div className="text-sm">
+                    <strong className="text-ink">{allowance.remaining}</strong>
+                    <span className="text-muted-2"> of {allowance.cap} emails left today</span>
+                  </div>
+                  {over ? (
+                    <p className="text-xs text-coral font-medium mt-1">
+                      You&rsquo;re sending to {want}. The first {allowance.remaining} go now; the rest
+                      are skipped, not lost — run this again tomorrow and they&rsquo;ll be next. Nobody
+                      gets contacted twice.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-2 mt-1">
+                      The cap keeps headroom for application receipts and answer requests, which
+                      share the same daily allowance.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             <div>
               <label className="label !text-xs">Subject</label>

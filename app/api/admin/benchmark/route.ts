@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
 import { geminiGrounded, geminiJson } from "@/lib/gemini";
 import { benchmarkPrompt, measureAgainstBenchmark, classifySources, boardsFor, type BenchmarkRow } from "@/lib/benchmark";
 
