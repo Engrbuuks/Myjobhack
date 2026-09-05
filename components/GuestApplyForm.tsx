@@ -5,7 +5,17 @@ import { LocationPicker } from "@/components/LocationPicker";
 
 type Field = { id: string; label: string; field_type: string; required: boolean; options: string[] | null };
 
-export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field[] }) {
+export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Field[] | null }) {
+  /**
+   * Never assume `fields` arrived.
+   *
+   * A closed job used to reach this component without it, and fields.map()
+   * threw during render, taking the whole page down with "Application error:
+   * a client-side exception has occurred". A job with no custom questions is
+   * perfectly normal, so the absence of fields must render an empty question
+   * set, never crash.
+   */
+  const safeFields: Field[] = Array.isArray(fields) ? fields : [];
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -91,7 +101,7 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields: Field
           <LocationPicker dark labels={false} required country={country} city={city} onCountry={setCountry} onCity={setCity} />
         </div>
 
-        {fields.map((f) => (
+        {safeFields.map((f) => (
           <div key={f.id} className="mb-3">
             <label className="block text-[11px] font-bold text-white/55 mb-1.5">
               {f.label}{f.required && <span className="text-coral"> *</span>}

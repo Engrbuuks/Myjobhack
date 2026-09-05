@@ -14,7 +14,21 @@ async function getJob(id: string) {
     .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, company_name, company_logo_path, company_website, status, published_at, org_id, form_id")
     .eq("id", id).maybeSingle();
   if (!job || job.status !== "published") return null;
-  if (job.closes_at && new Date(job.closes_at) < new Date()) return { ...job, _closed: true } as any;
+
+  /**
+   * A closed job is still rendered, so the page keeps its SEO value and
+   * anyone arriving from an old link sees what the role was. But it must
+   * return the SAME SHAPE as an open one.
+   *
+   * This previously returned early with just { ...job, _closed: true },
+   * omitting `fields`. GuestApplyForm then called fields.map() on undefined
+   * and threw during render, which is why an expired job showed
+   * "Application error: a client-side exception has occurred" instead of the
+   * page. The flag was also never read anywhere, so the apply form rendered
+   * for closed roles too.
+   */
+  const closed = !!(job.closes_at && new Date(job.closes_at) < new Date());
+
   let company = "MYJOBHACK";
   let companyLogo: string | null = null;
   let companyWebsite: string | null = null;
@@ -32,7 +46,7 @@ async function getJob(id: string) {
   if (job.company_logo_path) companyLogo = admin.storage.from("company-logos").getPublicUrl(job.company_logo_path).data.publicUrl;
   if (job.company_website) companyWebsite = job.company_website;
 
-  return { ...job, company, companyLogo, companyWebsite, fields: fields ?? [] };
+  return { ...job, company, companyLogo, companyWebsite, fields: fields ?? [], closed };
 }
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
@@ -143,9 +157,28 @@ export default async function PublicJobPage({ params }: { params: { id: string }
             </div>
           </article>
 
-          {/* Apply — sticky rail */}
+          {/* Apply, or a clear closed notice. A closed role must never show
+              an apply form: it wastes the applicant's time and produces
+              applications nobody will read. */}
           <aside className="lg:sticky lg:top-6 min-w-0">
-            <GuestApplyForm jobId={job.id} fields={job.fields as any} />
+            {job.closed ? (
+              <div className="rounded-card border border-white/10 bg-white/[.04] p-6">
+                <div className="text-[10px] font-extrabold uppercase tracking-[.22em] text-[#FFB4AC] mb-3">
+                  Applications closed
+                </div>
+                <h2 className="font-display text-xl font-semibold mb-2">This role is no longer accepting applications</h2>
+                <p className="text-white/60 text-sm leading-relaxed mb-5">
+                  The deadline for this position has passed. Roles like this open regularly, and a
+                  complete profile means you hear about them first.
+                </p>
+                <Link href="/jobs" className="btn-coral w-full justify-center">See open roles</Link>
+                <Link href="/signup" className="btn-ghost w-full justify-center mt-2 !text-white/80">
+                  Get matched to new roles
+                </Link>
+              </div>
+            ) : (
+              <GuestApplyForm jobId={job.id} fields={job.fields as any} />
+            )}
           </aside>
         </div>
       </div>

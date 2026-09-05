@@ -35,9 +35,18 @@ export async function GET(request: Request) {
   let rows: any[] | null = null;
   let degraded = false;
 
-  const build = (cols: string, withExtras: boolean) => {
+  const build = (cols: string, withExtras: boolean, withExpiry = true) => {
     let q = admin.from("jobs").select(cols).eq("status", "published");
-    if (withExtras) q = q.or(`closes_at.is.null,closes_at.gt.${nowIso}`);
+    /**
+     * The expiry filter applies on BOTH paths.
+     *
+     * It used to be inside `if (withExtras)`, so the moment the full query
+     * failed and we fell back to core columns, the filter vanished and every
+     * expired job was served to the marketing site and the jobs list. An
+     * expired role reaching a candidate is worse than a missing column, so
+     * this filter is not part of the optional set.
+     */
+    if (withExpiry) q = q.or(`closes_at.is.null,closes_at.gt.${nowIso}`);
     if (withExtras && onlyFeatured) {
       q = q.eq("is_featured", true)
            .order("featured_rank", { ascending: true, nullsFirst: false })
@@ -51,22 +60,55 @@ export async function GET(request: Request) {
   const full = await build(`${CORE}, ${EXTRA}`, true);
   if (full.error) {
     notes.push(`full query failed: ${full.error.message}`);
-    // ---- attempt 2: core columns only, so posting still works pre-migration ----
-    const core = await build(CORE, false);
-    if (core.error) {
+    // ---- attempt 2: core columns, but KEEP the expiry filter ----
+    const core = await build(CORE, false, true);
+    if (!core.error) {
+      rows = core.data as any[];
+      degraded = true;
+    } else {
       notes.push(`core query failed: ${core.error.message}`);
-      return NextResponse.json(
-        { jobs: [], error: "Job feed unavailable", detail: core.error.message, notes },
-        { status: 500, headers: CORS }
-      );
+      /**
+       * ---- attempt 3: drop the expiry filter, only if closes_at is the
+       * reason attempt 2 failed (the column does not exist yet).
+       *
+       * Serving expired roles is a real harm: candidates spend time applying
+       * for something already closed. So this is a last resort, it is
+       * announced in the payload rather than silent, and expired rows are
+       * filtered out in JavaScript below as a second line of defence.
+       */
+      const missingColumn = /closes_at/i.test(core.error.message);
+      if (!missingColumn) {
+        return NextResponse.json(
+          { jobs: [], error: "Job feed unavailable", detail: core.error.message, notes },
+          { status: 500, headers: CORS }
+        );
+      }
+      notes.push("closes_at column missing: expiry could not be filtered in the database");
+      const bare = await build(CORE, false, false);
+      if (bare.error) {
+        notes.push(`bare query failed: ${bare.error.message}`);
+        return NextResponse.json(
+          { jobs: [], error: "Job feed unavailable", detail: bare.error.message, notes },
+          { status: 500, headers: CORS }
+        );
+      }
+      rows = bare.data as any[];
+      degraded = true;
     }
-    rows = core.data as any[];
-    degraded = true;
   } else {
     rows = full.data as any[];
   }
 
-  const jobs = rows ?? [];
+  /**
+   * Belt and braces: drop anything already closed, whatever the query did.
+   * A stale row reaching this point means a candidate opens a dead listing,
+   * so it is worth the two lines.
+   */
+  const jobs = (rows ?? []).filter((j: any) =>
+    !j?.closes_at || new Date(j.closes_at).getTime() > Date.now());
+  if ((rows?.length ?? 0) !== jobs.length) {
+    notes.push(`${(rows?.length ?? 0) - jobs.length} expired job(s) filtered after query`);
+  }
 
   // company lookups
   const orgIds = Array.from(new Set(jobs.map((j) => j.org_id).filter(Boolean))) as string[];
