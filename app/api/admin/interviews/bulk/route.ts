@@ -31,6 +31,14 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({} as any));
   const ids: string[] = Array.isArray(body.application_ids) ? body.application_ids : [];
   const preview = !!body.preview;
+  /**
+   * Replace mode: these candidates already have an interview and this run
+   * corrects it. Their existing interviews are cancelled rather than deleted,
+   * so the earlier invitation stays on record, and their old slots are freed
+   * for reuse. Interviews belonging to anyone NOT in this batch are left
+   * alone, so a correction for some people cannot move everyone else.
+   */
+  const replace = !!body.replace;
 
   if (!ids.length)
     return NextResponse.json({ error: "Select the candidates to invite first." }, { status: 400 });
@@ -82,13 +90,45 @@ export async function POST(request: Request) {
   const invitable = people.filter((p) => !optedOut.has(p.email.toLowerCase()));
   const skippedOptOut = people.length - invitable.length;
 
-  const slots = generateSlots(invitable.length, rules);
+  /**
+   * Times already booked for this job, so the new batch works around them
+   * instead of colliding. Cancelled interviews free their slot again, which
+   * matches the partial index in the database.
+   */
+  const notes: string[] = [];
+
+  const { data: existing } = await admin.from("interviews")
+    .select("id, application_id, scheduled_at, status").eq("job_id", apps[0].job_id)
+    .not("scheduled_at", "is", null).neq("status", "cancelled");
+
+  const inBatch = new Set(ids);
+  const mine = (existing ?? []).filter((iv: any) => inBatch.has(iv.application_id));
+  const others = (existing ?? []).filter((iv: any) => !inBatch.has(iv.application_id));
+
+  // In replace mode this batch's own slots are up for grabs again. Otherwise
+  // every existing interview blocks its time.
+  const blocking = replace ? others : (existing ?? []);
+  const taken = new Set(blocking
+    .map((iv: any) => new Date(iv.scheduled_at).getTime())
+    .filter((n: number) => !Number.isNaN(n)));
+
+  const replacing = replace ? mine.length : 0;
+
+  const slots = generateSlots(invitable.length, rules, taken);
+  if (taken.size)
+    notes.push(`${taken.size} time${taken.size === 1 ? " is" : "s are"} booked by other candidates on this job and ${taken.size === 1 ? "was" : "were"} skipped.`);
+  if (replace && replacing)
+    notes.push(`${replacing} existing interview${replacing === 1 ? "" : "s"} for these candidates will be cancelled and replaced. Each person receives a fresh invitation with their new time.`);
+  if (replace && !replacing)
+    notes.push("None of these candidates currently has an interview, so nothing will be replaced. This will behave as a normal invitation.");
+  if (!replace && mine.length)
+    notes.push(`${mine.length} of these candidates already ${mine.length === 1 ? "has an interview" : "have interviews"}. Tick "replace" if this run is a correction, or they will end up with two.`);
   const schedule = invitable.slice(0, slots.length).map((p, i) => ({
     ...p, slot: slots[i].start.toISOString(), label: slots[i].label
   }));
 
   const allowance = await getAllowance(admin);
-  const notes = warnings(invitable.length, slots, rules);
+  notes.push(...warnings(invitable.length, slots, rules));
   if (missingEmail) notes.push(`${missingEmail} applicant(s) have no email address and cannot be invited.`);
   if (skippedOptOut) notes.push(`${skippedOptOut} have unsubscribed and were left out.`);
   if (schedule.length > allowance.remaining)
@@ -139,6 +179,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No candidates could be scheduled. Check the notes and try again." }, { status: 400 });
 
   // ---- commit ----
+  /**
+   * Cancel before inserting, so the freed slots are actually free when the
+   * unique index checks them. Cancelled rows keep the history of what was
+   * originally sent, which matters when a candidate turns up quoting the
+   * first email.
+   */
+  if (replace && mine.length) {
+    const { error: cancelErr } = await admin.from("interviews")
+      .update({ status: "cancelled", updated_at: new Date().toISOString() })
+      .in("id", mine.map((iv: any) => iv.id));
+    if (cancelErr)
+      return NextResponse.json({
+        error: `Could not cancel the earlier interviews, so nothing was changed: ${cancelErr.message}`
+      }, { status: 500 });
+  }
+
   const { data: batch, error: batchErr } = await admin.from("interview_batches").insert({
     job_id: schedule[0].job_id, created_by: gate.userId,
     slot_minutes: rules.slot_minutes, gap_minutes: rules.gap_minutes,
@@ -176,9 +232,12 @@ export async function POST(request: Request) {
   const { error: ivErr } = await admin.from("interviews").insert(rows);
   if (ivErr) {
     const guestBlocked = /talent_id/i.test(ivErr.message) && /null/i.test(ivErr.message);
+    const clash = /interviews_no_double_booking|duplicate key/i.test(ivErr.message);
     return NextResponse.json({
       error: guestBlocked
         ? "Guest applicants cannot be scheduled until migration 0051_bulk_interviews.sql is run, which allows interviews without a profile."
+        : clash
+        ? "Some of these times are already booked for this job, so nothing was saved. Preview again and the booked times will be skipped, or cancel the earlier interviews first."
         : `Could not save the interviews: ${ivErr.message}`
     }, { status: 400 });
   }
@@ -226,7 +285,8 @@ export async function POST(request: Request) {
   const deferred = schedule.length - sendable.length;
   return NextResponse.json({
     ok: true, sent, batch_id: batch.id, deferred,
-    message: `Scheduled ${rows.length} interview${rows.length === 1 ? "" : "s"} and sent ${sent} invitation${sent === 1 ? "" : "s"}.` +
+    message: (replacing ? `Replaced ${replacing} earlier interview${replacing === 1 ? "" : "s"}. ` : "") +
+      `Scheduled ${rows.length} interview${rows.length === 1 ? "" : "s"} and sent ${sent} invitation${sent === 1 ? "" : "s"}.` +
       (deferred ? ` ${deferred} could not be emailed today because the daily allowance ran out. The interviews are saved, so resend tomorrow.` : "") +
       (skippedOptOut ? ` ${skippedOptOut} skipped, unsubscribed.` : "")
   });

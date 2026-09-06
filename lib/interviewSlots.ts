@@ -52,7 +52,7 @@ const toMinutes = (hhmm: string) => {
  * starts fresh at day_start, so a batch of 33 simply spills across as many
  * days as it needs rather than being crammed into one.
  */
-export function generateSlots(count: number, rules: SlotRules): Slot[] {
+export function generateSlots(count: number, rules: SlotRules, taken?: Set<number>): Slot[] {
   const slots: Slot[] = [];
   if (count <= 0) return slots;
 
@@ -108,6 +108,19 @@ export function generateSlots(count: number, rules: SlotRules): Slot[] {
 
     const startAt = new Date(day); startAt.setHours(0, cursor, 0, 0);
     const endAt = new Date(day); endAt.setHours(0, end, 0, 0);
+
+    /**
+     * Skip a slot already occupied by an existing interview for this job.
+     *
+     * Without this, running a batch twice, or scheduling one person by hand
+     * first, produces slots that collide with what is already booked. The
+     * database rejects the insert, and the whole batch fails with a
+     * constraint error rather than simply working around the clash.
+     */
+    if (taken && taken.has(startAt.getTime())) {
+      cursor += step;
+      continue;
+    }
     slots.push({
       start: startAt, end: endAt,
       label: startAt.toLocaleString("en-GB", {

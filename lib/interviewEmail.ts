@@ -54,6 +54,25 @@ Please reply to this email to confirm you can make it. If the time does not work
 
 We look forward to speaking with you.`;
 
+/**
+ * For a corrected invitation.
+ *
+ * A second email with a different time, and no acknowledgement that it
+ * replaces the first, is how candidates end up at the wrong hour. This says
+ * plainly that the earlier message should be ignored.
+ */
+export const CORRECTION_SUBJECT = "Corrected interview time: {role}";
+
+export const CORRECTION_BODY = `Hello {first_name},
+
+Please ignore our earlier interview invitation. It contained an error, and this message replaces it.
+
+Your interview is on {date} at {time} ({timezone}) and will last about {duration} minutes.
+
+Where: {location}
+
+Please reply to this email to confirm this new time works for you. We are sorry for the confusion.`;
+
 /** Replace every {token} with its value. Unknown tokens are left visible. */
 export function renderTemplate(template: string, vars: EmailVars): string {
   return (template || "").replace(/\{(\w+)\}/g, (whole, key) => {

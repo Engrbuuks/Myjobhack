@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { postJson } from "@/lib/apiClient";
-import { TOKENS, DEFAULT_SUBJECT, DEFAULT_BODY } from "@/lib/interviewEmail";
+import { TOKENS, DEFAULT_SUBJECT, DEFAULT_BODY,
+         CORRECTION_SUBJECT, CORRECTION_BODY } from "@/lib/interviewEmail";
 
 /**
  * Invite many candidates to interview, each at their own time.
@@ -36,6 +37,7 @@ export function BulkInterview({ applicationIds, onDone }: {
   // One day or several. Made an explicit choice rather than something that
   // happens because an end date was left alone.
   const [spread, setSpread] = useState<"one_day" | "range">("one_day");
+  const [replace, setReplace] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<any>(null);
@@ -59,7 +61,8 @@ export function BulkInterview({ applicationIds, onDone }: {
       const r = await postJson("/api/admin/interviews/bulk", {
         application_ids: applicationIds, rules: rules(),
         mode, location_or_link: where,
-        subject_template: subjectTpl, body_template: bodyTpl, preview: !commit
+        subject_template: subjectTpl, body_template: bodyTpl,
+        replace, preview: !commit
       });
       if (!r.ok) { setErr(r.error); return; }
       if (commit) {
@@ -194,6 +197,20 @@ export function BulkInterview({ applicationIds, onDone }: {
             onChange={(e) => setWeekends(e.target.checked)} />
           Use weekends too
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="accent-[#FC5647] w-4 h-4" checked={replace}
+            onChange={(e) => {
+              setReplace(e.target.checked);
+              // Load wording that acknowledges the earlier email, unless the
+              // recruiter has already written their own.
+              if (e.target.checked && subjectTpl === DEFAULT_SUBJECT && bodyTpl === DEFAULT_BODY) {
+                setSubjectTpl(CORRECTION_SUBJECT); setBodyTpl(CORRECTION_BODY);
+              } else if (!e.target.checked && subjectTpl === CORRECTION_SUBJECT && bodyTpl === CORRECTION_BODY) {
+                setSubjectTpl(DEFAULT_SUBJECT); setBodyTpl(DEFAULT_BODY);
+              }
+            }} />
+          This corrects an earlier invitation
+        </label>
       </div>
 
       <div className="rounded-xl border border-line p-4">
@@ -204,7 +221,10 @@ export function BulkInterview({ applicationIds, onDone }: {
           </button>
           {(subjectTpl !== DEFAULT_SUBJECT || bodyTpl !== DEFAULT_BODY) && (
             <button className="text-xs text-muted-2 hover:text-coral underline"
-              onClick={() => { setSubjectTpl(DEFAULT_SUBJECT); setBodyTpl(DEFAULT_BODY); }}>
+              onClick={() => {
+                if (replace) { setSubjectTpl(CORRECTION_SUBJECT); setBodyTpl(CORRECTION_BODY); }
+                else { setSubjectTpl(DEFAULT_SUBJECT); setBodyTpl(DEFAULT_BODY); }
+              }}>
               Reset to default
             </button>
           )}
@@ -323,7 +343,9 @@ export function BulkInterview({ applicationIds, onDone }: {
 
           <div className="flex flex-wrap gap-2">
             <button className="btn-coral" onClick={() => run(true)} disabled={busy}>
-              {busy ? "Sending…" : `Send ${preview.count} invitations`}
+              {busy ? "Sending…" : replace
+                ? `Replace and resend to ${preview.count}`
+                : `Send ${preview.count} invitations`}
             </button>
             <button className="btn-ghost" onClick={() => setPreview(null)} disabled={busy}>
               Change the times
