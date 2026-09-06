@@ -8,6 +8,7 @@ import { CandidateCard } from "@/components/CandidateCard";
 import { PayButton } from "@/components/PayButton";
 import { ApplicantFilterBar } from "@/components/ApplicantFilterBar";
 import { callApi, postJson } from "@/lib/apiClient";
+import { BulkInterview } from "@/components/BulkInterview";
 import { buildFilterFields, applyRules, describeRule, type Rule, type MatchMode } from "@/lib/applicantFilter";
 
 type Row = {
@@ -18,6 +19,9 @@ type Row = {
   resumeUrl: string | null;
   /** Keyword hits found in the CV — shown as a hint, not an answer. */
   resume_hint?: string | null;
+  /** Built-in application fields, captured outside the form definition. */
+  phone?: string | null;
+  applied_location?: string | null;
 };
 const STATUSES = ["submitted", "shortlisted", "interviewing", "offered", "hired", "rejected"];
 
@@ -78,6 +82,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [allowance, setAllowance] = useState<any>(null);
+  const [showInterview, setShowInterview] = useState(false);
 
   // What is left of today's send allowance, fetched when the compose box
   // opens. Knowing this AFTER sending is useless — the damage is a silent
@@ -259,6 +264,8 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
   const exportColumns = [
     { key: "name", label: "Name" },
     { key: "email", label: "Email" },
+    { key: "phone", label: "Phone" },
+    { key: "applied_location", label: "Location given at application" },
     { key: "status", label: "Stage" },
     { key: "ai_fit", label: "Fit score" },
     { key: "band", label: "Competency band" },
@@ -280,7 +287,9 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
   const exportRows = visible.map((r) => {
     const byId = new Map((r.answers ?? []).map((a) => [a.field_id, a]));
     return {
-      name: r.name, email: r.email, status: r.status,
+      name: r.name, email: r.email,
+      phone: r.phone ?? "", applied_location: r.applied_location ?? "",
+      status: r.status,
       ai_fit: r.ai_fit_score ?? "",
       band: (r as any).card?.competency_band ?? "",
       rules_passed: r.rules_passed == null ? "" : r.rules_passed ? "yes" : "no",
@@ -376,6 +385,14 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
         </span>
       </div>
 
+      {showInterview && (
+        <div className="mb-4">
+          <BulkInterview
+            applicationIds={picked.size ? Array.from(picked) : visible.map((r) => r.id)}
+            onDone={() => { setShowInterview(false); setPicked(new Set()); }} />
+        </div>
+      )}
+
       {/* Every field on this job's form, filterable on its own terms. */}
       <ApplicantFilterBar
         fields={filterFields} rows={rows as any}
@@ -408,6 +425,13 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
           disabled={visible.length === 0}
           title="Email the applicants you have selected, or everyone matching the current filters">
           ✉ Email {picked.size ? `${picked.size} selected` : `these ${visible.length}`}
+        </button>
+
+        {/* Interviews for the whole selection, each at their own time. */}
+        <button className="btn-ghost !h-8 text-xs" onClick={() => setShowInterview((v) => !v)}
+          disabled={!visible.length}
+          title="Invite the selected candidates to interview, each at a different time">
+          ⏱ Interview {picked.size ? `${picked.size} selected` : `these ${visible.length}`}
         </button>
         {jobId && unscored > 0 && (
           <button className="btn-ghost !h-8 text-xs" onClick={scoreUnscored} disabled={scoring}

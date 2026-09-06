@@ -64,6 +64,14 @@ export default async function Applicants({ params }: { params: { id: string } })
         resumeUrl: hasResume ? `/api/employer/resume?application_id=${a.id}` : null,
         // Keyword hits from the CV scan — filterable and exportable, clearly
         // labelled as unverified so it is never read as a declared answer.
+        /**
+         * Phone, and the location captured at application time, are built-in
+         * fields on the application rather than form questions. They were
+         * therefore missing from the export and from the filters, because
+         * both were built from the form definition only.
+         */
+        phone: a.guest_phone ?? prof?.phone ?? "",
+        applied_location: (a.answers as any)?._location ?? "",
         resume_hint: describeSignals(a.resume_signals as any) || null,
         // Raw signals feed the scan report; the hint string above is for the table.
         signals: (a.resume_signals ?? null) as any,

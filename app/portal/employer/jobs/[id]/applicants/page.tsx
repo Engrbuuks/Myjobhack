@@ -56,6 +56,13 @@ export default async function EmployerApplicants({ params }: { params: { id: str
         created_at: a.created_at, name: prof?.full_name ?? a.guest_name ?? "—", guest: !a.talent_id,
         email: isReleased ? (prof?.email ?? a.guest_email ?? "") : "🔒 Unlock to view",
         contact_locked: !isReleased, card,
+        /**
+         * Phone is a contact detail, so it follows the same unlock rule as
+         * email. Exporting it while the UI hides it would leak exactly what
+         * the paywall protects.
+         */
+        phone: isReleased ? (a.guest_phone ?? "") : "Unlock to view",
+        applied_location: (a.answers as any)?._location ?? "",
         answers, resumeUrl
       };
     })

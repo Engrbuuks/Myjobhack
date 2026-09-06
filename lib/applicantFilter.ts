@@ -60,6 +60,9 @@ export type FilterableRow = {
   card?: { competency_band?: string | null } | null;
   /** What the CV mentions, from a keyword scan. A hint, never a declared answer. */
   resume_hint?: string | null;
+  /** Built-in application fields, captured outside the form definition. */
+  phone?: string | null;
+  applied_location?: string | null;
   answers: { field_id?: string; label: string; value: string; raw?: any }[];
 };
 
@@ -155,6 +158,8 @@ export function valueFor(row: FilterableRow, field: FilterField): any {
   switch (field.key) {
     case "core:name":       return row.name === "—" ? null : row.name;
     case "core:email":      return row.email;
+    case "core:phone":      return row.phone || null;
+    case "core:applied_location": return row.applied_location || null;
     case "core:status":     return row.status;
     case "core:fit":        return row.ai_fit_score;
     case "core:band":       return row.card?.competency_band ?? null;
