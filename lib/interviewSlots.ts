@@ -13,6 +13,15 @@
 export type SlotRules = {
   /** First day of interviewing, as YYYY-MM-DD. */
   start_date: string;
+  /**
+   * Last day of interviewing, as YYYY-MM-DD. Optional.
+   *
+   * Without it a batch spills across as many days as it needs, which is not
+   * what you want when the whole point is "everyone tomorrow". With it, slot
+   * generation stops at the end of that day and reports the shortfall instead
+   * of quietly booking people into next week.
+   */
+  end_date?: string | null;
   /** Working window each day, as HH:MM in the interviewer's timezone. */
   day_start: string;
   day_end: string;
@@ -58,11 +67,22 @@ export function generateSlots(count: number, rules: SlotRules): Slot[] {
 
   const [y, m, d] = rules.start_date.split("-").map(Number);
   let day = new Date(y, (m || 1) - 1, d || 1);
+
+  let lastDay: Date | null = null;
+  if (rules.end_date) {
+    const [ey, em, ed] = rules.end_date.split("-").map(Number);
+    lastDay = new Date(ey, (em || 1) - 1, ed || 1);
+    lastDay.setHours(23, 59, 59, 999);
+    if (lastDay < day) return slots;   // end before start: refuse rather than loop
+  }
   let cursor = dayStart;
   let guard = 0;
 
   while (slots.length < count && guard < 5000) {
     guard++;
+
+    // Stop at the end of the window rather than running into later days.
+    if (lastDay && day > lastDay) break;
 
     // Skip days not being used for interviews.
     if (!weekdays.includes(day.getDay())) {
@@ -121,8 +141,18 @@ export function summarise(slots: Slot[]): {
 /** Sanity checks worth surfacing before 33 emails go out. */
 export function warnings(count: number, slots: Slot[], rules: SlotRules): string[] {
   const out: string[] = [];
-  if (slots.length < count)
-    out.push(`Only ${slots.length} slots could be generated for ${count} candidates. Widen the daily window, shorten the slots, or allow more days.`);
+  if (slots.length < count) {
+    const short = count - slots.length;
+    const perDay = rules.slot_minutes + rules.gap_minutes;
+    const windowMins = (Number(rules.day_end.split(":")[0]) * 60 + Number(rules.day_end.split(":")[1]))
+      - (Number(rules.day_start.split(":")[0]) * 60 + Number(rules.day_start.split(":")[1]));
+    const fitPerDay = Math.max(0, Math.floor(windowMins / perDay));
+    out.push(
+      `Only ${slots.length} of ${count} candidates fit in this window, leaving ${short} unscheduled. ` +
+      `At ${rules.slot_minutes} minutes plus a ${rules.gap_minutes} minute gap you fit about ${fitPerDay} per day. ` +
+      `To fit everyone: extend the end date, lengthen the day, shorten each interview, or reduce the gap.`
+    );
+  }
 
   const perDay = summarise(slots).per_day;
   const busiest = Math.max(0, ...Object.values(perDay));

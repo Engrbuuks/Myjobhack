@@ -5,6 +5,8 @@ import { generateSlots, summarise, warnings, type SlotRules } from "@/lib/interv
 import { getAllowance, getOptOuts, unsubscribeUrlFor, logSends } from "@/lib/emailAllowance";
 import { sendBatch } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { renderTemplate, toParagraphs, varsFor, unknownTokens, emptyTokens,
+         DEFAULT_SUBJECT, DEFAULT_BODY } from "@/lib/interviewEmail";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -35,6 +37,7 @@ export async function POST(request: Request) {
 
   const rules: SlotRules = {
     start_date: String(body.rules?.start_date ?? ""),
+    end_date: body.rules?.end_date ? String(body.rules.end_date) : null,
     day_start: String(body.rules?.day_start ?? "09:00"),
     day_end: String(body.rules?.day_end ?? "17:00"),
     slot_minutes: Number(body.rules?.slot_minutes) || 30,
@@ -46,6 +49,8 @@ export async function POST(request: Request) {
   };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(rules.start_date))
     return NextResponse.json({ error: "Choose the date interviews should start." }, { status: 400 });
+  if (rules.end_date && rules.end_date < rules.start_date)
+    return NextResponse.json({ error: "The end date cannot be before the start date." }, { status: 400 });
 
   // Candidates, in a stable order so the preview matches what is committed.
   const { data: apps } = await admin.from("applications")
@@ -89,10 +94,44 @@ export async function POST(request: Request) {
   if (schedule.length > allowance.remaining)
     notes.push(`Only ${allowance.remaining} emails remain in today's allowance. The rest will need to go out tomorrow.`);
 
+  const subjectTpl = String(body.subject_template ?? DEFAULT_SUBJECT);
+  const bodyTpl = String(body.body_template ?? DEFAULT_BODY);
+  const { data: jobRow } = await admin.from("jobs")
+    .select("title, company_name").eq("id", apps[0].job_id).maybeSingle();
+
   if (preview) {
+    /**
+     * Render the email exactly as the FIRST candidate will receive it, using
+     * their real slot. A preview built from placeholder values would not
+     * catch a broken token or a dangling "Where:" line, which is the whole
+     * reason for previewing.
+     */
+    let sample = null as any;
+    if (schedule.length) {
+      const v = varsFor({
+        name: schedule[0].name, role: jobRow?.title ?? "the role",
+        company: jobRow?.company_name ?? "MYJOBHACK",
+        slotIso: schedule[0].slot, duration: rules.slot_minutes,
+        location: String(body.location_or_link ?? ""),
+        timezone: rules.timezone || "Africa/Lagos"
+      });
+      sample = {
+        to: schedule[0].email,
+        name: schedule[0].name,
+        subject: renderTemplate(subjectTpl, v),
+        body: renderTemplate(bodyTpl, v),
+        unknown_tokens: unknownTokens(bodyTpl + " " + subjectTpl, v),
+        empty_tokens: emptyTokens(bodyTpl + " " + subjectTpl, v)
+      };
+      if (sample.unknown_tokens.length)
+        notes.push(`These tokens are not recognised and will appear as written: ${sample.unknown_tokens.map((t: string) => "{" + t + "}").join(", ")}`);
+      if (sample.empty_tokens.length)
+        notes.push(`These tokens have no value for this batch and will be left as written: ${sample.empty_tokens.map((t: string) => "{" + t + "}").join(", ")}`);
+    }
+
     return NextResponse.json({
       schedule: schedule.map((s) => ({ name: s.name, email: s.email, label: s.label, slot: s.slot })),
-      summary: summarise(slots), notes, allowance, count: schedule.length
+      summary: summarise(slots), notes, allowance, count: schedule.length, sample
     });
   }
 
@@ -120,7 +159,6 @@ export async function POST(request: Request) {
     }, { status: missing ? 400 : 500 });
   }
 
-  const { data: job } = await admin.from("jobs").select("title").eq("id", schedule[0].job_id).single();
   const sendable = schedule.slice(0, allowance.remaining);
 
   const rows = sendable.map((s) => ({
@@ -147,25 +185,23 @@ export async function POST(request: Request) {
 
   // ---- invitations ----
   const emails = await Promise.all(sendable.map(async (s) => {
-    const when = new Date(s.slot).toLocaleString("en-GB", {
-      weekday: "long", day: "numeric", month: "long",
-      hour: "2-digit", minute: "2-digit", hour12: false
+    const v = varsFor({
+      name: s.name, role: jobRow?.title ?? "the role",
+      company: jobRow?.company_name ?? "MYJOBHACK",
+      slotIso: s.slot, duration: rules.slot_minutes,
+      location: String(body.location_or_link ?? ""),
+      timezone: rules.timezone || "Africa/Lagos"
     });
     return {
       to: s.email,
-      subject: `Interview invitation: ${job?.title ?? "your application"}`,
+      subject: renderTemplate(subjectTpl, v),
       unsubscribeUrl: await unsubscribeUrlFor(admin, s.email),
       html: renderEmail({
-        preheader: `Your interview is ${when}`,
+        preheader: `Your interview is ${v.day_and_time}`,
         kicker: "Interview invitation",
-        heading: `${s.name.split(" ")[0]}, we would like to meet you`,
-        paragraphs: [
-          `Thank you for applying for ${job?.title ?? "the role"}. We would like to invite you to an interview.`,
-          `Your time: ${when} (${rules.timezone}). Please allow ${rules.slot_minutes} minutes.`,
-          body.location_or_link ? `Where: ${body.location_or_link}` : "",
-          body.message ? String(body.message) : "",
-          "If this time does not work, reply to this email and we will find another."
-        ].filter(Boolean)
+        heading: `${v.first_name}, we would like to meet you`,
+        // The recruiter's own words, split into paragraphs on blank lines.
+        paragraphs: toParagraphs(renderTemplate(bodyTpl, v))
       })
     };
   }));
@@ -175,7 +211,7 @@ export async function POST(request: Request) {
 
   const sent = results.filter((r) => !r.error).length;
   await logSends(admin, sendable.map((s, i) => ({
-    recipient: s.email, subject: `Interview invitation: ${job?.title ?? ""}`,
+    recipient: s.email, subject: `Interview invitation: ${jobRow?.title ?? ""}`,
     kind: "bulk", job_id: s.job_id, application_id: s.application_id,
     sent_by: gate.userId,
     status: results[i]?.error ? "failed" : "sent",

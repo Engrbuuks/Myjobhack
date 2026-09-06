@@ -447,7 +447,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
           </span>
         )}
         <div className="flex-1" />
-        <ExportButton rows={exportRows} columns={formFields.length ? exportColumns : undefined} filename={exportName} label="Export" />
+        <ExportButton rows={exportRows} columns={exportColumns} filename={exportName} label="Export" />
       </div>
       {/* Compose — emails the selected applicants, or everyone matching the
           current filters if none are individually selected. */}
@@ -529,7 +529,12 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
             <input type="checkbox" className="accent-[#FC5647] w-4 h-4 shrink-0" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
             <div className="flex-1 min-w-48">
               <div className="font-semibold text-sm">{r.name}</div>
-              <div className="text-xs text-muted-2">{r.email} · {new Date(r.created_at).toLocaleDateString()}{r.guest && (
+              {/* Phone shown here as well as in the export, so it is obvious
+                  at a glance whether it was captured for this applicant. */}
+              <div className="text-xs text-muted-2">
+                {r.email}
+                {r.phone ? <> · <a href={`tel:${r.phone}`} className="hover:text-coral">{r.phone}</a></> : ""}
+                {" · "}{new Date(r.created_at).toLocaleDateString()}{r.guest && (
                   <span className="ml-2 px-1.5 py-0.5 rounded bg-paper-2 text-[10px] font-bold uppercase tracking-wider"
                     title="Applied without an account, so they have no competency band. Judge this one on the CV alone.">
                     Guest · not assessed

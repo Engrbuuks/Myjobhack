@@ -115,7 +115,7 @@ export function InterviewScheduler({ applicationId, onDone }: {
       </div>
 
       <div className="mb-3">
-        <label className="label">{mode === "in_person" ? "Venue" : "Meeting link (Zoom)"}</label>
+        <label className="label">{mode === "in_person" ? "Venue" : "Interview link"}</label>
         <input className="input !h-10"
           placeholder={mode === "in_person" ? "Office address" : "https://zoom.us/j/… (optional if your booking link sends one)"}
           value={where} onChange={(e) => setWhere(e.target.value)} />
