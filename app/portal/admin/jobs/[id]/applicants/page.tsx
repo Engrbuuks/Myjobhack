@@ -35,7 +35,7 @@ export default async function Applicants({ params }: { params: { id: string } })
   const rows = await Promise.all(
     (apps ?? []).map(async (a) => {
       const { data: prof } = a.talent_id
-        ? await admin.from("profiles").select("full_name, email").eq("id", a.talent_id).maybeSingle()
+        ? await admin.from("profiles").select("full_name, email, phone").eq("id", a.talent_id).maybeSingle()
         : { data: null as any };
 
       const answers = Object.entries((a.answers as Record<string, any>) ?? {})

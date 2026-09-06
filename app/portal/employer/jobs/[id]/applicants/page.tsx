@@ -39,7 +39,7 @@ export default async function EmployerApplicants({ params }: { params: { id: str
 
   const rows = await Promise.all(
     (apps ?? []).map(async (a) => {
-      const { data: prof } = await admin.from("profiles").select("full_name, email").eq("id", a.talent_id).single();
+      const { data: prof } = await admin.from("profiles").select("full_name, email, phone").eq("id", a.talent_id).single();
       const isReleased = a.talent_id ? released.has(a.talent_id) : false;
       // Résumés go through the redaction endpoint — contact details are
       // scrubbed until the employer unlocks the candidate or records a placement.
