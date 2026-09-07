@@ -116,8 +116,14 @@ export function varsFor(opts: {
   duration: number; location: string; timezone: string;
 }): EmailVars {
   const d = new Date(opts.slotIso);
-  const date = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  /**
+   * Formatted in the interview's timezone, never the server's. Rendering
+   * server side without a timeZone gave UTC, so an invitation said 09:00
+   * while the same interview showed as 10:00 everywhere else.
+   */
+  const tz = opts.timezone || "Africa/Lagos";
+  const date = d.toLocaleDateString("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long" });
+  const time = d.toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
   return {
     name: opts.name,
     first_name: (opts.name || "there").split(" ")[0],

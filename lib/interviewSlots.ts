@@ -40,6 +40,42 @@ export type SlotRules = {
 
 export type Slot = { start: Date; end: Date; label: string };
 
+/**
+ * Convert a wall clock time in a named timezone into the correct instant.
+ *
+ * THE BUG THIS FIXES: slots were built with `new Date(y, m, d)` plus
+ * setHours, which uses the SERVER's timezone. On Vercel that is UTC, so
+ * "09:00 Africa/Lagos" was stored as 09:00 UTC, which is 10:00 in Lagos.
+ * The invitation email rendered server side and said 09:00. The interviews
+ * list rendered in the browser and said 10:00. Same interview, two times,
+ * and a candidate arriving an hour out.
+ *
+ * The offset is derived from the timezone itself rather than hardcoded, so
+ * this stays correct for zones that observe daylight saving.
+ */
+export function zonedToUtc(year: number, month: number, day: number, minutes: number, timeZone: string): Date {
+  const guess = Date.UTC(year, month - 1, day, Math.floor(minutes / 60), minutes % 60, 0, 0);
+  // What does that instant look like in the target zone?
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  });
+  const parts: any = {};
+  for (const p of fmt.formatToParts(new Date(guess))) parts[p.type] = p.value;
+  const asZoned = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
+  );
+  // The difference is the zone's offset at that moment; subtract it.
+  return new Date(guess - (asZoned - guess));
+}
+
+/** Format an instant in a named timezone, so every surface agrees. */
+export function formatInZone(d: Date, timeZone: string, opts: Intl.DateTimeFormatOptions): string {
+  return d.toLocaleString("en-GB", { timeZone, ...opts });
+}
+
 const toMinutes = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
   return (h || 0) * 60 + (m || 0);
@@ -106,8 +142,10 @@ export function generateSlots(count: number, rules: SlotRules, taken?: Set<numbe
       continue;
     }
 
-    const startAt = new Date(day); startAt.setHours(0, cursor, 0, 0);
-    const endAt = new Date(day); endAt.setHours(0, end, 0, 0);
+    // Built in the target timezone, not the server's.
+    const tz = rules.timezone || "Africa/Lagos";
+    const startAt = zonedToUtc(day.getFullYear(), day.getMonth() + 1, day.getDate(), cursor, tz);
+    const endAt = zonedToUtc(day.getFullYear(), day.getMonth() + 1, day.getDate(), end, tz);
 
     /**
      * Skip a slot already occupied by an existing interview for this job.
@@ -123,7 +161,8 @@ export function generateSlots(count: number, rules: SlotRules, taken?: Set<numbe
     }
     slots.push({
       start: startAt, end: endAt,
-      label: startAt.toLocaleString("en-GB", {
+      // Labelled in the same zone it was generated in.
+      label: formatInZone(startAt, tz, {
         weekday: "short", day: "numeric", month: "short",
         hour: "2-digit", minute: "2-digit", hour12: false
       })
@@ -135,12 +174,12 @@ export function generateSlots(count: number, rules: SlotRules, taken?: Set<numbe
 }
 
 /** How many days a batch will span, for the summary before sending. */
-export function summarise(slots: Slot[]): {
+export function summarise(slots: Slot[], timeZone = "Africa/Lagos"): {
   days: number; first: string; last: string; per_day: Record<string, number>;
 } {
   const per_day: Record<string, number> = {};
   slots.forEach((s) => {
-    const key = s.start.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+    const key = s.start.toLocaleDateString("en-GB", { timeZone, weekday: "short", day: "numeric", month: "short" });
     per_day[key] = (per_day[key] ?? 0) + 1;
   });
   return {

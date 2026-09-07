@@ -21,7 +21,8 @@ export default async function AdminInterviews() {
         active.forEach((r) => {
           const key = r.scheduled_at
             ? new Date(r.scheduled_at).toLocaleDateString("en-GB",
-                { weekday: "long", day: "numeric", month: "long" })
+                { timeZone: r.timezone || "Africa/Lagos",
+                  weekday: "long", day: "numeric", month: "long" })
             : "Time to be confirmed";
           if (!byDay.has(key)) byDay.set(key, []);
           byDay.get(key)!.push(r);
@@ -36,9 +37,9 @@ export default async function AdminInterviews() {
               <span className="text-xs text-muted-2">
                 {rows.length} interview{rows.length === 1 ? "" : "s"}
                 {rows[0]?.scheduled_at && rows[rows.length - 1]?.scheduled_at && rows.length > 1 && (
-                  <>, {new Date(rows[0].scheduled_at!).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}
+                  <>, {new Date(rows[0].scheduled_at!).toLocaleTimeString("en-GB", { timeZone: rows[0].timezone || "Africa/Lagos", hour: "2-digit", minute: "2-digit", hour12: false })}
                   {" to "}
-                  {new Date(rows[rows.length - 1].scheduled_at!).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}</>
+                  {new Date(rows[rows.length - 1].scheduled_at!).toLocaleTimeString("en-GB", { timeZone: rows[0].timezone || "Africa/Lagos", hour: "2-digit", minute: "2-digit", hour12: false })}</>
                 )}
               </span>
             </div>

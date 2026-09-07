@@ -12,6 +12,8 @@ export type InterviewRow = {
   name: string; email: string; jobTitle: string; applicantHref?: string;
   /** Present for guest applicants, who have no profile to link to. */
   phone?: string; isGuest?: boolean;
+  /** Render times in THIS zone, never the viewer's. */
+  timezone?: string;
 };
 
 const DEFAULT_COMPETENCIES = ["Communication", "Technical depth", "Problem solving", "Role knowledge", "Values fit"];
@@ -58,10 +60,13 @@ export function InterviewDesk({ rows }: { rows: InterviewRow[] }) {
               <div className="font-display font-semibold text-base text-ink mt-1">
                 {r.scheduled_at
                   ? new Date(r.scheduled_at).toLocaleString("en-GB", {
+                      timeZone: r.timezone || "Africa/Lagos",
                       weekday: "short", day: "numeric", month: "short",
                       hour: "2-digit", minute: "2-digit", hour12: false })
                   : r.calendly_url ? "Awaiting the candidate's slot pick" : "Time to be confirmed"}
                 {r.duration_min ? <span className="text-muted-2 font-normal text-sm"> for {r.duration_min} minutes</span> : null}
+                {/* Stated explicitly: this is the time the candidate was told. */}
+                <span className="text-muted-2 font-normal text-xs"> {r.timezone || "Africa/Lagos"}</span>
               </div>
 
               {/* Contact details, so you can reach them without leaving the page. */}

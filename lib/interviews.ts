@@ -40,6 +40,7 @@ export async function assembleInterviewRows(client: SupabaseClient, interviews: 
       email: p?.email ?? iv.guest_email ?? "",
       phone: p?.phone ?? "",
       isGuest: !iv.talent_id,
+      timezone: iv.timezone || "Africa/Lagos",
       jobTitle: jById.get(iv.job_id)?.title ?? "Role"
     };
   });

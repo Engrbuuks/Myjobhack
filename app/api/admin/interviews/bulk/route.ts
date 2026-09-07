@@ -171,7 +171,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       schedule: schedule.map((s) => ({ name: s.name, email: s.email, label: s.label, slot: s.slot })),
-      summary: summarise(slots), notes, allowance, count: schedule.length, sample
+      summary: summarise(slots, rules.timezone || "Africa/Lagos"), notes, allowance, count: schedule.length, sample
     });
   }
 
@@ -226,6 +226,8 @@ export async function POST(request: Request) {
     scheduled_at: s.slot, duration_min: rules.slot_minutes,
     location_or_link: String(body.location_or_link ?? ""),
     message: String(body.message ?? ""),
+    // Stored so the list, the email and any export all render the same time.
+    timezone: rules.timezone || "Africa/Lagos",
     status: "invited"
   }));
 
