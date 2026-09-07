@@ -10,6 +10,8 @@ export type InterviewRow = {
   location_or_link: string; calendly_url: string;
   scorecard: Competency[]; feedback: string;
   name: string; email: string; jobTitle: string; applicantHref?: string;
+  /** Present for guest applicants, who have no profile to link to. */
+  phone?: string; isGuest?: boolean;
 };
 
 const DEFAULT_COMPETENCIES = ["Communication", "Technical depth", "Problem solving", "Role knowledge", "Values fit"];
@@ -42,14 +44,32 @@ export function InterviewDesk({ rows }: { rows: InterviewRow[] }) {
         <div key={r.id} className="card p-5">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex-1 min-w-52">
-              <div className="font-semibold text-sm">{r.name}
-                <span className="text-muted-2 font-normal"> · {r.jobTitle}</span></div>
-              <div className="text-xs text-muted-2 mt-0.5">
-                Round {r.round} · {r.mode.replace(/_/g, " ")} ·{" "}
+              {/* The time is what you scan this list for, so it leads. */}
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="font-semibold text-sm">{r.name}</span>
+                {r.isGuest && (
+                  <span className="rounded-pill bg-paper-2 border border-line px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-2">
+                    guest
+                  </span>
+                )}
+                <span className="text-muted-2 text-sm">{r.jobTitle}</span>
+              </div>
+
+              <div className="font-display font-semibold text-base text-ink mt-1">
                 {r.scheduled_at
-                  ? new Date(r.scheduled_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
-                  : r.calendly_url ? "awaiting candidate's slot pick" : "time TBA"}
-                {r.duration_min ? ` · ${r.duration_min}m` : ""}
+                  ? new Date(r.scheduled_at).toLocaleString("en-GB", {
+                      weekday: "short", day: "numeric", month: "short",
+                      hour: "2-digit", minute: "2-digit", hour12: false })
+                  : r.calendly_url ? "Awaiting the candidate's slot pick" : "Time to be confirmed"}
+                {r.duration_min ? <span className="text-muted-2 font-normal text-sm"> for {r.duration_min} minutes</span> : null}
+              </div>
+
+              {/* Contact details, so you can reach them without leaving the page. */}
+              <div className="text-xs text-muted-2 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                {r.email && <a href={`mailto:${r.email}`} className="hover:text-coral">{r.email}</a>}
+                {r.phone && <a href={`tel:${r.phone}`} className="hover:text-coral">{r.phone}</a>}
+                <span>Round {r.round}</span>
+                <span>{r.mode.replace(/_/g, " ")}</span>
               </div>
             </div>
             <span className={`px-2.5 py-1 rounded-pill text-xs font-bold capitalize ${
