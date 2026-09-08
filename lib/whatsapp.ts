@@ -28,50 +28,60 @@ export function waNumber(e164: string): string | null {
  * Kept under roughly 1500 characters: the text rides in the URL, and very
  * long messages get truncated by some browsers before WhatsApp sees them.
  */
-export type WaTarget = "web" | "mobile" | "api";
+export type WaTarget = "app" | "web" | "mobile";
 
 /**
- * Which WhatsApp entry point actually carries the pre-filled message.
+ * How to open WhatsApp, and why the choice matters more than it looks.
  *
- * This differs by device, and getting it wrong is why a chat opens with an
- * empty box:
+ * THE PROBLEM WITH web.whatsapp.com: it is a full single page app. Every
+ * link opens a fresh tab that downloads the bundle, restores the session and
+ * only then navigates to the chat. That boot is what shows as a dark blank
+ * screen, and doing it once per candidate means thirty seven cold boots in
+ * thirty seven tabs. It is the wrong shape for sending a list.
  *
- *  · web.whatsapp.com/send   reliably keeps the text, but only in a browser.
- *  · wa.me                   is right on a phone, where it opens the app with
- *                            the message intact.
- *  · api.whatsapp.com/send   hands off to the DESKTOP APP where one is
- *                            installed, and that handoff frequently drops the
- *                            text, opening the chat with nothing typed.
- *
- * So the default follows the device rather than being one link for everyone.
+ *   app     whatsapp://send   Hands straight to WhatsApp Desktop with no
+ *                             browser load at all. Instant, keeps the text,
+ *                             and the right default on a computer that has
+ *                             the app installed.
+ *   web     web.whatsapp.com  The browser client. Works without the desktop
+ *                             app, but boots on every navigation, so it is
+ *                             opened into ONE reused window rather than a new
+ *                             tab each time.
+ *   mobile  wa.me             Correct on a phone: hands to the installed app.
  */
 export function detectTarget(): WaTarget {
-  if (typeof navigator === "undefined") return "web";
+  if (typeof navigator === "undefined") return "app";
   const ua = navigator.userAgent || "";
-  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
-  return isMobile ? "mobile" : "web";
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return "mobile";
+  return "app";
 }
 
-export function waLink(e164: string, message: string, target: WaTarget = "web"): string | null {
+export function waLink(e164: string, message: string, target: WaTarget = "app"): string | null {
   const num = waNumber(e164);
   if (!num) return null;
   /**
-   * Kept short on purpose. The message rides in the URL, and a long encoded
-   * body pushes the address past what some browsers and the WhatsApp handler
-   * will accept, which shows as a blank page rather than an error.
+   * Kept short. The message travels inside the URL, and a long encoded body
+   * pushes the address past what the protocol handler and some browsers
+   * accept, which fails silently rather than reporting anything.
    */
   const text = encodeURIComponent((message || "").slice(0, 700));
   switch (target) {
+    case "app":    return `whatsapp://send?phone=${num}&text=${text}`;
     case "mobile": return `https://wa.me/${num}?text=${text}`;
-    case "api":    return `https://api.whatsapp.com/send?phone=${num}&text=${text}`;
     default:       return `https://web.whatsapp.com/send?phone=${num}&text=${text}`;
   }
 }
 
 export const TARGET_LABELS: Record<WaTarget, string> = {
-  web: "WhatsApp Web, keeps the message",
-  mobile: "Phone, opens the app",
-  api: "Desktop app, may drop the message"
+  app: "WhatsApp Desktop, opens instantly",
+  web: "WhatsApp Web, one reused tab",
+  mobile: "Phone, opens the app"
+};
+
+export const TARGET_HELP: Record<WaTarget, string> = {
+  app: "Opens the installed desktop app directly. Nothing loads in the browser, so there is no waiting and no blank screen.",
+  web: "Opens web.whatsapp.com in a single tab that is reused for every candidate. The first one takes a few seconds to load, the rest are quicker.",
+  mobile: "Hands off to WhatsApp on your phone. Use this when you are working from a handset."
 };
 
 /**

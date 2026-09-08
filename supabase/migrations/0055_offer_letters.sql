@@ -13,7 +13,7 @@
 
 create table if not exists letterheads (
   id uuid primary key default gen_random_uuid(),
-  org_id uuid references orgs(id) on delete cascade,
+  org_id uuid references organizations(id) on delete cascade,
   name text not null,
 
   -- Stored in R2 or Supabase storage, same as résumés.

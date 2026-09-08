@@ -1,7 +1,9 @@
 "use client";
-import { useState, useEffect } from "react";
-import { waLink, forWhatsApp, whyNotReachable, detectTarget, TARGET_LABELS,
-         RESUMPTION_TEMPLATE, REMINDER_TEMPLATE, type WaTarget } from "@/lib/whatsapp";
+import { useState, useEffect, useRef } from "react";
+import {
+  waLink, forWhatsApp, whyNotReachable, detectTarget,
+  TARGET_LABELS, TARGET_HELP, RESUMPTION_TEMPLATE, REMINDER_TEMPLATE, type WaTarget
+} from "@/lib/whatsapp";
 import { renderApplicantTemplate, applicantVars, APPLICANT_TOKENS } from "@/lib/applicantEmail";
 
 type Row = {
@@ -10,37 +12,33 @@ type Row = {
 };
 
 /**
- * Send WhatsApp messages to selected candidates, one tap each.
+ * Work through a list of candidates on WhatsApp, one at a time.
  *
- * Each row opens WhatsApp with that person's message already written, and is
- * ticked off once opened, so a list of thirty can be worked through without
- * losing your place or messaging anyone twice.
+ * WHY A QUEUE RATHER THAN A LIST OF LINKS: a link per candidate opens a tab
+ * per candidate. With web.whatsapp.com each of those tabs boots the whole
+ * application before it can show the chat, which is the dark screen people
+ * see, and thirty seven of them is unusable. So this sends to one person at a
+ * time, into a SINGLE reused window, and advances when you confirm.
+ *
+ * The desktop protocol handler avoids the browser entirely and is the default
+ * on a computer. Copy and paste sits underneath throughout, because a handler
+ * that is not registered fails silently and the work still has to get done.
  */
 export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
   rows: Row[]; jobTitle: string; senderName: string; onClose?: () => void;
 }) {
   const [template, setTemplate] = useState(RESUMPTION_TEMPLATE);
   const [detail, setDetail] = useState("");
-  const [done, setDone] = useState<Set<string>>(new Set());
+  const [target, setTarget] = useState<WaTarget>("app");
+  const [index, setIndex] = useState(0);
+  const [sent, setSent] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
-  /**
-   * Which WhatsApp to open. Defaults to what suits the device, because the
-   * desktop app handoff routinely drops the pre-filled message and opens an
-   * empty chat, while WhatsApp Web keeps it.
-   */
-  const [target, setTarget] = useState<WaTarget>("web");
-  useEffect(() => { setTarget(detectTarget()); }, []);
+  const [started, setStarted] = useState(false);
 
-  async function copy(text: string, id: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(id);
-      setTimeout(() => setCopied((c) => (c === id ? null : c)), 1800);
-    } catch {
-      // Clipboard access can be blocked. Select the text manually instead.
-      window.prompt("Copy this:", text);
-    }
-  }
+  /** One window, reused. Never a tab per candidate. */
+  const winRef = useRef<Window | null>(null);
+
+  useEffect(() => { setTarget(detectTarget()); }, []);
 
   const messageFor = (r: Row) => forWhatsApp(renderApplicantTemplate(template, applicantVars({
     name: r.name, role: jobTitle, company: "MYJOBHACK", email: r.email,
@@ -50,6 +48,50 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
 
   const reachable = rows.filter((r) => !whyNotReachable(r.phone));
   const unreachable = rows.filter((r) => whyNotReachable(r.phone));
+  const current = reachable[index];
+  const remaining = reachable.length - sent.size;
+
+  async function copy(text: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(id);
+      setTimeout(() => setCopied((c) => (c === id ? null : c)), 1600);
+    } catch {
+      window.prompt("Copy this:", text);
+    }
+  }
+
+  function openFor(r: Row) {
+    const url = waLink(r.phone!, messageFor(r), target);
+    if (!url) return;
+
+    if (target === "app") {
+      // A protocol handler needs no window. Assigning location hands off to
+      // the operating system, and this page stays where it is.
+      window.location.href = url;
+      return;
+    }
+
+    /**
+     * Reuse one named window. Opening with the same name navigates the
+     * existing tab instead of creating another, so WhatsApp Web boots once
+     * for the whole run rather than once per person.
+     */
+    if (winRef.current && !winRef.current.closed) {
+      winRef.current.location.href = url;
+      winRef.current.focus();
+    } else {
+      winRef.current = window.open(url, "mjh_whatsapp");
+    }
+  }
+
+  function markAndAdvance() {
+    if (!current) return;
+    const next = new Set(sent); next.add(current.id);
+    setSent(next);
+    const upcoming = reachable.findIndex((r, i) => i > index && !next.has(r.id));
+    setIndex(upcoming >= 0 ? upcoming : reachable.length);
+  }
 
   return (
     <div className="card p-5 space-y-4">
@@ -59,130 +101,140 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
             WhatsApp {reachable.length} candidate{reachable.length === 1 ? "" : "s"}
           </h3>
           <p className="text-sm text-muted-2 mt-1">
-            Each opens WhatsApp with the message written. You press send. Nothing is sent from here.
+            One at a time, into a single window. Nothing is sent from here: you press send in
+            WhatsApp.
           </p>
         </div>
-        {onClose && <button className="text-muted-2 hover:text-ink" onClick={onClose}>✕</button>}
+        {onClose && <button className="text-muted-2 hover:text-ink" onClick={onClose}>&#10005;</button>}
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button className="btn-ghost !h-9 text-xs" onClick={() => setTemplate(RESUMPTION_TEMPLATE)}>
-          Resumption message
-        </button>
-        <button className="btn-ghost !h-9 text-xs" onClick={() => setTemplate(REMINDER_TEMPLATE)}>
-          Interview reminder
-        </button>
-      </div>
-
-      <div>
-        <label className="label !text-xs">Message</label>
-        <textarea className="input !h-auto py-2" rows={7} value={template}
-          onChange={(e) => setTemplate(e.target.value)} />
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {APPLICANT_TOKENS.filter((t) => !["{email}", "{stage}"].includes(t.token)).map((t) => (
-            <button key={t.token} title={t.means}
-              onClick={() => setTemplate((v) => v + t.token)}
-              className="rounded-pill border border-line bg-white px-2.5 py-1 text-xs text-muted hover:border-coral hover:text-coral transition">
-              {t.token}
+      {!started ? (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-ghost !h-9 text-xs" onClick={() => setTemplate(RESUMPTION_TEMPLATE)}>
+              Resumption message
             </button>
-          ))}
-        </div>
-        <p className="text-xs text-muted-2 mt-2">
-          WhatsApp is plain text. *Bold* and _italic_ work, nothing else.
-        </p>
-      </div>
+            <button className="btn-ghost !h-9 text-xs" onClick={() => setTemplate(REMINDER_TEMPLATE)}>
+              Interview reminder
+            </button>
+          </div>
 
-      {template.includes("{detail}") && (
-        <div>
-          <label className="label !text-xs">
-            What {"{detail}"} should say, written once for everyone
-          </label>
-          <textarea className="input !h-auto py-2" rows={3} value={detail}
-            onChange={(e) => setDetail(e.target.value)}
-            placeholder="Resume on Monday 15 September at 8am. 14 Adeshina Street, Ikeja. Ask for Rita at reception." />
-        </div>
-      )}
-
-      {reachable.length > 0 && (
-        <div>
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted">
-              Send one by one
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-2">{done.size} of {reachable.length} opened</span>
-              <select className="input !h-8 !w-auto text-xs !px-2" value={target}
-                onChange={(e) => setTarget(e.target.value as WaTarget)}
-                aria-label="Which WhatsApp to open">
-                {(Object.keys(TARGET_LABELS) as WaTarget[]).map((k) => (
-                  <option key={k} value={k}>{TARGET_LABELS[k]}</option>
-                ))}
-              </select>
+          <div>
+            <label className="label !text-xs">Message</label>
+            <textarea className="input !h-auto py-2" rows={7} value={template}
+              onChange={(e) => setTemplate(e.target.value)} />
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {APPLICANT_TOKENS.filter((t) => !["{email}", "{stage}"].includes(t.token)).map((t) => (
+                <button key={t.token} title={t.means} onClick={() => setTemplate((v) => v + t.token)}
+                  className="rounded-pill border border-line bg-white px-2.5 py-1 text-xs text-muted hover:border-coral hover:text-coral transition">
+                  {t.token}
+                </button>
+              ))}
             </div>
+            <p className="text-xs text-muted-2 mt-2">
+              WhatsApp is plain text. *Bold* and _italic_ work, nothing else.
+            </p>
           </div>
-          <div className="rounded-xl border border-line divide-y divide-line max-h-80 overflow-y-auto">
-            {reachable.map((r) => {
-              const msg = messageFor(r);
-              const link = waLink(r.phone!, msg, target)!;
-              const sent = done.has(r.id);
-              return (
-                <div key={r.id} className={`p-3 ${sent ? "bg-paper-2" : ""}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{r.name}</div>
-                      <div className="text-xs text-muted-2">{r.phone}</div>
-                    </div>
-                    {/* If the link opens a blank page, these two always work:
-                        copy the message, open WhatsApp yourself, paste. */}
-                    <button className="btn-ghost !h-9 text-xs shrink-0"
-                      onClick={() => copy(msg, `m-${r.id}`)}>
-                      {copied === `m-${r.id}` ? "Copied" : "Copy message"}
-                    </button>
-                    <button className="btn-ghost !h-9 text-xs shrink-0"
-                      onClick={() => copy(r.phone!, `p-${r.id}`)}>
-                      {copied === `p-${r.id}` ? "Copied" : "Copy number"}
-                    </button>
-                    <a href={link} target="_blank" rel="noopener noreferrer"
-                      onClick={() => setDone((d) => new Set(d).add(r.id))}
-                      className={`shrink-0 ${sent ? "btn-ghost !h-9 text-xs" : "btn-coral !h-9 text-xs"}`}>
-                      {sent ? "Open again" : "Open WhatsApp"}
-                    </a>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <p className="text-xs text-muted-2 mt-2">
-            Ticking off happens when you open the link, not when the message is delivered, so
-            confirm in WhatsApp that it actually sent. If the chat opens with an empty message
-            box, the desktop app has dropped the text: switch the selector above to WhatsApp Web,
-            or use Copy message and paste it.
-          </p>
-        </div>
-      )}
 
-      {reachable.length > 0 && (
-        <details className="rounded-xl border border-line p-4">
-          <summary className="cursor-pointer text-sm font-semibold">
-            All numbers and one message, for copying
-          </summary>
-          <p className="text-xs text-muted-2 mt-2 mb-3">
-            Useful for a WhatsApp broadcast list. The message below has no personal tokens
-            filled in, because a broadcast goes to everyone unchanged.
-          </p>
-          <div className="flex flex-wrap gap-2 mb-3">
-            <button className="btn-ghost !h-9 text-xs"
-              onClick={() => copy(reachable.map((r) => r.phone).join(", "), "all-numbers")}>
-              {copied === "all-numbers" ? "Copied" : `Copy all ${reachable.length} numbers`}
-            </button>
-            <button className="btn-ghost !h-9 text-xs"
-              onClick={() => copy(messageFor({ ...reachable[0], name: "there" } as any), "generic")}>
-              {copied === "generic" ? "Copied" : "Copy the message"}
+          {template.includes("{detail}") && (
+            <div>
+              <label className="label !text-xs">
+                What {"{detail}"} should say, written once for everyone
+              </label>
+              <textarea className="input !h-auto py-2" rows={3} value={detail}
+                onChange={(e) => setDetail(e.target.value)}
+                placeholder="Resume on Monday 15 September at 8am. 14 Adeshina Street, Ikeja. Ask for Rita at reception." />
+            </div>
+          )}
+
+          <div className="rounded-xl border border-line p-4">
+            <label className="label !text-xs">How should WhatsApp open?</label>
+            <select className="input !h-10 text-sm" value={target}
+              onChange={(e) => setTarget(e.target.value as WaTarget)}>
+              {(Object.keys(TARGET_LABELS) as WaTarget[]).map((k) => (
+                <option key={k} value={k}>{TARGET_LABELS[k]}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-2 mt-2">{TARGET_HELP[target]}</p>
+          </div>
+
+          <button className="btn-coral" disabled={!reachable.length || !template.trim()}
+            onClick={() => setStarted(true)}>
+            Start with {reachable.length} candidate{reachable.length === 1 ? "" : "s"}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex-1 h-2 rounded-full bg-paper-2 overflow-hidden min-w-32">
+              <div className="h-full bg-coral transition-all"
+                style={{ width: `${reachable.length ? (sent.size / reachable.length) * 100 : 0}%` }} />
+            </div>
+            <span className="text-xs text-muted-2">
+              {sent.size} done, {Math.max(0, remaining)} to go
+            </span>
+            <button className="text-xs text-muted hover:text-ink underline" onClick={() => setStarted(false)}>
+              Edit the message
             </button>
           </div>
-          <textarea readOnly className="input !h-auto py-2 text-xs" rows={3}
-            value={reachable.map((r) => r.phone).join(", ")} />
-        </details>
+
+          {current ? (
+            <div className="rounded-xl border border-line p-4 space-y-3">
+              <div>
+                <div className="font-display font-semibold text-lg">{current.name}</div>
+                <div className="text-sm text-muted-2">{current.phone}</div>
+              </div>
+
+              <div className="rounded-lg bg-paper-2 border border-line p-3">
+                <div className="text-xs font-bold uppercase tracking-widest text-muted mb-1.5">
+                  Their message
+                </div>
+                <p className="text-sm text-muted whitespace-pre-wrap leading-relaxed">
+                  {messageFor(current)}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-coral" onClick={() => openFor(current)}>
+                  Open WhatsApp for {current.name.split(" ")[0]}
+                </button>
+                <button className="btn-ghost" onClick={() => copy(messageFor(current), `m-${current.id}`)}>
+                  {copied === `m-${current.id}` ? "Copied" : "Copy message"}
+                </button>
+                <button className="btn-ghost" onClick={() => copy(current.phone!, `p-${current.id}`)}>
+                  {copied === `p-${current.id}` ? "Copied" : "Copy number"}
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-line">
+                <button className="btn-coral !h-9 text-sm" onClick={markAndAdvance}>
+                  Sent, next candidate
+                </button>
+                <button className="btn-ghost !h-9 text-sm"
+                  onClick={() => setIndex((i) => Math.min(i + 1, reachable.length))}>
+                  Skip for now
+                </button>
+              </div>
+              <p className="text-xs text-muted-2">
+                If WhatsApp does not open, use Copy message and paste it yourself. Marking as sent
+                is your record, not WhatsApp&rsquo;s, so press it once the message has gone.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-line p-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-coral-soft text-coral grid place-items-center text-xl mx-auto mb-3">&#10003;</div>
+              <p className="font-semibold">
+                {sent.size} of {reachable.length} marked as sent
+              </p>
+              {sent.size < reachable.length && (
+                <button className="btn-ghost !h-9 text-sm mt-3"
+                  onClick={() => setIndex(Math.max(0, reachable.findIndex((r) => !sent.has(r.id))))}>
+                  Go back to the ones you skipped
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {unreachable.length > 0 && (
@@ -197,7 +249,7 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
             </div>
           ))}
           <p className="text-xs text-muted-2 mt-2">
-            Email them instead, or call. They are listed rather than skipped quietly, because a
+            Email or call them instead. They are listed rather than skipped quietly, because a
             person who never hears from you is the one who does not turn up.
           </p>
         </div>
