@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { renderTemplate, toParagraphs, varsFor,
+         CANCEL_SUBJECT, CANCEL_BODY, RESCHEDULE_SUBJECT, RESCHEDULE_BODY } from "@/lib/interviewEmail";
 
 export const runtime = "nodejs";
 
@@ -141,7 +143,8 @@ export async function PATCH(request: Request) {
 
   const admin = createAdminClient();
   const { data: iv } = await admin.from("interviews")
-    .select("id, application_id, talent_id, org_id, status, job_id").eq("id", id).single();
+    .select("id, application_id, talent_id, org_id, status, job_id, scheduled_at, duration_min, timezone, guest_name, guest_email, location_or_link")
+    .eq("id", id).single();
   if (!iv) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const auth = await authority(user.id, iv.org_id, me?.role);
   if (!auth) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
@@ -153,7 +156,19 @@ export async function PATCH(request: Request) {
     if (b.scheduled_at) patch.scheduled_at = b.scheduled_at;
   } else if (action === "complete") patch.status = "completed";
   else if (action === "no_show") patch.status = "no_show";
-  else if (action === "cancel") patch.status = "cancelled";
+  else if (action === "cancel") {
+    /**
+     * Cancelling records who, when and why, and tells the candidate.
+     *
+     * Silently flipping a status leaves someone holding an invitation for a
+     * time that no longer exists. They travel to it. The reason is stored
+     * either way, and shared with the candidate only if asked for.
+     */
+    patch.status = "cancelled";
+    patch.cancelled_at = new Date().toISOString();
+    patch.cancelled_by = user.id;
+    patch.cancel_reason = String(b.reason ?? "").slice(0, 300) || null;
+  }
   else if (action === "save_review") {
     if (b.scorecard !== undefined) patch.scorecard = b.scorecard;
     if (b.feedback !== undefined) patch.feedback = b.feedback;
@@ -163,12 +178,117 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "outcome must be advanced/hold/rejected" }, { status: 400 });
     patch.outcome = b.outcome;
     if (iv.status === "invited" || iv.status === "scheduled") patch.status = "completed";
+  } else if (action === "reschedule") {
+    /**
+     * Move an interview to a new time in one step.
+     *
+     * Cancelling and then creating a second interview sends two emails: one
+     * saying it is off, one saying it is on. The candidate reads them in
+     * whatever order they arrive. This sends a single message that says the
+     * time has moved and states the new one.
+     */
+    if (!b.scheduled_at)
+      return NextResponse.json({ error: "A new date and time is required to reschedule." }, { status: 400 });
+    patch.scheduled_at = b.scheduled_at;
+    patch.status = "scheduled";
+    if (b.duration_min) patch.duration_min = Number(b.duration_min);
+    if (b.location_or_link !== undefined) patch.location_or_link = String(b.location_or_link);
   } else {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
 
   const { error } = await admin.from("interviews").update(patch).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // ---- reschedule: one email stating the new time ----
+  if (action === "reschedule") {
+    const { data: prof } = iv.talent_id
+      ? await admin.from("profiles").select("full_name, email").eq("id", iv.talent_id).maybeSingle()
+      : { data: null as any };
+    const to = prof?.email ?? iv.guest_email ?? null;
+    const who = prof?.full_name ?? iv.guest_name ?? "there";
+    const { data: jobRow } = await admin.from("jobs")
+      .select("title, company_name").eq("id", iv.job_id).maybeSingle();
+
+    let notified = false;
+    if (to && b.notify !== false) {
+      const v = varsFor({
+        name: who, role: jobRow?.title ?? "the role",
+        company: jobRow?.company_name ?? "MYJOBHACK",
+        slotIso: String(b.scheduled_at),
+        duration: Number(b.duration_min) || iv.duration_min || 30,
+        location: (b.location_or_link ?? iv.location_or_link) || "",
+        timezone: iv.timezone ?? "Africa/Lagos"
+      });
+      const r = await sendEmail(to, renderTemplate(RESCHEDULE_SUBJECT, v), renderEmail({
+        preheader: `Your interview has moved to ${v.day_and_time}`,
+        kicker: "Interview moved",
+        heading: "Your interview time has changed",
+        paragraphs: toParagraphs(renderTemplate(RESCHEDULE_BODY, v))
+      })).catch(() => null);
+      notified = !!r;
+    }
+
+    return NextResponse.json({
+      ok: true, notified,
+      message: notified
+        ? `Moved, and ${who.split(" ")[0]} has been sent the new time.`
+        : `Moved, but the email did not send. ${who.split(" ")[0]} still has the old time.`
+    });
+  }
+
+  // ---- cancellation: tell the candidate, and correct the pipeline ----
+  if (action === "cancel") {
+    const { data: prof } = iv.talent_id
+      ? await admin.from("profiles").select("full_name, email").eq("id", iv.talent_id).maybeSingle()
+      : { data: null as any };
+    const to = prof?.email ?? iv.guest_email ?? null;
+    const who = prof?.full_name ?? iv.guest_name ?? "there";
+    const { data: jobRow } = await admin.from("jobs")
+      .select("title, company_name").eq("id", iv.job_id).maybeSingle();
+
+    let notified = false;
+    if (to && b.notify !== false) {
+      const v = varsFor({
+        name: who, role: jobRow?.title ?? "the role",
+        company: jobRow?.company_name ?? "MYJOBHACK",
+        slotIso: iv.scheduled_at ?? new Date().toISOString(),
+        duration: iv.duration_min ?? 30,
+        location: iv.location_or_link ?? "",
+        timezone: iv.timezone ?? "Africa/Lagos",
+        // Shared only when the person cancelling ticked that box.
+        reason: b.share_reason && b.reason ? String(b.reason) : ""
+      });
+      const r = await sendEmail(to, renderTemplate(CANCEL_SUBJECT, v), renderEmail({
+        preheader: "Your interview has been cancelled",
+        kicker: "Interview cancelled",
+        heading: "Your interview has been cancelled",
+        paragraphs: toParagraphs(renderTemplate(CANCEL_BODY, v))
+      })).catch(() => null);
+      notified = !!r;
+      if (notified) await admin.from("interviews").update({ cancel_notified: true }).eq("id", id);
+    }
+
+    /**
+     * Put the application back to shortlisted. Leaving it at "interviewing"
+     * counts someone in the pipeline who has no interview, which quietly
+     * overstates how far along a job is.
+     */
+    if (iv.application_id) {
+      await admin.from("applications")
+        .update({ status: "shortlisted", reviewed_by: user.id })
+        .eq("id", iv.application_id).eq("status", "interviewing");
+    }
+
+    return NextResponse.json({
+      ok: true, notified,
+      message: notified
+        ? `Interview cancelled and ${who.split(" ")[0]} has been told.`
+        : to
+          ? `Interview cancelled, but the email did not send. ${who.split(" ")[0]} may still be expecting to attend.`
+          : `Interview cancelled. There is no email address on file, so ${who.split(" ")[0]} has not been told.`
+    });
+  }
 
   // outcome drives the application pipeline + tells the candidate
   if (action === "outcome") {

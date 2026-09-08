@@ -20,6 +20,8 @@ export type EmailVars = {
   location: string;    // link or address, empty when neither
   timezone: string;
   reply_to: string;
+  /** Only present on cancellation emails, and only when a reason is shared. */
+  reason?: string;
 };
 
 export const TOKENS: { token: string; means: string }[] = [
@@ -32,7 +34,8 @@ export const TOKENS: { token: string; means: string }[] = [
   { token: "{day_and_time}", means: "Monday, 7 September at 09:30" },
   { token: "{duration}", means: "30" },
   { token: "{location}", means: "the link or address" },
-  { token: "{timezone}", means: "Africa/Lagos" }
+  { token: "{timezone}", means: "Africa/Lagos" },
+  { token: "{reason}", means: "the reason, if you choose to share one" }
 ];
 
 export const DEFAULT_SUBJECT = "Interview invitation: {role}";
@@ -72,6 +75,40 @@ Your interview is on {date} at {time} ({timezone}) and will last about {duration
 Where: {location}
 
 Please reply to this email to confirm this new time works for you. We are sorry for the confusion.`;
+
+/**
+ * For a cancelled interview.
+ *
+ * Cancelling silently is the worst option: the candidate keeps an invitation
+ * for a time that no longer exists and travels to it. This says clearly that
+ * it is off, and whether anything replaces it.
+ */
+export const CANCEL_SUBJECT = "Your interview for {role} has been cancelled";
+
+export const CANCEL_BODY = `Hello {first_name},
+
+We are writing to let you know that your interview for {role}, scheduled for {date} at {time} ({timezone}), has been cancelled.
+
+Please do not attend at that time.
+
+{reason}
+
+Your application has not been rejected. We will be in touch if a new time becomes available.
+
+We are sorry for the inconvenience.`;
+
+/** When the cancellation is immediately followed by a new time. */
+export const RESCHEDULE_SUBJECT = "New interview time for {role}";
+
+export const RESCHEDULE_BODY = `Hello {first_name},
+
+Your interview for {role} has been moved.
+
+Please ignore the earlier time. Your interview is now on {date} at {time} ({timezone}) and will last about {duration} minutes.
+
+Where: {location}
+
+Please reply to confirm this time works for you. We are sorry for the change.`;
 
 /** Replace every {token} with its value. Unknown tokens are left visible. */
 export function renderTemplate(template: string, vars: EmailVars): string {
@@ -113,7 +150,7 @@ export function toParagraphs(text: string): string[] {
 /** Build the variables for one scheduled candidate. */
 export function varsFor(opts: {
   name: string; role: string; company: string; slotIso: string;
-  duration: number; location: string; timezone: string;
+  duration: number; location: string; timezone: string; reason?: string;
 }): EmailVars {
   const d = new Date(opts.slotIso);
   /**
@@ -134,6 +171,7 @@ export function varsFor(opts: {
     duration: String(opts.duration),
     location: opts.location,
     timezone: opts.timezone,
-    reply_to: ""
+    reply_to: "",
+    reason: opts.reason ?? ""
   };
 }

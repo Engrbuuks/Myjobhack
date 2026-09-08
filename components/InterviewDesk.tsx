@@ -20,6 +20,12 @@ export type InterviewRow = {
 const DEFAULT_COMPETENCIES = ["Communication", "Technical depth", "Problem solving", "Role knowledge", "Values fit"];
 
 export function InterviewDesk({ rows }: { rows: InterviewRow[] }) {
+  const [cancelFor, setCancelFor] = useState<string | null>(null);
+  const [moveFor, setMoveFor] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [shareReason, setShareReason] = useState(false);
+  const [notify, setNotify] = useState(true);
+  const [newWhen, setNewWhen] = useState("");
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -98,8 +104,16 @@ export function InterviewDesk({ rows }: { rows: InterviewRow[] }) {
               <>
                 <button className="text-xs font-semibold text-muted hover:text-coral" disabled={busy === r.id}
                   onClick={() => call(r.id, { action: "no_show" })}>No-show</button>
+                {/* Cancelling emails the candidate, so it asks first rather
+                    than firing on a single click. */}
                 <button className="text-xs font-semibold text-muted hover:text-coral" disabled={busy === r.id}
-                  onClick={() => call(r.id, { action: "cancel" })}>Cancel</button>
+                  onClick={() => { setCancelFor(cancelFor === r.id ? null : r.id); setReason(""); setShareReason(false); setNotify(true); }}>
+                  {cancelFor === r.id ? "Keep it" : "Cancel"}
+                </button>
+                <button className="text-xs font-semibold text-muted hover:text-coral" disabled={busy === r.id}
+                  onClick={() => { setMoveFor(moveFor === r.id ? null : r.id); setNewWhen(""); }}>
+                  {moveFor === r.id ? "Keep the time" : "Move"}
+                </button>
               </>
             )}
             {!["invited", "scheduled"].includes(r.status) && (
@@ -109,6 +123,63 @@ export function InterviewDesk({ rows }: { rows: InterviewRow[] }) {
               {open === r.id ? "Close" : "Review →"}
             </button>
           </div>
+
+          {cancelFor === r.id && (
+            <div className="mt-3 pt-3 border-t border-line space-y-3">
+              <div className="text-sm font-semibold text-ink">
+                Cancel {r.name}&rsquo;s interview?
+              </div>
+              <p className="text-xs text-muted-2">
+                The time is freed for someone else, and the application goes back to shortlisted.
+                Nothing is deleted, so you can still see what they were originally told.
+              </p>
+              <input className="input !h-10 text-sm" value={reason} placeholder="Reason, for your records"
+                onChange={(e) => setReason(e.target.value)} />
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" className="accent-[#FC5647] w-4 h-4" checked={notify}
+                    onChange={(e) => setNotify(e.target.checked)} />
+                  Tell {r.name.split(" ")[0]} by email
+                </label>
+                {notify && reason.trim() && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" className="accent-[#FC5647] w-4 h-4" checked={shareReason}
+                      onChange={(e) => setShareReason(e.target.checked)} />
+                    Include the reason in the email
+                  </label>
+                )}
+              </div>
+              {!notify && (
+                <p className="text-xs text-coral">
+                  They will not be told, and will still have an invitation for a time that no
+                  longer exists. Only leave this unticked if you are telling them another way.
+                </p>
+              )}
+              <button className="btn-coral !h-9 text-sm" disabled={busy === r.id}
+                onClick={() => { call(r.id, { action: "cancel", reason, share_reason: shareReason, notify }); setCancelFor(null); }}>
+                {busy === r.id ? "Cancelling…" : "Cancel this interview"}
+              </button>
+            </div>
+          )}
+
+          {moveFor === r.id && (
+            <div className="mt-3 pt-3 border-t border-line space-y-3">
+              <div className="text-sm font-semibold text-ink">Move {r.name}&rsquo;s interview</div>
+              <p className="text-xs text-muted-2">
+                One email is sent stating the new time. Better than cancelling and rebooking,
+                which sends two messages that can arrive in either order.
+              </p>
+              <input className="input !h-10 text-sm !w-auto" type="datetime-local" value={newWhen}
+                onChange={(e) => setNewWhen(e.target.value)} />
+              <button className="btn-coral !h-9 text-sm" disabled={busy === r.id || !newWhen}
+                onClick={() => {
+                  call(r.id, { action: "reschedule", scheduled_at: new Date(newWhen).toISOString() });
+                  setMoveFor(null);
+                }}>
+                {busy === r.id ? "Moving…" : "Move and tell them"}
+              </button>
+            </div>
+          )}
 
           {open === r.id && (
             <Review r={r} busy={busy === r.id}
