@@ -4,7 +4,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useState, useEffect } from "react";
 
-export type NavItem = { href: string; label: string; icon: string };
+export type NavItem = {
+  href: string; label: string; icon: string;
+  /** Items waiting for attention. Shown as a coral count so a queue cannot
+   *  quietly build up behind a menu item nobody clicks. */
+  count?: number;
+};
 
 export function Sidebar({ items, portal, primary }: {
   items: NavItem[]; portal: string; primary?: { href: string; label: string };
@@ -57,7 +62,13 @@ export function Sidebar({ items, portal, primary }: {
                 ${active ? "bg-white/10 text-white" : "text-white/55 hover:text-white hover:bg-white/5"}`}>
               <span className={`text-base ${active ? "text-coral" : ""}`}>{it.icon}</span>
               {it.label}
-              {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-coral" />}
+              {it.count ? (
+                <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-coral text-white text-[11px] font-bold grid place-items-center">
+                  {it.count > 99 ? "99+" : it.count}
+                </span>
+              ) : active ? (
+                <span className="ml-auto w-1.5 h-1.5 rounded-full bg-coral" />
+              ) : null}
             </Link>
           );
         })}

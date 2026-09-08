@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { checkPhone, DIAL_CODES } from "@/lib/phone";
+import { checkPhone } from "@/lib/phone";
+import { PhoneField } from "@/components/PhoneField";
 import Link from "next/link";
 import { LocationPicker } from "@/components/LocationPicker";
 
@@ -21,6 +22,9 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [dial, setDial] = useState("+234");
+  // Set once apply is pressed, so required fields show their error even if
+  // the person never typed in them.
+  const [triedSubmit, setTriedSubmit] = useState(false);
   const [country, setCountry] = useState("Nigeria");
   const [city, setCity] = useState("");
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -32,6 +36,7 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
   const setA = (id: string, v: any) => setAnswers((a) => ({ ...a, [id]: v }));
 
   async function submit() {
+    setTriedSubmit(true);
     // Checked here as well as on the server, so the applicant sees the problem
     // beside the field rather than after a round trip.
     const ph = checkPhone(phone, dial);
@@ -105,23 +110,11 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
         <div className="space-y-3 mb-3">
           <input className="gin" placeholder="Full name *" value={name} onChange={(e) => setName(e.target.value)} />
           <input className="gin" type="email" placeholder="Email *" value={email} onChange={(e) => setEmail(e.target.value)} />
-          {/* Required, and normalised on the way in. A recruiter calling from
-              a spreadsheet should not have to work out whether 0803… and
-              +234803… are the same person. */}
-          <div className="flex gap-2">
-            <select className="gin !w-auto shrink-0" value={dial}
-              onChange={(e) => setDial(e.target.value)} aria-label="Country dialling code">
-              {DIAL_CODES.map((d) => (
-                <option key={d.code} value={d.code}>{d.code} {d.iso}</option>
-              ))}
-            </select>
-            <input className="gin flex-1" inputMode="tel" required
-              placeholder={dial === "+234" ? "8031234567 or 08031234567" : "Phone number"}
-              value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </div>
-          {phone.trim() !== "" && !checkPhone(phone, dial).ok && (
-            <p className="text-xs text-[#FFB4AC] -mt-1">{(checkPhone(phone, dial) as any).error}</p>
-          )}
+          {/* Required, normalised on the way in, and using a custom picker
+              because a native select's dropdown is drawn by the browser and
+              ignores this form's dark styling. */}
+          <PhoneField dial={dial} setDial={setDial} phone={phone} setPhone={setPhone}
+            showError={triedSubmit} />
           <LocationPicker dark labels={false} required country={country} city={city} onCountry={setCountry} onCity={setCity} />
         </div>
 
@@ -133,9 +126,9 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
             {f.field_type === "textarea" ? (
               <textarea className="gin !h-auto py-3" rows={3} value={answers[f.id] ?? ""} onChange={(e) => setA(f.id, e.target.value)} />
             ) : f.field_type === "select" ? (
-              <select className="gin" value={answers[f.id] ?? ""} onChange={(e) => setA(f.id, e.target.value)}>
-                <option value="" className="text-ink">Choose…</option>
-                {(f.options ?? []).map((o) => <option key={o} value={o} className="text-ink">{o}</option>)}
+              <select className="gin gsel" value={answers[f.id] ?? ""} onChange={(e) => setA(f.id, e.target.value)}>
+                <option value="">Choose…</option>
+                {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             ) : f.field_type === "multiselect" ? (
               <div className="flex flex-wrap gap-2">
@@ -196,6 +189,18 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
         .gin::placeholder { color: rgba(255,255,255,.35); }
         .gin:focus { border-color: rgba(252,86,71,.55); }
         textarea.gin { height: auto; padding-top: 12px; }
+        /* A native select paints its own dropdown list, which ignores the
+           dark styling above and rendered white text on white. Chrome and
+           Firefox honour option colours when set explicitly, so set them.
+           The dial code picker does not rely on this at all: it is a real
+           element, styled here, and behaves the same on every browser. */
+        select.gsel { appearance: none; -webkit-appearance: none;
+          background-image: linear-gradient(45deg, transparent 50%, rgba(255,255,255,.5) 50%),
+                            linear-gradient(135deg, rgba(255,255,255,.5) 50%, transparent 50%);
+          background-position: calc(100% - 18px) 21px, calc(100% - 13px) 21px;
+          background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+          padding-right: 38px; }
+        select.gsel option { background: #0B3A3C; color: #fff; }
       `}</style>
     </div>
   );
