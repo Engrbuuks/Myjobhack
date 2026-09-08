@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkPhone } from "@/lib/phone";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractDocumentText, extractTextFromPath } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
@@ -23,6 +24,16 @@ export async function POST(request: Request) {
 
   if (!job_id || !name || !email.includes("@"))
     return NextResponse.json({ error: "Name and a valid email are required." }, { status: 400 });
+
+  /**
+   * Phone is required and validated server side too. Client validation is a
+   * courtesy; the endpoint is public, so anything that must be true has to be
+   * enforced here.
+   */
+  const dialCode = String(fd.get("dial_code") ?? "+234");
+  const phoneCheck = checkPhone(phone, dialCode);
+  if (!phoneCheck.ok)
+    return NextResponse.json({ error: phoneCheck.error }, { status: 400 });
   if (!resume || resume.size === 0)
     return NextResponse.json({ error: "Attach your resume — employers here expect one." }, { status: 400 });
   if (resume.size > 5 * 1024 * 1024)
@@ -93,7 +104,7 @@ export async function POST(request: Request) {
 
   const { data: app, error } = await admin.from("applications").insert({
     job_id, talent_id: null, status,
-    guest_name: name, guest_email: email, guest_phone: phone || null,
+    guest_name: name, guest_email: email, guest_phone: phoneCheck.e164,
     answers: { ...answers, _location: [city, country].filter(Boolean).join(", ") },
     guest_resume_path: up.location.path,
     guest_resume_bucket: up.location.bucket,

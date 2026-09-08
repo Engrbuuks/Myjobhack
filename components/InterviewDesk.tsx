@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { formatPhone } from "@/lib/phone";
 import { useRouter } from "next/navigation";
 import { DeleteButton } from "@/components/DeleteButton";
 
@@ -72,7 +73,7 @@ export function InterviewDesk({ rows }: { rows: InterviewRow[] }) {
               {/* Contact details, so you can reach them without leaving the page. */}
               <div className="text-xs text-muted-2 mt-1 flex flex-wrap gap-x-3 gap-y-1">
                 {r.email && <a href={`mailto:${r.email}`} className="hover:text-coral">{r.email}</a>}
-                {r.phone && <a href={`tel:${r.phone}`} className="hover:text-coral">{r.phone}</a>}
+                {r.phone && <a href={`tel:${r.phone}`} className="hover:text-coral">{formatPhone(r.phone)}</a>}
                 <span>Round {r.round}</span>
                 <span>{r.mode.replace(/_/g, " ")}</span>
               </div>

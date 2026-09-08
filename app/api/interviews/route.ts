@@ -38,14 +38,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Set a time, or provide a Calendly link for the candidate to pick one." }, { status: 400 });
 
   const admin = createAdminClient();
-  const { data: app } = await admin.from("applications").select("id, job_id, talent_id").eq("id", application_id).single();
+  const { data: app } = await admin.from("applications")
+    .select("id, job_id, talent_id, guest_name, guest_email").eq("id", application_id).single();
   if (!app) return NextResponse.json({ error: "Application not found" }, { status: 404 });
   const { data: job } = await admin.from("jobs").select("id, title, org_id").eq("id", app.job_id).single();
   const auth = await authority(user.id, job?.org_id ?? null, me?.role);
   if (!auth) return NextResponse.json({ error: "Not authorized for this job" }, { status: 403 });
 
+  /**
+   * Guests can be interviewed too.
+   *
+   * talent_id is null for anyone who applied without registering, which is
+   * most applicants. Their name and email are carried on the interview row
+   * instead, the same way the bulk scheduler does it.
+   */
   const { data: interview, error } = await admin.from("interviews").insert({
     application_id, job_id: app.job_id, talent_id: app.talent_id,
+    guest_name: app.talent_id ? null : (app.guest_name ?? null),
+    guest_email: app.talent_id ? null : (app.guest_email ?? null),
+    timezone: "Africa/Lagos",
     org_id: job?.org_id ?? null, scheduled_by: user.id,
     round: round ?? 1, mode: mode ?? "video",
     scheduled_at: scheduled_at || null, duration_min: duration_min ?? 30,
@@ -66,29 +77,40 @@ export async function POST(request: Request) {
   }
 
   const when = fmtWhen(scheduled_at || null);
-  const { data: talent } = await admin.from("profiles").select("email, full_name").eq("id", app.talent_id).single();
 
-  await admin.from("notifications").insert({
-    profile_id: app.talent_id, title: "Interview invitation 🎯",
-    body: `${host} wants to interview you for "${job?.title}". ${when ? `Scheduled: ${when}.` : "Pick a time that works for you."}`,
-    link: "/portal/seeker/applications"
-  });
+  // A guest has no profile row, so look one up only when there is one.
+  const { data: talent } = app.talent_id
+    ? await admin.from("profiles").select("email, full_name").eq("id", app.talent_id).maybeSingle()
+    : { data: null as any };
 
-  if (talent?.email) {
+  const recipientEmail = talent?.email ?? app.guest_email ?? null;
+
+  // In app notifications need a profile. Guests get the email only, which is
+  // the whole channel they have.
+  if (app.talent_id) {
+    await admin.from("notifications").insert({
+      profile_id: app.talent_id, title: "Interview invitation 🎯",
+      body: `${host} wants to interview you for "${job?.title}". ${when ? `Scheduled: ${when}.` : "Pick a time that works for you."}`,
+      link: "/portal/seeker/applications"
+    });
+  }
+
+  if (recipientEmail) {
     const details: [string, string][] = [["Role", job?.title ?? ""], ["With", host]];
     if (when) details.push(["When", when]);
     details.push(["Format", (mode ?? "video").replace(/_/g, " ")]);
     if (duration_min) details.push(["Duration", `${duration_min ?? 30} minutes`]);
     if (location_or_link) details.push([mode === "in_person" ? "Venue" : "Join link", location_or_link]);
 
-    await sendEmail(talent.email, `Interview invitation — ${job?.title}`, renderEmail({
+    const recipientName = talent?.full_name ?? app.guest_name ?? "there";
+    await sendEmail(recipientEmail, `Interview invitation: ${job?.title}`, renderEmail({
       preheader: when ? `Scheduled for ${when}` : "Pick the time that works for you.",
       kicker: "Interview invitation",
       heading: "They want to meet you.",
       paragraphs: [
-        `Hi ${(talent.full_name || "there").split(" ")[0]} — your application for "${job?.title}" stood out. ${host} has invited you to interview.`,
+        `Hi ${recipientName.split(" ")[0]}, your application for "${job?.title}" stood out. ${host} has invited you to interview.`,
         ...(message ? [message] : []),
-        ...(calendly_url && !when ? ["Choose the slot that works best for you using the button below — it takes a minute."] : [])
+        ...(calendly_url && !when ? ["Choose the slot that works best for you using the button below. It takes a minute."] : [])
       ],
       details,
       cta: calendly_url && !when

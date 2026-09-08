@@ -8,6 +8,7 @@ import { CandidateCard } from "@/components/CandidateCard";
 import { PayButton } from "@/components/PayButton";
 import { ApplicantFilterBar } from "@/components/ApplicantFilterBar";
 import { callApi, postJson } from "@/lib/apiClient";
+import { formatPhone } from "@/lib/phone";
 import { BulkInterview } from "@/components/BulkInterview";
 import { buildFilterFields, applyRules, describeRule, type Rule, type MatchMode } from "@/lib/applicantFilter";
 
@@ -288,7 +289,8 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
     const byId = new Map((r.answers ?? []).map((a) => [a.field_id, a]));
     return {
       name: r.name, email: r.email,
-      phone: r.phone ?? "", applied_location: r.applied_location ?? "",
+      // Stored in E.164, shown grouped so it is readable in a spreadsheet.
+      phone: r.phone ? formatPhone(r.phone) : "", applied_location: r.applied_location ?? "",
       status: r.status,
       ai_fit: r.ai_fit_score ?? "",
       band: (r as any).card?.competency_band ?? "",
@@ -533,7 +535,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
                   at a glance whether it was captured for this applicant. */}
               <div className="text-xs text-muted-2">
                 {r.email}
-                {r.phone ? <> · <a href={`tel:${r.phone}`} className="hover:text-coral">{r.phone}</a></> : ""}
+                {r.phone ? <> · <a href={`tel:${r.phone}`} className="hover:text-coral">{formatPhone(r.phone)}</a></> : ""}
                 {" · "}{new Date(r.created_at).toLocaleDateString()}{r.guest && (
                   <span className="ml-2 px-1.5 py-0.5 rounded bg-paper-2 text-[10px] font-bold uppercase tracking-wider"
                     title="Applied without an account, so they have no competency band. Judge this one on the CV alone.">
@@ -562,10 +564,15 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
                 <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
               ))}
             </select>
-            {!r.guest ? <button className="text-sm font-semibold text-ink hover:text-coral transition"
+            {/* Interview is available for everyone. It was hidden for guests
+                because interviews.talent_id used to be NOT NULL, so a guest
+                could not be scheduled. Migration 0051 removed that, and most
+                applicants are guests, so hiding it excluded the majority. */}
+            <button className="text-sm font-semibold text-ink hover:text-coral transition"
               onClick={() => setScheduling(scheduling === r.id ? null : r.id)}>
               {scheduling === r.id ? "Close" : "🗓 Interview"}
-            </button> : <a href={`mailto:${r.email}`} className="btn-ghost !h-9 text-xs">📧 Email</a>}
+            </button>
+            <a href={`mailto:${r.email}`} className="btn-ghost !h-9 text-xs">📧 Email</a>
             {r.status === "hired" && (
               <button className="btn-coral !h-9 text-xs" onClick={() => { setPlaceFor(r); setSalary(""); setPlaceNote(null); }}>
                 Record placement

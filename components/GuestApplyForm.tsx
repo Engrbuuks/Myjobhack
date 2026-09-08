@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { checkPhone, DIAL_CODES } from "@/lib/phone";
 import Link from "next/link";
 import { LocationPicker } from "@/components/LocationPicker";
 
@@ -19,6 +20,7 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [dial, setDial] = useState("+234");
   const [country, setCountry] = useState("Nigeria");
   const [city, setCity] = useState("");
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -30,10 +32,16 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
   const setA = (id: string, v: any) => setAnswers((a) => ({ ...a, [id]: v }));
 
   async function submit() {
+    // Checked here as well as on the server, so the applicant sees the problem
+    // beside the field rather than after a round trip.
+    const ph = checkPhone(phone, dial);
+    if (!ph.ok) { setErr(ph.error); return; }
+
     setBusy(true); setErr(null);
     const fd = new FormData();
     fd.append("job_id", jobId); fd.append("name", name); fd.append("email", email);
-    fd.append("phone", phone); fd.append("country", country); fd.append("city", city);
+    fd.append("phone", ph.e164); fd.append("phone_raw", phone); fd.append("dial_code", dial);
+    fd.append("country", country); fd.append("city", city);
     fd.append("answers", JSON.stringify(answers));
     fd.append("website", ""); // honeypot
     if (resume) fd.append("resume", resume);
@@ -97,7 +105,23 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
         <div className="space-y-3 mb-3">
           <input className="gin" placeholder="Full name *" value={name} onChange={(e) => setName(e.target.value)} />
           <input className="gin" type="email" placeholder="Email *" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input className="gin" placeholder="Phone / WhatsApp" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          {/* Required, and normalised on the way in. A recruiter calling from
+              a spreadsheet should not have to work out whether 0803… and
+              +234803… are the same person. */}
+          <div className="flex gap-2">
+            <select className="gin !w-auto shrink-0" value={dial}
+              onChange={(e) => setDial(e.target.value)} aria-label="Country dialling code">
+              {DIAL_CODES.map((d) => (
+                <option key={d.code} value={d.code}>{d.code} {d.iso}</option>
+              ))}
+            </select>
+            <input className="gin flex-1" inputMode="tel" required
+              placeholder={dial === "+234" ? "8031234567 or 08031234567" : "Phone number"}
+              value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          {phone.trim() !== "" && !checkPhone(phone, dial).ok && (
+            <p className="text-xs text-[#FFB4AC] -mt-1">{(checkPhone(phone, dial) as any).error}</p>
+          )}
           <LocationPicker dark labels={false} required country={country} city={city} onCountry={setCountry} onCity={setCity} />
         </div>
 
