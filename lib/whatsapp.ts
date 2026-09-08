@@ -64,6 +64,37 @@ export function detectTarget(): WaTarget {
   return "web";
 }
 
+/**
+ * The link shape proven to work on this machine, chosen with the tester.
+ *
+ * Which variant survives depends on the browser, whether WhatsApp Desktop has
+ * registered itself as the handler, and whether this browser has a WhatsApp
+ * Web session. Those are not knowable from the server, so the answer is
+ * measured once and remembered rather than assumed.
+ */
+export const WA_VARIANTS: Record<string, (num: string, text: string) => string> = {
+  web_send:      (n, t) => `https://web.whatsapp.com/send?phone=${n}&text=${encodeURIComponent(t)}`,
+  wa_me:         (n, t) => `https://wa.me/${n}?text=${encodeURIComponent(t)}`,
+  api_send:      (n, t) => `https://api.whatsapp.com/send?phone=${n}&text=${encodeURIComponent(t)}`,
+  protocol:      (n, t) => `whatsapp://send?phone=${n}&text=${encodeURIComponent(t)}`,
+  web_send_plus: (n, t) => `https://web.whatsapp.com/send?phone=%2B${n}&text=${encodeURIComponent(t)}`,
+  wa_me_slash:   (n) => `https://wa.me/${n}`
+};
+
+export function savedVariant(): string | null {
+  try { return window.localStorage.getItem("mjh_wa_variant"); } catch { return null; }
+}
+
+/** Build a link using the saved variant when there is one. */
+export function waLinkSaved(e164: string, message: string): string | null {
+  const num = waNumber(e164);
+  if (!num) return null;
+  const text = (message || "").slice(0, 700);
+  const id = savedVariant();
+  const build = id ? WA_VARIANTS[id] : null;
+  return build ? build(num, text) : waLink(e164, message, detectTarget());
+}
+
 /** Signing in once, so the first real send is not a QR screen. */
 export const WA_WEB_HOME = "https://web.whatsapp.com";
 

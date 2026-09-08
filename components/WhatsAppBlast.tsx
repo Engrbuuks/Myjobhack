@@ -2,9 +2,11 @@
 import { useState, useEffect, useRef } from "react";
 import {
   waLink, forWhatsApp, whyNotReachable, detectTarget,
-  TARGET_LABELS, TARGET_HELP, RESUMPTION_TEMPLATE, REMINDER_TEMPLATE, WA_WEB_HOME, type WaTarget
+  TARGET_LABELS, TARGET_HELP, RESUMPTION_TEMPLATE, REMINDER_TEMPLATE, WA_WEB_HOME,
+  waLinkSaved, savedVariant, type WaTarget
 } from "@/lib/whatsapp";
 import { renderApplicantTemplate, applicantVars, APPLICANT_TOKENS } from "@/lib/applicantEmail";
+import { WhatsAppTester } from "@/components/WhatsAppTester";
 
 type Row = {
   id: string; name: string; phone?: string | null; email: string;
@@ -42,6 +44,9 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
    * before the run turns that into a step rather than a mystery.
    */
   const [signedIn, setSignedIn] = useState(false);
+  const [showTester, setShowTester] = useState(false);
+  const [variant, setVariant] = useState<string | null>(null);
+  useEffect(() => { setVariant(savedVariant()); }, []);
 
   /** One window, reused. Never a tab per candidate. */
   const winRef = useRef<Window | null>(null);
@@ -70,10 +75,11 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
   }
 
   function openFor(r: Row) {
-    const url = waLink(r.phone!, messageFor(r), target);
+    // A variant proven by the tester wins over any guess made here.
+    const url = variant ? waLinkSaved(r.phone!, messageFor(r)) : waLink(r.phone!, messageFor(r), target);
     if (!url) return;
 
-    if (target === "app") {
+    if (url.startsWith("whatsapp://")) {
       // A protocol handler needs no window. Assigning location hands off to
       // the operating system, and this page stays where it is.
       window.location.href = url;
@@ -156,17 +162,35 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
           )}
 
           <div className="rounded-xl border border-line p-4">
-            <label className="label !text-xs">How should WhatsApp open?</label>
-            <select className="input !h-10 text-sm" value={target}
-              onChange={(e) => setTarget(e.target.value as WaTarget)}>
-              {(Object.keys(TARGET_LABELS) as WaTarget[]).map((k) => (
-                <option key={k} value={k}>{TARGET_LABELS[k]}</option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-2 mt-2">{TARGET_HELP[target]}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-muted">
+                {variant ? "Using a tested link" : "Not working? Find the link that does"}
+              </span>
+              <button className="text-xs text-muted hover:text-ink underline"
+                onClick={() => setShowTester((v) => !v)}>
+                {showTester ? "Hide the tester" : "Test the links"}
+              </button>
+            </div>
+            {showTester && (
+              <div className="mb-4">
+                <WhatsAppTester onChosen={(id) => { setVariant(id); setShowTester(false); }} />
+              </div>
+            )}
+            {!variant && <label className="label !text-xs">How should WhatsApp open?</label>}
+            {!variant && (
+              <>
+                <select className="input !h-10 text-sm" value={target}
+                  onChange={(e) => setTarget(e.target.value as WaTarget)}>
+                  {(Object.keys(TARGET_LABELS) as WaTarget[]).map((k) => (
+                    <option key={k} value={k}>{TARGET_LABELS[k]}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-2 mt-2">{TARGET_HELP[target]}</p>
+              </>
+            )}
           </div>
 
-          {target === "web" && !signedIn && (
+          {!variant && target === "web" && !signedIn && (
             <div className="rounded-xl border border-coral/40 p-4" style={{ background: "#FFF4F2" }}>
               <div className="text-sm font-semibold text-ink mb-1">Sign in to WhatsApp Web first</div>
               <p className="text-xs text-muted mb-3">
@@ -188,7 +212,7 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
           )}
 
           <button className="btn-coral"
-            disabled={!reachable.length || !template.trim() || (target === "web" && !signedIn)}
+            disabled={!reachable.length || !template.trim() || (!variant && target === "web" && !signedIn)}
             onClick={() => setStarted(true)}>
             Start with {reachable.length} candidate{reachable.length === 1 ? "" : "s"}
           </button>
