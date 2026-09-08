@@ -21,6 +21,25 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
   const [template, setTemplate] = useState(RESUMPTION_TEMPLATE);
   const [detail, setDetail] = useState("");
   const [done, setDone] = useState<Set<string>>(new Set());
+  const [copied, setCopied] = useState<string | null>(null);
+  /**
+   * Two entry points, because neither works everywhere. api.whatsapp.com
+   * usually hands off to the installed app; wa.me sometimes lands on a blank
+   * page when the browser is not signed in to WhatsApp Web. If one fails,
+   * switching is quicker than diagnosing why.
+   */
+  const [mode, setMode] = useState<"api" | "wa">("api");
+
+  async function copy(text: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(id);
+      setTimeout(() => setCopied((c) => (c === id ? null : c)), 1800);
+    } catch {
+      // Clipboard access can be blocked. Select the text manually instead.
+      window.prompt("Copy this:", text);
+    }
+  }
 
   const messageFor = (r: Row) => forWhatsApp(renderApplicantTemplate(template, applicantVars({
     name: r.name, role: jobTitle, company: "MYJOBHACK", email: r.email,
@@ -85,38 +104,81 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
 
       {reachable.length > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
             <span className="text-xs font-bold uppercase tracking-widest text-muted">
               Send one by one
             </span>
-            <span className="text-xs text-muted-2">
-              {done.size} of {reachable.length} opened
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-2">{done.size} of {reachable.length} opened</span>
+              <button className="text-xs text-muted hover:text-ink underline"
+                onClick={() => setMode((m) => (m === "api" ? "wa" : "api"))}>
+                {mode === "api" ? "Opens blank? Try wa.me" : "Using wa.me, switch back"}
+              </button>
+            </div>
           </div>
           <div className="rounded-xl border border-line divide-y divide-line max-h-80 overflow-y-auto">
             {reachable.map((r) => {
-              const link = waLink(r.phone!, messageFor(r))!;
+              const msg = messageFor(r);
+              const link = waLink(r.phone!, msg, mode)!;
               const sent = done.has(r.id);
               return (
-                <div key={r.id} className={`flex items-center gap-3 p-3 ${sent ? "bg-paper-2" : ""}`}>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{r.name}</div>
-                    <div className="text-xs text-muted-2">{r.phone}</div>
+                <div key={r.id} className={`p-3 ${sent ? "bg-paper-2" : ""}`}>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{r.name}</div>
+                      <div className="text-xs text-muted-2">{r.phone}</div>
+                    </div>
+                    {/* If the link opens a blank page, these two always work:
+                        copy the message, open WhatsApp yourself, paste. */}
+                    <button className="btn-ghost !h-9 text-xs shrink-0"
+                      onClick={() => copy(msg, `m-${r.id}`)}>
+                      {copied === `m-${r.id}` ? "Copied" : "Copy message"}
+                    </button>
+                    <button className="btn-ghost !h-9 text-xs shrink-0"
+                      onClick={() => copy(r.phone!, `p-${r.id}`)}>
+                      {copied === `p-${r.id}` ? "Copied" : "Copy number"}
+                    </button>
+                    <a href={link} target="_blank" rel="noopener noreferrer"
+                      onClick={() => setDone((d) => new Set(d).add(r.id))}
+                      className={`shrink-0 ${sent ? "btn-ghost !h-9 text-xs" : "btn-coral !h-9 text-xs"}`}>
+                      {sent ? "Open again" : "Open WhatsApp"}
+                    </a>
                   </div>
-                  <a href={link} target="_blank" rel="noopener noreferrer"
-                    onClick={() => setDone((d) => new Set(d).add(r.id))}
-                    className={sent ? "btn-ghost !h-9 text-xs" : "btn-coral !h-9 text-xs"}>
-                    {sent ? "Opened, open again" : "Open WhatsApp"}
-                  </a>
                 </div>
               );
             })}
           </div>
           <p className="text-xs text-muted-2 mt-2">
             Ticking off happens when you open the link, not when the message is delivered, so
-            confirm in WhatsApp that it actually sent.
+            confirm in WhatsApp that it actually sent. If a link opens a blank page, copy the
+            message and the number and paste them into WhatsApp yourself, or switch entry point
+            above.
           </p>
         </div>
+      )}
+
+      {reachable.length > 0 && (
+        <details className="rounded-xl border border-line p-4">
+          <summary className="cursor-pointer text-sm font-semibold">
+            All numbers and one message, for copying
+          </summary>
+          <p className="text-xs text-muted-2 mt-2 mb-3">
+            Useful for a WhatsApp broadcast list. The message below has no personal tokens
+            filled in, because a broadcast goes to everyone unchanged.
+          </p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <button className="btn-ghost !h-9 text-xs"
+              onClick={() => copy(reachable.map((r) => r.phone).join(", "), "all-numbers")}>
+              {copied === "all-numbers" ? "Copied" : `Copy all ${reachable.length} numbers`}
+            </button>
+            <button className="btn-ghost !h-9 text-xs"
+              onClick={() => copy(messageFor({ ...reachable[0], name: "there" } as any), "generic")}>
+              {copied === "generic" ? "Copied" : "Copy the message"}
+            </button>
+          </div>
+          <textarea readOnly className="input !h-auto py-2 text-xs" rows={3}
+            value={reachable.map((r) => r.phone).join(", ")} />
+        </details>
       )}
 
       {unreachable.length > 0 && (

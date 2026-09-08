@@ -18,6 +18,10 @@ export type SendResult = { id: string | null; error: string | null };
 export type MailMessage = {
   to: string; subject: string; html: string; text?: string;
   unsubscribeUrl?: string;
+  /** Copied in. Useful for keeping a hiring manager on an offer letter. */
+  cc?: string[];
+  /** Base64 attachments, for documents like offer letters. */
+  attachments?: { filename: string; content: string }[];
 };
 
 const FROM_NAME = process.env.MAIL_FROM_NAME || "MYJOBHACK";
@@ -66,6 +70,10 @@ export async function sendViaBrevo(
         body: JSON.stringify({
           sender: { name: FROM_NAME, email: FROM_EMAIL },
           to: [{ email: e.to }],
+          ...(e.cc?.length ? { cc: e.cc.map((x) => ({ email: x })) } : {}),
+          ...(e.attachments?.length
+            ? { attachment: e.attachments.map((a) => ({ name: a.filename, content: a.content })) }
+            : {}),
           replyTo: { email: REPLY_TO },
           subject: e.subject,
           htmlContent: e.html,

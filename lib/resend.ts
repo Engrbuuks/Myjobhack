@@ -73,6 +73,8 @@ export async function sendBatch(
     const chunk = emails.slice(i, i + chunkSize).map((e) => ({
       from: FROM,
       to: [e.to],
+      ...((e as any).cc?.length ? { cc: (e as any).cc } : {}),
+      ...((e as any).attachments?.length ? { attachments: (e as any).attachments } : {}),
       subject: e.subject,
       html: e.html,
       // Always send a plain-text part alongside the HTML.

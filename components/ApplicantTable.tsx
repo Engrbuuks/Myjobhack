@@ -11,6 +11,7 @@ import { callApi, postJson } from "@/lib/apiClient";
 import { formatPhone } from "@/lib/phone";
 import { APPLICANT_TOKENS, OFFICE_INVITE_SUBJECT, OFFICE_INVITE_BODY } from "@/lib/applicantEmail";
 import { WhatsAppBlast } from "@/components/WhatsAppBlast";
+import { OfferComposer } from "@/components/OfferComposer";
 import { BulkInterview } from "@/components/BulkInterview";
 import { buildFilterFields, applyRules, describeRule, type Rule, type MatchMode } from "@/lib/applicantFilter";
 
@@ -91,6 +92,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
   const [emailDetail, setEmailDetail] = useState("");
   const [emailPreview, setEmailPreview] = useState<any>(null);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const [offerFor, setOfferFor] = useState<string | null>(null);
 
   // What is left of today's send allowance, fetched when the compose box
   // opens. Knowing this AFTER sending is useless — the damage is a silent
@@ -689,6 +691,14 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
               {scheduling === r.id ? "Close" : "🗓 Interview"}
             </button>
             <a href={`mailto:${r.email}`} className="btn-ghost !h-9 text-xs">📧 Email</a>
+            {/* Offer letters are for people you have decided on, so the button
+                appears once they are past screening rather than on everyone. */}
+            {["shortlisted", "interviewing", "offered", "hired"].includes(r.status) && (
+              <button className="text-sm font-semibold text-ink hover:text-coral transition"
+                onClick={() => setOfferFor(offerFor === r.id ? null : r.id)}>
+                {offerFor === r.id ? "Close" : "📄 Offer"}
+              </button>
+            )}
             {r.status === "hired" && (
               <button className="btn-coral !h-9 text-xs" onClick={() => { setPlaceFor(r); setSalary(""); setPlaceNote(null); }}>
                 Record placement
@@ -698,6 +708,12 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
               {open === r.id ? "Close" : "Details"}
             </button>
           </div>
+          {offerFor === r.id && (
+            <div className="mt-4 pt-4 border-t border-line">
+              <OfferComposer applicationId={r.id} candidateName={r.name}
+                jobTitle={jobTitle ?? ""} onDone={() => setOfferFor(null)} />
+            </div>
+          )}
           {scheduling === r.id && (
             <div className="mt-4 pt-4 border-t border-line">
               <InterviewScheduler applicationId={r.id} onDone={() => setScheduling(null)} />

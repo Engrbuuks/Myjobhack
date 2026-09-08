@@ -28,11 +28,25 @@ export function waNumber(e164: string): string | null {
  * Kept under roughly 1500 characters: the text rides in the URL, and very
  * long messages get truncated by some browsers before WhatsApp sees them.
  */
-export function waLink(e164: string, message: string): string | null {
+export function waLink(e164: string, message: string, mode: "wa" | "api" = "api"): string | null {
   const num = waNumber(e164);
   if (!num) return null;
-  const text = (message || "").slice(0, 1500);
-  return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
+  /**
+   * Kept short on purpose. The message rides in the URL, and a long encoded
+   * body pushes the address past what some browsers and the WhatsApp handler
+   * will accept, which shows as a blank page rather than an error.
+   */
+  const text = (message || "").slice(0, 700);
+  const q = `phone=${num}&text=${encodeURIComponent(text)}`;
+  /**
+   * api.whatsapp.com is the more reliable of the two entry points: it hands
+   * off to the desktop app when installed and to WhatsApp Web otherwise.
+   * wa.me sometimes lands on a blank page when the browser is not signed in
+   * to WhatsApp Web, which looks like a broken link.
+   */
+  return mode === "wa"
+    ? `https://wa.me/${num}?text=${encodeURIComponent(text)}`
+    : `https://api.whatsapp.com/send?${q}`;
 }
 
 /**
