@@ -186,7 +186,7 @@ export function InvoiceDesk({ invoices }: { invoices: Invoice[] }) {
 
       {payFor && (
         <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4" onClick={() => setPayFor(null)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div>
               <h3 className="font-display font-semibold text-lg">Record a payment</h3>
               <p className="text-sm text-muted-2">{payFor.number} · {payFor.client_name}</p>

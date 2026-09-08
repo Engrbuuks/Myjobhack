@@ -48,7 +48,7 @@ export function VerificationQueue({ items, chapters }: {
   const rejectDialog = rejecting && (
     <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4"
       onClick={() => busy === null && setRejecting(null)}>
-      <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-4" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div>
           <h3 className="font-display font-semibold text-lg">Why are you rejecting this?</h3>
           <p className="text-sm text-muted-2">

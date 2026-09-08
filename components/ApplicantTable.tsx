@@ -472,8 +472,13 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
       {showCompose && (
         <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4"
           onClick={() => !emailing && setShowCompose(false)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-xl space-y-4"
+          {/* Constrained and scrollable. Adding the tokens, the detail box and
+              the preview made this taller than a laptop screen, and because
+              the container had no height limit the buttons ended up below the
+              fold with nothing to scroll. */}
+          <div className="bg-white rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}>
+          <div className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
             <div>
               <h3 className="font-display font-semibold text-lg">
                 Email {picked.size ? `${picked.size} selected` : `${visible.length} applicant${visible.length === 1 ? "" : "s"}`}
@@ -583,7 +588,11 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3">
+          </div>
+
+            {/* Pinned to the bottom of the modal, always reachable however
+                long the message gets. */}
+            <div className="flex flex-wrap items-center gap-3 p-5 border-t border-line bg-white rounded-b-2xl shrink-0">
               {!emailPreview ? (
                 <button className="btn-coral" onClick={() => previewEmail()}
                   disabled={emailing || !emailSubject.trim() || !emailBody.trim()}>
@@ -597,6 +606,13 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
               <button className="btn-ghost" onClick={() => { setShowCompose(false); setEmailPreview(null); }} disabled={emailing}>
                 Cancel
               </button>
+              {/* Says why the button is inert, rather than leaving a greyed
+                  control that reads as broken. */}
+              {!emailPreview && (!emailSubject.trim() || !emailBody.trim()) && (
+                <span className="text-xs text-muted-2">
+                  Fill in the subject and message to continue.
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -697,7 +713,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
       ))}
       {placeFor && (
         <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4" onClick={() => !placing && setPlaceFor(null)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div>
               <h3 className="font-display font-semibold text-lg">Record placement</h3>
               <p className="text-sm text-muted-2">{placeFor.name}</p>
