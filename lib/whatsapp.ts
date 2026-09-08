@@ -28,7 +28,31 @@ export function waNumber(e164: string): string | null {
  * Kept under roughly 1500 characters: the text rides in the URL, and very
  * long messages get truncated by some browsers before WhatsApp sees them.
  */
-export function waLink(e164: string, message: string, mode: "wa" | "api" = "api"): string | null {
+export type WaTarget = "web" | "mobile" | "api";
+
+/**
+ * Which WhatsApp entry point actually carries the pre-filled message.
+ *
+ * This differs by device, and getting it wrong is why a chat opens with an
+ * empty box:
+ *
+ *  · web.whatsapp.com/send   reliably keeps the text, but only in a browser.
+ *  · wa.me                   is right on a phone, where it opens the app with
+ *                            the message intact.
+ *  · api.whatsapp.com/send   hands off to the DESKTOP APP where one is
+ *                            installed, and that handoff frequently drops the
+ *                            text, opening the chat with nothing typed.
+ *
+ * So the default follows the device rather than being one link for everyone.
+ */
+export function detectTarget(): WaTarget {
+  if (typeof navigator === "undefined") return "web";
+  const ua = navigator.userAgent || "";
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  return isMobile ? "mobile" : "web";
+}
+
+export function waLink(e164: string, message: string, target: WaTarget = "web"): string | null {
   const num = waNumber(e164);
   if (!num) return null;
   /**
@@ -36,18 +60,19 @@ export function waLink(e164: string, message: string, mode: "wa" | "api" = "api"
    * body pushes the address past what some browsers and the WhatsApp handler
    * will accept, which shows as a blank page rather than an error.
    */
-  const text = (message || "").slice(0, 700);
-  const q = `phone=${num}&text=${encodeURIComponent(text)}`;
-  /**
-   * api.whatsapp.com is the more reliable of the two entry points: it hands
-   * off to the desktop app when installed and to WhatsApp Web otherwise.
-   * wa.me sometimes lands on a blank page when the browser is not signed in
-   * to WhatsApp Web, which looks like a broken link.
-   */
-  return mode === "wa"
-    ? `https://wa.me/${num}?text=${encodeURIComponent(text)}`
-    : `https://api.whatsapp.com/send?${q}`;
+  const text = encodeURIComponent((message || "").slice(0, 700));
+  switch (target) {
+    case "mobile": return `https://wa.me/${num}?text=${text}`;
+    case "api":    return `https://api.whatsapp.com/send?phone=${num}&text=${text}`;
+    default:       return `https://web.whatsapp.com/send?phone=${num}&text=${text}`;
+  }
 }
+
+export const TARGET_LABELS: Record<WaTarget, string> = {
+  web: "WhatsApp Web, keeps the message",
+  mobile: "Phone, opens the app",
+  api: "Desktop app, may drop the message"
+};
 
 /**
  * WhatsApp is plain text. Formatting is limited to *bold*, _italic_ and line

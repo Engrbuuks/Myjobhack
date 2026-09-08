@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
-import { waLink, forWhatsApp, whyNotReachable, RESUMPTION_TEMPLATE, REMINDER_TEMPLATE } from "@/lib/whatsapp";
+import { useState, useEffect } from "react";
+import { waLink, forWhatsApp, whyNotReachable, detectTarget, TARGET_LABELS,
+         RESUMPTION_TEMPLATE, REMINDER_TEMPLATE, type WaTarget } from "@/lib/whatsapp";
 import { renderApplicantTemplate, applicantVars, APPLICANT_TOKENS } from "@/lib/applicantEmail";
 
 type Row = {
@@ -23,12 +24,12 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
   const [done, setDone] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
   /**
-   * Two entry points, because neither works everywhere. api.whatsapp.com
-   * usually hands off to the installed app; wa.me sometimes lands on a blank
-   * page when the browser is not signed in to WhatsApp Web. If one fails,
-   * switching is quicker than diagnosing why.
+   * Which WhatsApp to open. Defaults to what suits the device, because the
+   * desktop app handoff routinely drops the pre-filled message and opens an
+   * empty chat, while WhatsApp Web keeps it.
    */
-  const [mode, setMode] = useState<"api" | "wa">("api");
+  const [target, setTarget] = useState<WaTarget>("web");
+  useEffect(() => { setTarget(detectTarget()); }, []);
 
   async function copy(text: string, id: string) {
     try {
@@ -110,16 +111,19 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
             </span>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-2">{done.size} of {reachable.length} opened</span>
-              <button className="text-xs text-muted hover:text-ink underline"
-                onClick={() => setMode((m) => (m === "api" ? "wa" : "api"))}>
-                {mode === "api" ? "Opens blank? Try wa.me" : "Using wa.me, switch back"}
-              </button>
+              <select className="input !h-8 !w-auto text-xs !px-2" value={target}
+                onChange={(e) => setTarget(e.target.value as WaTarget)}
+                aria-label="Which WhatsApp to open">
+                {(Object.keys(TARGET_LABELS) as WaTarget[]).map((k) => (
+                  <option key={k} value={k}>{TARGET_LABELS[k]}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div className="rounded-xl border border-line divide-y divide-line max-h-80 overflow-y-auto">
             {reachable.map((r) => {
               const msg = messageFor(r);
-              const link = waLink(r.phone!, msg, mode)!;
+              const link = waLink(r.phone!, msg, target)!;
               const sent = done.has(r.id);
               return (
                 <div key={r.id} className={`p-3 ${sent ? "bg-paper-2" : ""}`}>
@@ -150,9 +154,9 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
           </div>
           <p className="text-xs text-muted-2 mt-2">
             Ticking off happens when you open the link, not when the message is delivered, so
-            confirm in WhatsApp that it actually sent. If a link opens a blank page, copy the
-            message and the number and paste them into WhatsApp yourself, or switch entry point
-            above.
+            confirm in WhatsApp that it actually sent. If the chat opens with an empty message
+            box, the desktop app has dropped the text: switch the selector above to WhatsApp Web,
+            or use Copy message and paste it.
           </p>
         </div>
       )}
