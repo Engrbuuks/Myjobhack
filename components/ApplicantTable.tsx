@@ -10,6 +10,7 @@ import { ApplicantFilterBar } from "@/components/ApplicantFilterBar";
 import { callApi, postJson } from "@/lib/apiClient";
 import { formatPhone } from "@/lib/phone";
 import { APPLICANT_TOKENS, OFFICE_INVITE_SUBJECT, OFFICE_INVITE_BODY } from "@/lib/applicantEmail";
+import { WhatsAppBlast } from "@/components/WhatsAppBlast";
 import { BulkInterview } from "@/components/BulkInterview";
 import { buildFilterFields, applyRules, describeRule, type Rule, type MatchMode } from "@/lib/applicantFilter";
 
@@ -27,8 +28,10 @@ type Row = {
 };
 const STATUSES = ["submitted", "shortlisted", "interviewing", "offered", "hired", "rejected"];
 
-export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }: {
+export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], jobTitle, senderName }: {
   rows: Row[]; statusEndpoint?: string; jobId?: string;
+  /** Used to fill {role} and {sender} in WhatsApp and email messages. */
+  jobTitle?: string; senderName?: string;
   /** The job's own form definition — every field on it becomes filterable. */
   formFields?: { id: string; label: string; type: string; options?: string[] | null }[];
 }) {
@@ -87,6 +90,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
   const [showInterview, setShowInterview] = useState(false);
   const [emailDetail, setEmailDetail] = useState("");
   const [emailPreview, setEmailPreview] = useState<any>(null);
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
 
   // What is left of today's send allowance, fetched when the compose box
   // opens. Knowing this AFTER sending is useless — the damage is a silent
@@ -403,6 +407,19 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
         </span>
       </div>
 
+      {showWhatsApp && (
+        <div className="mb-4">
+          <WhatsAppBlast
+            rows={(picked.size ? visible.filter((r) => picked.has(r.id)) : visible).map((r) => ({
+              id: r.id, name: r.name, phone: r.phone, email: r.email,
+              applied_location: r.applied_location, status: r.status
+            }))}
+            jobTitle={jobTitle ?? "the role"}
+            senderName={senderName ?? "MYJOBHACK"}
+            onClose={() => setShowWhatsApp(false)} />
+        </div>
+      )}
+
       {showInterview && (
         <div className="mb-4">
           <BulkInterview
@@ -443,6 +460,12 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
           disabled={visible.length === 0}
           title="Email the applicants you have selected, or everyone matching the current filters">
           ✉ Email {picked.size ? `${picked.size} selected` : `these ${visible.length}`}
+        </button>
+
+        <button className="btn-ghost !h-8 text-xs" onClick={() => setShowWhatsApp((v) => !v)}
+          disabled={!visible.length}
+          title="Open WhatsApp for each selected candidate with the message written">
+          ✆ WhatsApp {picked.size ? `${picked.size} selected` : `these ${visible.length}`}
         </button>
 
         {/* Interviews for the whole selection, each at their own time. */}

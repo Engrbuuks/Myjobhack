@@ -81,6 +81,13 @@ export default async function Applicants({ params }: { params: { id: string } })
     })
   );
 
+  // Signs the WhatsApp and email messages, so a candidate knows who wrote.
+  const { data: { user: me } } = await supabase.auth.getUser();
+  const { data: meProfile } = me
+    ? await supabase.from("profiles").select("full_name").eq("id", me.id).maybeSingle()
+    : { data: null as any };
+  const senderName = meProfile?.full_name ?? "MYJOBHACK";
+
   const shortlisted = rows.filter((r) => r.status === "shortlisted").length;
 
   /**
@@ -114,7 +121,9 @@ export default async function Applicants({ params }: { params: { id: string } })
       <GapFiller jobId={params.id} formFields={formFields} />
       <ResumeScanReport rows={scanRows as any} questionLabel={matchedField?.label ?? null} />
       <ApplicantCharts rows={rows as any} openings={job?.openings ?? 1} formFields={formFields} />
-      <ApplicantTable rows={rows as any} statusEndpoint="/api/employer/application-status" jobId={params.id} formFields={formFields} />
+      <ApplicantTable rows={rows as any} statusEndpoint="/api/employer/application-status"
+        jobId={params.id} formFields={formFields}
+        jobTitle={job?.title} senderName={senderName} />
     </>
   );
 }
