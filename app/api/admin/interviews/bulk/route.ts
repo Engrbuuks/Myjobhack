@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/permissions.server";
 import { generateSlots, summarise, warnings, type SlotRules } from "@/lib/interviewSlots";
 import { getAllowance, getOptOuts, unsubscribeUrlFor, logSends } from "@/lib/emailAllowance";
-import { sendBatch } from "@/lib/resend";
+import { routeMail, summariseRouting } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
 import { renderTemplate, toParagraphs, varsFor, unknownTokens, emptyTokens,
          DEFAULT_SUBJECT, DEFAULT_BODY } from "@/lib/interviewEmail";
@@ -267,8 +267,10 @@ export async function POST(request: Request) {
     };
   }));
 
-  const results = await sendBatch(emails.map(({ to, subject, html }) => ({ to, subject, html })),
-    { bulk: false, chunkSize: 10, pauseMs: 1200 });
+  const results = await routeMail(
+    emails.map(({ to, subject, html }) => ({ to, subject, html })),
+    { bulk: false, chunkSize: 10, pauseMs: 1200 }
+  );
 
   const sent = results.filter((r) => !r.error).length;
   await logSends(admin, sendable.map((s, i) => ({
@@ -277,6 +279,7 @@ export async function POST(request: Request) {
     sent_by: gate.userId,
     status: results[i]?.error ? "failed" : "sent",
     error: results[i]?.error ?? null,
+    provider: (results[i] as any)?.provider ?? "resend",
     preview: `Interview ${s.label}`
   })));
 

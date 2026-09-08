@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/permissions.server";
-import { sendBatch } from "@/lib/resend";
+import { routeMail, summariseRouting } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
 import { makeToken } from "@/lib/resumeScan";
 
@@ -179,7 +179,7 @@ export async function POST(request: Request) {
   if (!toSend.length)
     return NextResponse.json({ message: "Nobody left to ask has a usable email address.", sent: 0 });
 
-  const results = await sendBatch(
+  const results = await routeMail(
     toSend.map(({ to, subject, html }) => ({ to, subject, html })),
     { chunkSize: 10, pauseMs: 1200 }
   );

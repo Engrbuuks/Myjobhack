@@ -9,6 +9,7 @@ import { PayButton } from "@/components/PayButton";
 import { ApplicantFilterBar } from "@/components/ApplicantFilterBar";
 import { callApi, postJson } from "@/lib/apiClient";
 import { formatPhone } from "@/lib/phone";
+import { APPLICANT_TOKENS, OFFICE_INVITE_SUBJECT, OFFICE_INVITE_BODY } from "@/lib/applicantEmail";
 import { BulkInterview } from "@/components/BulkInterview";
 import { buildFilterFields, applyRules, describeRule, type Rule, type MatchMode } from "@/lib/applicantFilter";
 
@@ -84,6 +85,8 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
   const [emailBody, setEmailBody] = useState("");
   const [allowance, setAllowance] = useState<any>(null);
   const [showInterview, setShowInterview] = useState(false);
+  const [emailDetail, setEmailDetail] = useState("");
+  const [emailPreview, setEmailPreview] = useState<any>(null);
 
   // What is left of today's send allowance, fetched when the compose box
   // opens. Knowing this AFTER sending is useless — the damage is a silent
@@ -97,6 +100,18 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
   }, [showCompose]);
 
   /** Email whoever is currently selected. */
+  async function previewEmail() {
+    const targets = picked.size ? Array.from(picked) : visible.map((r) => r.id);
+    setEmailing(true);
+    try {
+      const res = await postJson("/api/admin/email-applicants", {
+        application_ids: targets, subject: emailSubject, body: emailBody,
+        detail: emailDetail, job_id: jobId, preview: true
+      });
+      if (res.ok) setEmailPreview(res.data); else setAsmtNote(res.error);
+    } finally { setEmailing(false); }
+  }
+
   async function emailSelected() {
     const targets = picked.size ? Array.from(picked) : visible.map((r) => r.id);
     if (!targets.length) return;
@@ -104,7 +119,8 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
     let ok = false;
     try {
       const res = await postJson("/api/admin/email-applicants", {
-        application_ids: targets, subject: emailSubject, body: emailBody, job_id: jobId
+        application_ids: targets, subject: emailSubject, body: emailBody,
+        detail: emailDetail, job_id: jobId
       });
       ok = res.ok;
       setAsmtNote(res.ok ? (res.data?.message ?? "Sent.") : res.error);
@@ -112,7 +128,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
     } finally {
       setEmailing(false);
     }
-    if (ok) { setShowCompose(false); setEmailSubject(""); setEmailBody(""); setPicked(new Set()); }
+    if (ok) { setShowCompose(false); setEmailSubject(""); setEmailBody(""); setEmailDetail(""); setEmailPreview(null); setPicked(new Set()); }
   }
 
   // How many applicants have never been scored? Guest applications were not
@@ -495,29 +511,90 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [] }:
               );
             })()}
 
+            {!emailBody && (
+              <button className="btn-ghost !h-9 text-xs"
+                onClick={() => { setEmailSubject(OFFICE_INVITE_SUBJECT); setEmailBody(OFFICE_INVITE_BODY); }}>
+                Start from the office invitation
+              </button>
+            )}
+
             <div>
               <label className="label !text-xs">Subject</label>
               <input className="input !h-10" value={emailSubject}
-                onChange={(e) => setEmailSubject(e.target.value)}
-                placeholder="e.g. Interview invitation — Lagos call centre role" />
+                onChange={(e) => { setEmailSubject(e.target.value); setEmailPreview(null); }}
+                placeholder="Please come in to see us about {role}" />
             </div>
 
             <div>
               <label className="label !text-xs">Message</label>
-              <textarea className="input !h-auto py-2" rows={8} value={emailBody}
-                onChange={(e) => setEmailBody(e.target.value)}
-                placeholder={"Write as you would to one person — each recipient is greeted by name.\n\nLeave a blank line between paragraphs."} />
-              <p className="text-xs text-muted-2 mt-1">
-                Each email opens with the recipient's first name. Your name is signed at the end.
+              <textarea className="input !h-auto py-2" rows={9} value={emailBody}
+                onChange={(e) => { setEmailBody(e.target.value); setEmailPreview(null); }}
+                placeholder={"Write it once. Each person receives their own version.\n\nLeave a blank line between paragraphs."} />
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {APPLICANT_TOKENS.map((t) => (
+                  <button key={t.token} title={t.means}
+                    onClick={() => { setEmailBody((v) => v + t.token); setEmailPreview(null); }}
+                    className="rounded-pill border border-line bg-white px-2.5 py-1 text-xs text-muted hover:border-coral hover:text-coral transition">
+                    {t.token}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-2 mt-2">
+                Click a token to insert it. Each one is filled from that person's own application,
+                so one message becomes {picked.size || visible.length} correct ones.
               </p>
             </div>
 
-            <div className="flex gap-3">
-              <button className="btn-coral" onClick={emailSelected}
-                disabled={emailing || !emailSubject.trim() || !emailBody.trim()}>
-                {emailing ? "Sending…" : `Send to ${picked.size || visible.length}`}
-              </button>
-              <button className="btn-ghost" onClick={() => setShowCompose(false)} disabled={emailing}>
+            {emailBody.includes("{detail}") && (
+              <div>
+                <label className="label !text-xs">
+                  What {"{detail}"} should say, written once for everyone
+                </label>
+                <textarea className="input !h-auto py-2" rows={3} value={emailDetail}
+                  onChange={(e) => { setEmailDetail(e.target.value); setEmailPreview(null); }}
+                  placeholder="Come to 14 Adeshina Street, Ikeja on Monday 15 September, any time between 9am and 2pm." />
+              </div>
+            )}
+
+            {emailPreview && (
+              <div className="rounded-xl border border-line overflow-hidden">
+                <div className="bg-paper-2 px-4 py-2 border-b border-line">
+                  <div className="text-xs font-bold uppercase tracking-widest text-muted">Preview</div>
+                  <div className="text-xs text-muted-2 mt-0.5">
+                    As {emailPreview.preview?.name} will receive it. Everyone else gets their own version.
+                  </div>
+                </div>
+                <div className="p-4 max-h-72 overflow-y-auto">
+                  <div className="text-xs text-muted-2 mb-1">To: {emailPreview.preview?.to}</div>
+                  <div className="text-sm font-semibold text-ink mb-3 pb-3 border-b border-line">
+                    {emailPreview.preview?.subject}
+                  </div>
+                  <div className="text-sm text-muted whitespace-pre-wrap leading-relaxed">
+                    {emailPreview.preview?.body}
+                  </div>
+                </div>
+                {emailPreview.warnings?.length > 0 && (
+                  <div className="px-4 py-3 border-t border-line" style={{ background: "#FFF4F2" }}>
+                    {emailPreview.warnings.map((w: string, i: number) => (
+                      <p key={i} className="text-xs text-ink mb-1 last:mb-0">{w}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3">
+              {!emailPreview ? (
+                <button className="btn-coral" onClick={() => previewEmail()}
+                  disabled={emailing || !emailSubject.trim() || !emailBody.trim()}>
+                  {emailing ? "Preparing…" : "Preview"}
+                </button>
+              ) : (
+                <button className="btn-coral" onClick={emailSelected} disabled={emailing}>
+                  {emailing ? "Sending…" : `Send to ${emailPreview.recipients ?? (picked.size || visible.length)}`}
+                </button>
+              )}
+              <button className="btn-ghost" onClick={() => { setShowCompose(false); setEmailPreview(null); }} disabled={emailing}>
                 Cancel
               </button>
             </div>

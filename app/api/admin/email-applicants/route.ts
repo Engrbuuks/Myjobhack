@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { can } from "@/lib/permissions";
-import { sendBatch } from "@/lib/resend";
+import { routeMail, summariseRouting } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
+import { renderApplicantTemplate, applicantVars, checkTokens, toParagraphs } from "@/lib/applicantEmail";
 import { getAllowance, getOptOuts, unsubscribeUrlFor, logSends } from "@/lib/emailAllowance";
 
 export const runtime = "nodejs";
@@ -51,7 +52,8 @@ export async function POST(request: Request) {
       error: "You don't have permission to email applicants. Ask an administrator for contact access."
     }, { status: 403 });
 
-  const { application_ids, subject, body, job_id } = await request.json();
+  const b = await request.json();
+  const { application_ids, subject, body, job_id } = b;
   const ids: string[] = Array.isArray(application_ids) ? application_ids.filter(Boolean) : [];
   if (!ids.length) return NextResponse.json({ error: "Select at least one applicant." }, { status: 400 });
   if (!subject?.trim() || !body?.trim())
@@ -74,18 +76,34 @@ export async function POST(request: Request) {
   }
 
   const { data: job } = job_id
-    ? await admin.from("jobs").select("title").eq("id", job_id).maybeSingle()
+    ? await admin.from("jobs").select("title, company_name").eq("id", job_id).maybeSingle()
     : { data: null };
 
-  // Resolve a name and address for each, members and guests alike.
-  const recipients: { email: string; name: string }[] = [];
+  /**
+   * Resolve each recipient's details, members and guests alike.
+   *
+   * Phone, location and stage come along because the message can reference
+   * them. Fetching only name and email would silently leave {location}
+   * unfilled in a template that used it.
+   */
+  type Recipient = {
+    email: string; name: string; phone: string; location: string; status: string;
+  };
+  const recipients: Recipient[] = [];
   for (const a of apps as any[]) {
+    const location = (a.answers as any)?._location ?? "";
     if (a.talent_id) {
       const { data: p } = await admin.from("profiles")
-        .select("full_name, email").eq("id", a.talent_id).maybeSingle();
-      if (p?.email) recipients.push({ email: p.email, name: p.full_name ?? "there" });
+        .select("full_name, email, phone").eq("id", a.talent_id).maybeSingle();
+      if (p?.email) recipients.push({
+        email: p.email, name: p.full_name ?? "there",
+        phone: p.phone ?? "", location, status: a.status ?? ""
+      });
     } else if (a.guest_email) {
-      recipients.push({ email: a.guest_email, name: a.guest_name ?? "there" });
+      recipients.push({
+        email: a.guest_email, name: a.guest_name ?? "there",
+        phone: a.guest_phone ?? "", location, status: a.status ?? ""
+      });
     }
   }
   if (!recipients.length)
@@ -117,26 +135,77 @@ export async function POST(request: Request) {
   const willSend = allowed.slice(0, allowance.remaining);
   const deferred = allowed.length - willSend.length;
 
-  // Personalise the greeting; everything else is what the sender wrote.
-  // Each recipient gets their OWN unsubscribe link — the old header pointed
-  // every recipient at /portal/account, which guest applicants cannot reach.
-  const emails = await Promise.all(willSend.map(async (r) => ({
+  /**
+   * Each recipient's copy is rendered from their own application, so one
+   * message becomes N correct ones rather than N identical ones.
+   *
+   * Each also gets their OWN unsubscribe link. The old header pointed every
+   * recipient at /portal/account, which guest applicants cannot reach.
+   */
+  const detail = String(b.detail ?? "");
+  const senderName = me?.full_name ? `${me.full_name}, MYJOBHACK` : "MYJOBHACK";
+
+  /**
+   * Preview renders the FIRST real recipient's copy and sends nothing.
+   *
+   * A preview built from placeholder values would not catch a token that
+   * cannot be filled, and thirty people receiving "Hello {frist_name}" is
+   * not recoverable.
+   */
+  if (b.preview) {
+    const r0 = willSend[0];
+    if (!r0) return NextResponse.json({ error: "Nobody to preview." }, { status: 400 });
+    const v = applicantVars({
+      name: r0.name, role: job?.title ?? "the role",
+      company: job?.company_name ?? "MYJOBHACK",
+      email: r0.email, phone: r0.phone, location: r0.location,
+      stage: r0.status, sender: senderName, detail
+    });
+    const tokens = checkTokens(`${subject} ${body}`, v);
+    return NextResponse.json({
+      preview: {
+        to: r0.email, name: r0.name,
+        subject: renderApplicantTemplate(subject.trim(), v),
+        body: renderApplicantTemplate(body, v)
+      },
+      recipients: willSend.length,
+      deferred, skipped_opt_out: skippedOptOut,
+      allowance,
+      warnings: [
+        ...(tokens.unknown.length
+          ? [`Not recognised, and will appear as written: ${tokens.unknown.map((t) => "{" + t + "}").join(", ")}`] : []),
+        ...(tokens.empty.length
+          ? [`Empty for this recipient, and will appear as written: ${tokens.empty.map((t) => "{" + t + "}").join(", ")}`] : []),
+        ...(deferred ? [`${deferred} will not be emailed today because the allowance runs out. Send again tomorrow.`] : []),
+        ...(skippedOptOut ? [`${skippedOptOut} have unsubscribed and are excluded.`] : [])
+      ]
+    });
+  }
+
+  const emails = await Promise.all(willSend.map(async (r) => {
+    const v = applicantVars({
+      name: r.name, role: job?.title ?? "the role",
+      company: job?.company_name ?? "MYJOBHACK",
+      email: r.email, phone: r.phone ?? "", location: r.location ?? "",
+      stage: r.status ?? "", sender: senderName, detail
+    });
+    const renderedSubject = renderApplicantTemplate(subject.trim(), v);
+    return {
     to: r.email,
-    subject: subject.trim(),
+    subject: renderedSubject,
     unsubscribeUrl: await unsubscribeUrlFor(admin, r.email),
     html: renderEmail({
       kicker: job?.title ? `Regarding: ${job.title}` : "An update on your application",
-      heading: subject.trim(),
-      paragraphs: [
-        `Hi ${r.name.split(" ")[0]},`,
-        ...body.split(/\n{2,}/).map((s: string) => s.trim()).filter(Boolean),
-        me?.full_name ? `— ${me.full_name}, MYJOBHACK` : "— MYJOBHACK"
-      ]
+      heading: renderedSubject,
+      paragraphs: toParagraphs(renderApplicantTemplate(body, v))
     })
-  })));
+  };
+  }));
 
   // Paced, since this is bulk mail to a filtered segment.
-  const results = await sendBatch(emails, { bulk: true, chunkSize: 20, pauseMs: 1500 });
+  const results = await routeMail(
+    emails, { bulk: true, chunkSize: 20, pauseMs: 1500 }
+  );
   const sent = results.filter((r) => !r.error).length;
   const failed = results.length - sent;
 
@@ -153,8 +222,11 @@ export async function POST(request: Request) {
     sent_by: user.id,
     status: results[i]?.error ? "failed" : "sent",
     error: results[i]?.error ?? null,
+    provider: results[i]?.provider ?? "resend",
     preview: body.trim()
   })));
+
+  const routing = summariseRouting(results);
 
   const after = await getAllowance(admin);
   const notes: string[] = [];
@@ -165,7 +237,9 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true, sent, failed, deferred, skipped_opt_out: skippedOptOut, allowance: after,
     message: `Sent to ${sent} applicant${sent === 1 ? "" : "s"}.` +
+      (routing.note ? ` ${routing.note}` : "") +
       (notes.length ? ` ${notes.join(". ")}.` : "") +
-      ` ${after.remaining} of ${after.cap} left today.`
+      ` ${after.remaining} of ${after.cap} left today.`,
+    routing
   });
 }
