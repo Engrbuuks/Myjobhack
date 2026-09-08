@@ -50,11 +50,22 @@ export type WaTarget = "app" | "web" | "mobile";
  *   mobile  wa.me             Correct on a phone: hands to the installed app.
  */
 export function detectTarget(): WaTarget {
-  if (typeof navigator === "undefined") return "app";
+  if (typeof navigator === "undefined") return "web";
   const ua = navigator.userAgent || "";
   if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return "mobile";
-  return "app";
+  /**
+   * Web, not the desktop app.
+   *
+   * WhatsApp Desktop accepts the phone number from a whatsapp:// link and
+   * IGNORES the text, so the chat opens with an empty box. WhatsApp Web fills
+   * it every time. Since the whole point is a pre-written message, web is the
+   * correct default on a computer even though the app feels faster.
+   */
+  return "web";
 }
+
+/** Signing in once, so the first real send is not a QR screen. */
+export const WA_WEB_HOME = "https://web.whatsapp.com";
 
 export function waLink(e164: string, message: string, target: WaTarget = "app"): string | null {
   const num = waNumber(e164);
@@ -73,14 +84,14 @@ export function waLink(e164: string, message: string, target: WaTarget = "app"):
 }
 
 export const TARGET_LABELS: Record<WaTarget, string> = {
-  app: "WhatsApp Desktop, opens instantly",
-  web: "WhatsApp Web, one reused tab",
+  app: "WhatsApp Desktop, does not fill the message",
+  web: "WhatsApp Web, fills the message",
   mobile: "Phone, opens the app"
 };
 
 export const TARGET_HELP: Record<WaTarget, string> = {
-  app: "Opens the installed desktop app directly. Nothing loads in the browser, so there is no waiting and no blank screen.",
-  web: "Opens web.whatsapp.com in a single tab that is reused for every candidate. The first one takes a few seconds to load, the rest are quicker.",
+  app: "Opens the installed desktop app. It accepts the number but ignores the message, so the chat opens with an empty box. Only useful if you intend to type each one.",
+  web: "Fills the message reliably. Uses one tab that is reused for every candidate, so it loads once rather than once per person. You must be signed in to WhatsApp Web first.",
   mobile: "Hands off to WhatsApp on your phone. Use this when you are working from a handset."
 };
 
