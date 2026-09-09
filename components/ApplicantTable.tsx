@@ -93,6 +93,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
   const [emailPreview, setEmailPreview] = useState<any>(null);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [offerFor, setOfferFor] = useState<string | null>(null);
+  const [statusErr, setStatusErr] = useState<string | null>(null);
 
   // What is left of today's send allowance, fetched when the compose box
   // opens. Knowing this AFTER sending is useless — the damage is a silent
@@ -342,19 +343,33 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
     };
   });
 
+  /**
+   * Move an applicant between stages.
+   *
+   * Neither branch used to check its result: the fetch response was discarded,
+   * the Supabase error was ignored, and router.refresh() ran regardless. A
+   * rejected change therefore looked exactly like a successful one, with the
+   * dropdown snapping back to the old value and nothing saying why.
+   */
   async function setStatus(id: string, status: string) {
-    setBusy(id);
-    if (statusEndpoint) {
-      await fetch(statusEndpoint, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status })
-      });
-    } else {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from("applications").update({ status: status as any, reviewed_by: user!.id }).eq("id", id);
+    setBusy(id); setStatusErr(null);
+    try {
+      if (statusEndpoint) {
+        const r = await postJson(statusEndpoint, { id, status });
+        if (!r.ok) { setStatusErr(r.error); return; }
+        if (r.data?.placement_error) setStatusErr(r.data.message);
+      } else {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setStatusErr("Your session expired. Reload the page and sign in again."); return; }
+        const { error } = await supabase.from("applications")
+          .update({ status: status as any, reviewed_by: user.id }).eq("id", id);
+        if (error) { setStatusErr(`Could not move them: ${error.message}`); return; }
+      }
+      router.refresh();
+    } finally {
+      setBusy(null);
     }
-    setBusy(null); router.refresh();
   }
 
   if (rows.length === 0)
@@ -408,6 +423,18 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
           {visible.length} of {rows.length}
         </span>
       </div>
+
+      {statusErr && (
+        <div className="card p-4 mb-4 border-coral/40" style={{ background: "#FFF4F2" }}>
+          <div className="flex items-start gap-3">
+            <div className="flex-1">
+              <div className="font-semibold text-sm text-ink mb-1">That stage change did not save</div>
+              <p className="text-sm text-muted">{statusErr}</p>
+            </div>
+            <button className="text-muted-2 hover:text-ink" onClick={() => setStatusErr(null)}>&#10005;</button>
+          </div>
+        </div>
+      )}
 
       {showWhatsApp && (
         <div className="mb-4">
