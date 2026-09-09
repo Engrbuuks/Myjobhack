@@ -87,6 +87,53 @@ export function checkPhone(rawInput: string, dialCode = "+234"): PhoneCheck {
   return { ok: true, e164: `${country.code}${national}`, national };
 }
 
+/**
+ * Repair a number that was stored before normalisation existed.
+ *
+ * Applications taken before the apply form validated phone numbers hold
+ * whatever the person typed: 09029815294, 0803 123 4567, 803-123-4567. Those
+ * are correct locally and useless internationally, and a wa.me link built
+ * from 09029815294 is rejected because there is no country with dialling code
+ * 0. The leading zero is a national trunk prefix and must be replaced by the
+ * country code, not merely kept.
+ *
+ * Returns E.164, or null when it genuinely cannot be salvaged.
+ */
+export function toE164(raw: string | null | undefined, defaultDial = "+234"): string | null {
+  if (!raw) return null;
+  let v = String(raw).trim().replace(/[\s()\-.]/g, "");
+  if (!v) return null;
+
+  // Already international.
+  if (v.startsWith("+")) {
+    const digits = v.slice(1).replace(/\D/g, "");
+    return digits.length >= 10 && digits.length <= 15 ? `+${digits}` : null;
+  }
+
+  const digits = v.replace(/\D/g, "");
+  if (!digits) return null;
+
+  const country = DIAL_CODES.find((d) => d.code === defaultDial) ?? DIAL_CODES[0];
+  const cc = country.code.replace("+", "");
+
+  // Written with the country code but no plus: 2348031234567
+  if (digits.startsWith(cc) && digits.length === cc.length + country.nsn)
+    return `+${digits}`;
+
+  // Local form with the trunk zero: 08031234567
+  const national = digits.replace(/^0+/, "");
+  if (national.length === country.nsn) return `+${cc}${national}`;
+
+  // Some other country's international number written without the plus.
+  const guess = DIAL_CODES.find((d) => {
+    const code = d.code.replace("+", "");
+    return digits.startsWith(code) && digits.length === code.length + d.nsn;
+  });
+  if (guess) return `+${digits}`;
+
+  return null;
+}
+
 /** Readable form for tables and exports: +234 803 123 4567 */
 export function formatPhone(e164: string): string {
   const match = DIAL_CODES.slice().sort((a, b) => b.code.length - a.code.length)

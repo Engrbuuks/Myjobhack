@@ -1,3 +1,5 @@
+import { toE164 } from "@/lib/phone";
+
 /**
  * WhatsApp messages to candidates, without the Business API.
  *
@@ -14,12 +16,23 @@
  * person rather than one click for everyone.
  */
 
-/** wa.me wants digits only: no plus, no spaces, no leading zero. */
-export function waNumber(e164: string): string | null {
-  const digits = (e164 || "").replace(/\D/g, "");
-  // A country code plus a national number is at least 10 digits in practice.
-  if (digits.length < 10 || digits.length > 15) return null;
-  return digits;
+/**
+ * wa.me wants digits only, in full international form.
+ *
+ * THE TRAP: a locally written Nigerian number is eleven digits, 09029815294.
+ * Stripping non-digits leaves eleven digits, which passes a naive length
+ * check, and produces wa.me/09029815294. There is no country with dialling
+ * code 0, so WhatsApp rejects it and the chat never opens. The leading zero
+ * is a trunk prefix and has to be REPLACED by the country code.
+ *
+ * Numbers stored before the apply form validated them are all in that shape,
+ * so repairing here means old applications work without waiting for the data
+ * to be corrected.
+ */
+export function waNumber(raw: string): string | null {
+  const e164 = toE164(raw);
+  if (!e164) return null;
+  return e164.replace(/\D/g, "");
 }
 
 /**
