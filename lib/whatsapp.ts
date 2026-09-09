@@ -49,19 +49,19 @@ export type WaTarget = "app" | "web" | "mobile";
  *                             tab each time.
  *   mobile  wa.me             Correct on a phone: hands to the installed app.
  */
+/**
+ * wa.me everywhere, unless the tester says otherwise.
+ *
+ * This was established by testing on the machine actually being used, rather
+ * than reasoned about: wa.me opens the chat with the message filled in, on
+ * desktop and on a phone. The alternatives were each tried and each failed in
+ * their own way, so the default is the one with evidence behind it.
+ *
+ * The tester remains available for a machine that behaves differently, and a
+ * saved choice there overrides this.
+ */
 export function detectTarget(): WaTarget {
-  if (typeof navigator === "undefined") return "web";
-  const ua = navigator.userAgent || "";
-  if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return "mobile";
-  /**
-   * Web, not the desktop app.
-   *
-   * WhatsApp Desktop accepts the phone number from a whatsapp:// link and
-   * IGNORES the text, so the chat opens with an empty box. WhatsApp Web fills
-   * it every time. Since the whole point is a pre-written message, web is the
-   * correct default on a computer even though the app feels faster.
-   */
-  return "web";
+  return "mobile";   // the wa.me shape, which works on both
 }
 
 /**
@@ -117,13 +117,13 @@ export function waLink(e164: string, message: string, target: WaTarget = "app"):
 export const TARGET_LABELS: Record<WaTarget, string> = {
   app: "WhatsApp Desktop, does not fill the message",
   web: "WhatsApp Web, fills the message",
-  mobile: "Phone, opens the app"
+  mobile: "wa.me link, fills the message"
 };
 
 export const TARGET_HELP: Record<WaTarget, string> = {
   app: "Opens the installed desktop app. It accepts the number but ignores the message, so the chat opens with an empty box. Only useful if you intend to type each one.",
   web: "Fills the message reliably. Uses one tab that is reused for every candidate, so it loads once rather than once per person. You must be signed in to WhatsApp Web first.",
-  mobile: "Hands off to WhatsApp on your phone. Use this when you are working from a handset."
+  mobile: "The wa.me short link. Opens the chat with the message already typed, on a computer or a phone. This is the default because it is the one proven to work."
 };
 
 /**

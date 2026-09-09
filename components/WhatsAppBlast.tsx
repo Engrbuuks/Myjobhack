@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   waLink, forWhatsApp, whyNotReachable, detectTarget,
-  TARGET_LABELS, TARGET_HELP, RESUMPTION_TEMPLATE, REMINDER_TEMPLATE, WA_WEB_HOME,
+  TARGET_LABELS, TARGET_HELP, RESUMPTION_TEMPLATE, REMINDER_TEMPLATE,
   waLinkSaved, savedVariant, type WaTarget
 } from "@/lib/whatsapp";
 import { renderApplicantTemplate, applicantVars, APPLICANT_TOKENS } from "@/lib/applicantEmail";
@@ -36,14 +36,6 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
-  /**
-   * Whether WhatsApp Web has been opened once to sign in.
-   *
-   * An unsigned browser shows the QR page instead of the chat, which reads as
-   * a broken link rather than a login prompt. Doing it deliberately, once,
-   * before the run turns that into a step rather than a mystery.
-   */
-  const [signedIn, setSignedIn] = useState(false);
   const [showTester, setShowTester] = useState(false);
   const [variant, setVariant] = useState<string | null>(null);
   useEffect(() => { setVariant(savedVariant()); }, []);
@@ -190,29 +182,8 @@ export function WhatsAppBlast({ rows, jobTitle, senderName, onClose }: {
             )}
           </div>
 
-          {!variant && target === "web" && !signedIn && (
-            <div className="rounded-xl border border-coral/40 p-4" style={{ background: "#FFF4F2" }}>
-              <div className="text-sm font-semibold text-ink mb-1">Sign in to WhatsApp Web first</div>
-              <p className="text-xs text-muted mb-3">
-                If this browser is not signed in, every link opens the QR page instead of the
-                chat, which looks like a broken link. Open it once, scan the code with your
-                phone, then come back. The tab stays open and is reused for every candidate.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <a href={WA_WEB_HOME} target="mjh_whatsapp" rel="noopener"
-                  className="btn-coral !h-9 text-sm"
-                  onClick={() => { winRef.current = window.open(WA_WEB_HOME, "mjh_whatsapp"); }}>
-                  Open WhatsApp Web
-                </a>
-                <button className="btn-ghost !h-9 text-sm" onClick={() => setSignedIn(true)}>
-                  Already signed in, continue
-                </button>
-              </div>
-            </div>
-          )}
-
           <button className="btn-coral"
-            disabled={!reachable.length || !template.trim() || (!variant && target === "web" && !signedIn)}
+            disabled={!reachable.length || !template.trim()}
             onClick={() => setStarted(true)}>
             Start with {reachable.length} candidate{reachable.length === 1 ? "" : "s"}
           </button>
