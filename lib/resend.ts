@@ -63,45 +63,83 @@ export async function sendBatch(
   const key = process.env.RESEND_API_KEY;
   if (!key) return emails.map(() => ({ id: null, error: "RESEND_API_KEY not set" }));
 
-  const results: SendResult[] = [];
-  const chunkSize = Math.max(1, Math.min(opts?.chunkSize ?? 100, 100));
   const pauseMs = Math.max(0, opts?.pauseMs ?? 0);
+  const chunkSize = Math.max(1, Math.min(opts?.chunkSize ?? 100, 100));
 
-  for (let i = 0; i < emails.length; i += chunkSize) {
+  // Results are written back by original index, so the caller can pair each
+  // outcome with the recipient it belongs to regardless of which path sent it.
+  const results: SendResult[] = new Array(emails.length);
+
+  const payloadFor = (e: any) => ({
+    from: FROM,
+    to: [e.to],
+    ...(e.cc?.length ? { cc: e.cc } : {}),
+    ...(e.attachments?.length ? { attachments: e.attachments } : {}),
+    subject: e.subject,
+    html: e.html,
+    // Always send a plain text part alongside the HTML.
+    text: e.text ?? htmlToText(e.html),
+    reply_to: REPLY_TO,
+    ...(headersFor({ ...opts, unsubscribeUrl: e.unsubscribeUrl ?? opts?.unsubscribeUrl })
+      ? { headers: headersFor({ ...opts, unsubscribeUrl: e.unsubscribeUrl ?? opts?.unsubscribeUrl }) }
+      : {})
+  });
+
+  /**
+   * Split by whether the message carries a file.
+   *
+   * Resend's /emails/batch endpoint does NOT support attachments. It accepts
+   * the request, sends the message, and silently drops the file. That is how
+   * an offer letter arrived with its accept and decline buttons intact and no
+   * PDF attached. Attachments must go through /emails, one request each.
+   */
+  const attachIdx: number[] = [];
+  const plainIdx: number[] = [];
+  emails.forEach((e, i) => ((e as any).attachments?.length ? attachIdx : plainIdx).push(i));
+
+  for (const i of attachIdx) {
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payloadFor(emails[i]))
+      });
+      const json = await res.json().catch(() => null);
+      results[i] = res.ok
+        ? { id: json?.id ?? null, error: null }
+        : { id: null, error: json?.message ?? `HTTP ${res.status}` };
+    } catch (err: any) {
+      results[i] = { id: null, error: err?.message ?? "network error" };
+    }
+    if (pauseMs) await new Promise((r) => setTimeout(r, Math.min(pauseMs, 400)));
+  }
+
+  for (let c = 0; c < plainIdx.length; c += chunkSize) {
     // Pace between chunks so a large campaign trickles rather than bursts.
-    if (i > 0 && pauseMs) await new Promise(r => setTimeout(r, pauseMs));
-    const chunk = emails.slice(i, i + chunkSize).map((e) => ({
-      from: FROM,
-      to: [e.to],
-      ...((e as any).cc?.length ? { cc: (e as any).cc } : {}),
-      ...((e as any).attachments?.length ? { attachments: (e as any).attachments } : {}),
-      subject: e.subject,
-      html: e.html,
-      // Always send a plain-text part alongside the HTML.
-      text: e.text ?? htmlToText(e.html),
-      reply_to: REPLY_TO,
-      ...(headersFor({ ...opts, unsubscribeUrl: e.unsubscribeUrl ?? opts?.unsubscribeUrl })
-        ? { headers: headersFor({ ...opts, unsubscribeUrl: e.unsubscribeUrl ?? opts?.unsubscribeUrl }) }
-        : {})
-    }));
+    if (c > 0 && pauseMs) await new Promise((r) => setTimeout(r, pauseMs));
+    const idxs = plainIdx.slice(c, c + chunkSize);
+    const chunk = idxs.map((i) => payloadFor(emails[i]));
     try {
       const res = await fetch("https://api.resend.com/emails/batch", {
         method: "POST",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify(chunk)
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!res.ok) {
-        results.push(...chunk.map(() => ({ id: null, error: json?.message ?? `HTTP ${res.status}` })));
+        const msg = json?.message ?? `HTTP ${res.status}`;
+        idxs.forEach((i) => { results[i] = { id: null, error: msg }; });
       } else {
-        const data: { id: string }[] = json?.data ?? [];
-        chunk.forEach((_, idx) => results.push({ id: data[idx]?.id ?? null, error: null }));
+        const data = json?.data ?? [];
+        idxs.forEach((i, k) => { results[i] = { id: data[k]?.id ?? null, error: null }; });
       }
-    } catch (e: any) {
-      results.push(...chunk.map(() => ({ id: null, error: e?.message ?? "network error" })));
+    } catch (err: any) {
+      const msg = err?.message ?? "network error";
+      idxs.forEach((i) => { results[i] = { id: null, error: msg }; });
     }
   }
-  return results;
+
+  return results.map((r) => r ?? { id: null, error: "not sent" });
 }
 
 export async function sendEmail(

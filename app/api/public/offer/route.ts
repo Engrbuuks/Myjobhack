@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildOfferPdf } from "@/lib/offerLetter";
 import { downloadFile, uploadFile } from "@/lib/storage";
+import { routeMail } from "@/lib/mailRouter";
+import { renderEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
   };
 
   let signedPath: string | null = null;
+  let signedPdf: Uint8Array | null = null;
   try {
     const pdf = await buildOfferPdf({
       bytes: await grab(lh?.file_path, lh?.file_bucket, lh?.file_provider),
@@ -73,6 +76,7 @@ export async function POST(request: Request) {
       candidateName: offer.candidate_name, body: offer.body,
       countersign: true, signedName: typed, signedAt
     });
+    signedPdf = pdf;
     const stored = await uploadFile({
       supabase: admin as any, body: Buffer.from(pdf),
       path: `offers/${offer.id}-accepted.pdf`, contentType: "application/pdf"
@@ -92,6 +96,54 @@ export async function POST(request: Request) {
   // Move the application on, so the pipeline reflects reality.
   if (offer.application_id) {
     await admin.from("applications").update({ status: "hired" }).eq("id", offer.application_id);
+  }
+
+  /**
+   * Send the countersigned copy to both sides.
+   *
+   * An acceptance recorded only in the database leaves the candidate with the
+   * unsigned letter they were originally sent, and nothing showing they
+   * accepted. Both parties should hold the same document, which is the whole
+   * point of countersigning.
+   */
+  if (signedPdf) {
+    const when = new Date(signedAt).toLocaleDateString("en-GB", {
+      day: "numeric", month: "long", year: "numeric"
+    });
+    const attachment = [{
+      filename: `Offer letter, accepted, ${offer.candidate_name}.pdf`,
+      content: Buffer.from(signedPdf).toString("base64")
+    }];
+
+    const recipients: string[] = [offer.candidate_email, ...(offer.cc_emails ?? [])];
+    // Whoever sent it should know without checking the dashboard.
+    const { data: sender } = offer.sent_by
+      ? await admin.from("profiles").select("email").eq("id", offer.sent_by).maybeSingle()
+      : { data: null as any };
+    if (sender?.email && !recipients.includes(sender.email)) recipients.push(sender.email);
+
+    await routeMail(recipients.map((to) => ({
+      to,
+      subject: `Offer accepted: ${offer.candidate_name}${offer.position_title ? `, ${offer.position_title}` : ""}`,
+      html: renderEmail({
+        preheader: `${offer.candidate_name} accepted on ${when}`,
+        kicker: "Offer accepted",
+        heading: to === offer.candidate_email
+          ? "Thank you, your acceptance is recorded"
+          : `${offer.candidate_name} has accepted`,
+        paragraphs: to === offer.candidate_email
+          ? [
+              `You accepted the offer${offer.position_title ? ` for ${offer.position_title}` : ""} on ${when}.`,
+              "The countersigned copy is attached. Keep it for your records.",
+              "We will be in touch with what happens next."
+            ]
+          : [
+              `${offer.candidate_name} accepted on ${when}, signing as ${typed}.`,
+              "The countersigned copy is attached."
+            ]
+      }),
+      attachments: attachment
+    })) as any, { bulk: false }).catch(() => null);
   }
 
   return NextResponse.json({ ok: true, status: "accepted" });
