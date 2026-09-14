@@ -27,6 +27,17 @@ export type LetterheadSpec = {
 export type OfferSpec = {
   candidateName: string;
   body: string;
+  /**
+   * Nudge the whole letter up or down, in points, from where the letterhead
+   * says text may begin. Positive moves it down.
+   *
+   * The letterhead's own margin is a property of the paper and applies to
+   * every letter printed on it. This is per letter: a short offer often looks
+   * better sitting lower on the page, and a long one needs every line it can
+   * get. Keeping them separate means adjusting one letter does not silently
+   * reposition all the others.
+   */
+  startOffset?: number;
   reference?: string;
   dateLine?: string;
   /** Adds the sign and return block. */
@@ -71,7 +82,7 @@ export async function buildOfferPdf(
   };
   stamp(page);
 
-  let y = topY;
+  let y = topY - (offer.startOffset ?? 0);
   const newPageIfNeeded = (needed: number) => {
     if (y - needed >= floorY) return;
     page = pdf.addPage([width, height]);
@@ -85,6 +96,37 @@ export async function buildOfferPdf(
     newPageIfNeeded(size + 6);
     page.drawText(text, { x: LEFT, y, size, font: f, color: opts.color ?? rgb(0.1, 0.1, 0.1) });
     y -= size + (opts.gap ?? 5);
+  };
+
+  /**
+   * Draw a line that may contain **bold** and _italic_ runs.
+   *
+   * pdf-lib draws a string in one font, so mixed weights have to be drawn as
+   * separate pieces with the x position advanced by the measured width of
+   * each. Wrapping therefore has to happen before this is called.
+   */
+  const drawRich = (text: string, size: number, startX: number) => {
+    let x = startX;
+    // Split on the markers, keeping them so each piece knows its own style.
+    const pieces = text.split(/(\*\*[^*]+\*\*|_[^_]+_)/g).filter(Boolean);
+    for (const piece of pieces) {
+      let f = font, shown = piece;
+      if (piece.startsWith("**") && piece.endsWith("**")) { f = bold; shown = piece.slice(2, -2); }
+      else if (piece.startsWith("_") && piece.endsWith("_")) { f = italic; shown = piece.slice(1, -1); }
+      page.drawText(shown, { x, y, size, font: f, color: rgb(0.1, 0.1, 0.1) });
+      x += f.widthOfTextAtSize(shown, size);
+    }
+  };
+
+  /** Width of a line once its formatting markers are removed. */
+  const richWidth = (text: string, size: number) => {
+    let w = 0;
+    for (const piece of text.split(/(\*\*[^*]+\*\*|_[^_]+_)/g).filter(Boolean)) {
+      if (piece.startsWith("**") && piece.endsWith("**")) w += bold.widthOfTextAtSize(piece.slice(2, -2), size);
+      else if (piece.startsWith("_") && piece.endsWith("_")) w += italic.widthOfTextAtSize(piece.slice(1, -1), size);
+      else w += font.widthOfTextAtSize(piece, size);
+    }
+    return w;
   };
 
   /** Wrap to the usable width. pdf-lib has no layout engine, so this is manual. */
@@ -112,10 +154,73 @@ export async function buildOfferPdf(
   y -= 8;
 
   // ---- body ----
+  //
+  // Lines beginning with # are headings, and **bold** or _italic_ runs are
+  // honoured inside a paragraph. That covers what an offer letter actually
+  // needs: a subject line that stands out, and emphasis on the terms.
   for (const block of offer.body.split(/\n\s*\n/)) {
     const text = block.trim();
     if (!text) continue;
-    paragraph(text);
+
+    // [\s\S] rather than the s flag, which needs a newer ES target than
+    // this project compiles to.
+    const heading = text.match(/^(#{1,3})\s+([\s\S]*)$/);
+    if (heading) {
+      const level = heading[1].length;
+      const size = level === 1 ? 14 : level === 2 ? 12 : 11;
+      newPageIfNeeded(size + 14);
+      y -= 4;
+      page.drawText(heading[2].replace(/\n/g, " ").trim(), {
+        x: LEFT, y, size, font: bold, color: rgb(0.05, 0.05, 0.05)
+      });
+      y -= size + 10;
+      continue;
+    }
+
+    /**
+     * Tokenise into styled words BEFORE wrapping.
+     *
+     * Wrapping the raw string splits a run like **Monday, 15 September** in
+     * the middle, and each half then fails the "starts and ends with **"
+     * test, so the markers print literally. Splitting into words that each
+     * carry their own style makes a wrap harmless wherever it falls.
+     */
+    const tokens: { text: string; font: any }[] = [];
+    for (const piece of text.replace(/\n/g, " ").split(/(\*\*[^*]+\*\*|_[^_]+_)/g).filter(Boolean)) {
+      let f = font, inner = piece;
+      if (piece.startsWith("**") && piece.endsWith("**")) { f = bold; inner = piece.slice(2, -2); }
+      else if (piece.startsWith("_") && piece.endsWith("_")) { f = italic; inner = piece.slice(1, -1); }
+      inner.split(/(\s+)/).forEach((w) => { if (w !== "") tokens.push({ text: w, font: f }); });
+    }
+
+    let lineTokens: { text: string; font: any }[] = [];
+    const lineWidth = (ts: typeof tokens) =>
+      ts.reduce((n, t) => n + t.font.widthOfTextAtSize(t.text, 11), 0);
+
+    const flush = () => {
+      if (!lineTokens.length) return;
+      newPageIfNeeded(17);
+      let x = LEFT;
+      for (const t of lineTokens) {
+        page.drawText(t.text, { x, y, size: 11, font: t.font, color: rgb(0.1, 0.1, 0.1) });
+        x += t.font.widthOfTextAtSize(t.text, 11);
+      }
+      y -= 15;
+      lineTokens = [];
+    };
+
+    for (const tok of tokens) {
+      const candidate = [...lineTokens, tok];
+      if (lineWidth(candidate) > usableWidth && lineTokens.length) {
+        flush();
+        // Never begin a wrapped line with the space that caused the wrap.
+        if (!/^\s+$/.test(tok.text)) lineTokens.push(tok);
+      } else {
+        lineTokens.push(tok);
+      }
+    }
+    flush();
+    y -= 8;
   }
 
   // ---- signatory ----
@@ -206,13 +311,16 @@ export const OFFER_TOKENS = [
   "{start_date}", "{reporting_to}", "{company}", "{today}"
 ];
 
+export const FORMATTING_HELP =
+  "Start a line with # for a heading. Wrap text in **double asterisks** for bold, or _underscores_ for italic. Leave a blank line between paragraphs.";
+
 export const DEFAULT_OFFER_BODY = `Dear {name},
 
-OFFER OF EMPLOYMENT: {position}
+# OFFER OF EMPLOYMENT: {position}
 
 Following your interview with us, we are pleased to offer you the position of {position}.
 
-Your remuneration will be {salary}. You are expected to resume on {start_date}, reporting to {reporting_to}.
+Your remuneration will be **{salary}**. You are expected to resume on **{start_date}**, reporting to {reporting_to}.
 
 This offer is subject to satisfactory reference checks and to your providing the documents requested separately.
 

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { callApi, postJson } from "@/lib/apiClient";
-import { OFFER_TOKENS, DEFAULT_OFFER_BODY } from "@/lib/offerLetter";
+import { OFFER_TOKENS, DEFAULT_OFFER_BODY, FORMATTING_HELP } from "@/lib/offerLetter";
 
 /**
  * Compose and issue an offer letter.
@@ -22,6 +22,7 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
   const [reportingTo, setReportingTo] = useState("");
   const [body, setBody] = useState(DEFAULT_OFFER_BODY);
   const [cc, setCc] = useState("");
+  const [startOffset, setStartOffset] = useState(0);
   const [countersign, setCountersign] = useState(true);
 
   const [busy, setBusy] = useState(false);
@@ -44,7 +45,7 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
   const payload = () => ({
     application_id: applicationId, letterhead_id: letterheadId || null,
     body, position, salary, start_date: startDate || null,
-    reporting_to: reportingTo, countersign,
+    reporting_to: reportingTo, countersign, start_offset: startOffset,
     cc: cc.split(/[,\s]+/).map((s) => s.trim()).filter((s) => s.includes("@"))
   });
 
@@ -138,6 +139,28 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
               {t}
             </button>
           ))}
+        </div>
+        <p className="text-xs text-muted-2 mt-2">{FORMATTING_HELP}</p>
+
+        {/* Per letter, not per letterhead: a short offer sits better lower on
+            the page, and adjusting one should not move all the others. */}
+        <div className="flex flex-wrap items-center gap-3 mt-3">
+          <span className="text-xs text-muted">Where the letter starts</span>
+          <button className="btn-ghost !h-8 text-xs"
+            onClick={() => { setStartOffset((v) => Math.max(-80, v - 20)); setPdfUrl(null); }}>
+            Higher
+          </button>
+          <span className="text-xs text-muted-2 w-20 text-center">
+            {startOffset === 0 ? "default" : `${startOffset > 0 ? "+" : ""}${startOffset}pt`}
+          </span>
+          <button className="btn-ghost !h-8 text-xs"
+            onClick={() => { setStartOffset((v) => Math.min(200, v + 20)); setPdfUrl(null); }}>
+            Lower
+          </button>
+          {startOffset !== 0 && (
+            <button className="text-xs text-muted hover:text-ink underline"
+              onClick={() => { setStartOffset(0); setPdfUrl(null); }}>Reset</button>
+          )}
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { postJson, callApi } from "@/lib/apiClient";
-import { OFFER_TOKENS, DEFAULT_OFFER_BODY } from "@/lib/offerLetter";
+import { OFFER_TOKENS, DEFAULT_OFFER_BODY, FORMATTING_HELP } from "@/lib/offerLetter";
 
 type Recipient = {
   name: string; email: string;
@@ -35,6 +35,7 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
   const [reportingTo, setReportingTo] = useState("");
   const [body, setBody] = useState(DEFAULT_OFFER_BODY);
   const [cc, setCc] = useState("");
+  const [startOffset, setStartOffset] = useState(0);
 
   const [busy, setBusy] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -113,7 +114,7 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
         position: r.position || position, salary: r.salary || salary,
         start_date: r.start_date || startDate || null,
         reporting_to: r.reporting_to || reportingTo,
-        countersign: true, preview: true
+        countersign: true, start_offset: startOffset, preview: true
       });
       if (!res.ok) { setErr(res.error); return; }
       const bytes = Uint8Array.from(atob(res.data.pdf_base64), (c) => c.charCodeAt(0));
@@ -142,7 +143,7 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
         position: r.position || position, salary: r.salary || salary,
         start_date: r.start_date || startDate || null,
         reporting_to: r.reporting_to || reportingTo,
-        countersign: true, cc: ccList
+        countersign: true, start_offset: startOffset, cc: ccList
       });
       setRows((prev) => prev.map((x, j) => j === i
         ? { ...x, status: res.ok ? "sent" : "failed", error: res.ok ? undefined : res.error ?? undefined }
@@ -281,6 +282,17 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
                 {t}
               </button>
             ))}
+          </div>
+          <p className="text-xs text-muted-2 mt-2">{FORMATTING_HELP}</p>
+          <div className="flex flex-wrap items-center gap-3 mt-3">
+            <span className="text-xs text-muted">Where the letter starts</span>
+            <button className="btn-ghost !h-8 text-xs"
+              onClick={() => { setStartOffset((v) => Math.max(-80, v - 20)); setPdfUrl(null); }}>Higher</button>
+            <span className="text-xs text-muted-2 w-20 text-center">
+              {startOffset === 0 ? "default" : `${startOffset > 0 ? "+" : ""}${startOffset}pt`}
+            </span>
+            <button className="btn-ghost !h-8 text-xs"
+              onClick={() => { setStartOffset((v) => Math.min(200, v + 20)); setPdfUrl(null); }}>Lower</button>
           </div>
         </div>
       </div>

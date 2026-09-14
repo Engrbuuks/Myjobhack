@@ -70,14 +70,33 @@ export async function POST(request: Request) {
     : await admin.from("letterheads").select("*").eq("is_default", true).maybeSingle();
 
   // Fetch the letterhead artwork and the signature image.
-  const grab = async (path?: string | null, bucket?: string | null, provider?: string | null) => {
+  /**
+   * Fetch a stored file, but never hang on it.
+   *
+   * A storage call with no deadline is how one request ate the whole function
+   * budget and came back as "the server took too long" with nothing to act
+   * on. A letterhead that cannot be fetched in ten seconds is a problem worth
+   * reporting, not worth waiting on: the letter can still be produced on
+   * plain paper, which is better than no letter at all.
+   */
+  const grabWarnings: string[] = [];
+  const grab = async (path?: string | null, bucket?: string | null, provider?: string | null, what = "file") => {
     if (!path) return null;
-    const r = await downloadFile({
-      supabase: admin as any,
-      location: { provider: (provider as any) === "supabase" ? "supabase" : "r2",
-                  bucket: bucket || process.env.R2_BUCKET || "myjobhack", path }
-    }).catch(() => null);
-    return r?.buffer ? new Uint8Array(r.buffer) : null;
+    try {
+      const r = await Promise.race([
+        downloadFile({
+          supabase: admin as any,
+          location: { provider: (provider as any) === "supabase" ? "supabase" : "r2",
+                      bucket: bucket || process.env.R2_BUCKET || "myjobhack", path }
+        }),
+        new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error(`${what} took longer than 10 seconds to fetch`)), 10_000))
+      ]);
+      return (r as any)?.buffer ? new Uint8Array((r as any).buffer) : null;
+    } catch (e: any) {
+      grabWarnings.push(`${what}: ${e?.message ?? "could not be fetched"}`);
+      return null;
+    }
   };
 
   const start = b.start_date
@@ -94,19 +113,27 @@ export async function POST(request: Request) {
     today: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
   });
 
+  // In parallel. Sequentially these were two round trips before the PDF even
+  // started building.
+  const [paperBytes, sigBytes] = await Promise.all([
+    grab(lh?.file_path, lh?.file_bucket, lh?.file_provider, "letterhead"),
+    grab(lh?.signature_path, lh?.signature_bucket, lh?.signature_provider, "signature")
+  ]);
+
   const pdf = await buildOfferPdf({
-    bytes: await grab(lh?.file_path, lh?.file_bucket, lh?.file_provider),
+    bytes: paperBytes,
     kind: (lh?.file_kind === "image" ? "image" : "pdf"),
     topMargin: lh?.top_margin_pt ?? 150,
     bottomMargin: lh?.bottom_margin_pt ?? 110,
-    signature: await grab(lh?.signature_path, lh?.signature_bucket, lh?.signature_provider),
+    signature: sigBytes,
     signatoryName: lh?.signatory_name ?? "",
     signatoryTitle: lh?.signatory_title ?? ""
   }, {
     candidateName: name, body,
     dateLine: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
     reference: `MJH-OFF-${new Date().getFullYear()}-${String(app?.id ?? email).slice(0, 6).toUpperCase()}`,
-    countersign: b.countersign !== false
+    countersign: b.countersign !== false,
+    startOffset: Number(b.start_offset) || 0
   });
 
   if (b.preview) {
@@ -114,6 +141,7 @@ export async function POST(request: Request) {
       preview: true, candidate: name, to: email,
       pdf_base64: Buffer.from(pdf).toString("base64"),
       warnings: [
+        ...grabWarnings,
         ...(lh ? [] : ["No letterhead is set up, so this letter is on plain paper. Upload one in Settings."]),
         ...(lh && !lh.signature_path ? ["No signature image on the letterhead, so a blank line is left to sign by hand."] : []),
         ...(!b.salary ? ["No salary stated. An offer without one is usually queried immediately."] : []),
@@ -139,12 +167,20 @@ export async function POST(request: Request) {
 
   // ---- store, record, send ----
   const token = makeToken();
-  const stored = await uploadFile({
-    supabase: admin as any,
-    body: Buffer.from(pdf),
-    path: `offers/${app?.id ?? "direct"}-${Date.now()}.pdf`,
-    contentType: "application/pdf"
-  }).catch(() => null);
+  /**
+   * Storing the copy is useful but not essential. If it hangs, the candidate
+   * still gets their letter: the PDF is already built and is attached to the
+   * email from memory, not from storage.
+   */
+  const stored = await Promise.race([
+    uploadFile({
+      supabase: admin as any,
+      body: Buffer.from(pdf),
+      path: `offers/${app?.id ?? "direct"}-${Date.now()}.pdf`,
+      contentType: "application/pdf"
+    }).catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000))
+  ]);
 
   const cc: string[] = Array.isArray(b.cc)
     ? b.cc.map((x: any) => String(x).trim()).filter((x: string) => x.includes("@")).slice(0, 5)
@@ -204,8 +240,11 @@ export async function POST(request: Request) {
   const after = await getAllowance(admin);
   return NextResponse.json({
     ok: true, offer_id: row.id, sign_url: signUrl, allowance: after,
+    warnings: grabWarnings,
     message: res?.error
       ? `The offer was saved but the email failed: ${res.error}. Download the PDF and send it by hand.`
-      : `Offer letter sent to ${email}${cc.length ? `, copied to ${cc.join(", ")}` : ""}. You will see it here when they accept.`
+      : `Offer letter sent to ${email}${cc.length ? `, copied to ${cc.join(", ")}` : ""}.` +
+        (grabWarnings.length ? ` Note: ${grabWarnings.join("; ")}.` : "") +
+        (!stored ? " The stored copy could not be saved, but the letter was delivered." : "")
   });
 }
