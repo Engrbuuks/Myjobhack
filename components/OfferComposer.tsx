@@ -176,11 +176,12 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
 
       <div className="grid sm:grid-cols-2 gap-3">
         <div>
-          <label className="label !text-xs">Copy anyone in, separated by commas</label>
+          <label className="label !text-xs">Who should be told, separated by commas</label>
           <input className="input !h-10" value={cc} placeholder="hr@eppme.com, manager@eppme.com"
             onChange={(e) => setCc(e.target.value)} />
           <p className="text-xs text-muted-2 mt-1">
-            They receive the same letter and attachment. Up to five.
+            They receive the letter for their records, and are told again when it is signed or
+            declined. They cannot accept on the candidate&rsquo;s behalf. Up to five.
           </p>
         </div>
         <label className="flex items-start gap-2 text-sm pt-6">

@@ -262,11 +262,12 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
               onChange={(e) => { setReportingTo(e.target.value); setPdfUrl(null); }} />
           </div>
           <div className="sm:col-span-2">
-            <label className="label !text-xs">Copy anyone in, separated by commas</label>
+            <label className="label !text-xs">Who should be told, separated by commas</label>
             <input className="input !h-10" value={cc} placeholder="associate@myjobhack.co"
               onChange={(e) => setCc(e.target.value)} />
             <p className="text-xs text-muted-2 mt-1">
-              They receive every letter and attachment, including each person&rsquo;s salary.
+              They receive every letter for their records, including each person&rsquo;s salary, and
+              are told when each is signed or declined. They cannot accept on anyone&rsquo;s behalf.
             </p>
           </div>
         </div>

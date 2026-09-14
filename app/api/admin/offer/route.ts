@@ -225,9 +225,24 @@ async function handleOffer(request: Request) {
   }
 
   const signUrl = `${APP()}/offer/${token}`;
+  const attachment = [{
+    filename: `Offer letter - ${name}.pdf`,
+    content: Buffer.from(pdf).toString("base64")
+  }];
+
+  /**
+   * The candidate and the people copied in get DIFFERENT emails.
+   *
+   * Copying someone on the candidate's message would hand them the acceptance
+   * link too, and that link is not tied to who opens it: a manager clicking
+   * Accept would be recorded as the candidate's signature. People copied in
+   * are there to know a hire is happening, not to act on it, so they receive
+   * the letter for their records and no way to accept or decline.
+   *
+   * They are told separately when it is signed.
+   */
   const [res] = await routeMail([{
     to: email,
-    cc,
     subject: `Offer of employment: ${b.position ?? job?.title ?? "your application"}`,
     html: renderEmail({
       preheader: "Your offer letter is attached",
@@ -239,11 +254,27 @@ async function handleOffer(request: Request) {
       ],
       cta: { label: "Read and accept your offer", url: signUrl }
     }),
-    attachments: [{
-      filename: `Offer letter - ${name}.pdf`,
-      content: Buffer.from(pdf).toString("base64")
-    }]
+    attachments: attachment
   } as any], { bulk: false });
+
+  // Observers: same letter, no acceptance link.
+  if (cc.length) {
+    await routeMail(cc.map((to) => ({
+      to,
+      subject: `For your records: offer issued to ${name}${b.position ? `, ${b.position}` : ""}`,
+      html: renderEmail({
+        preheader: `${name} has been sent an offer`,
+        kicker: "Offer issued",
+        heading: `An offer has gone to ${name}`,
+        paragraphs: [
+          `${name} has been sent an offer${b.position ? ` for ${b.position}` : ""}${b.salary ? ` at ${b.salary}` : ""}${b.start_date ? `, starting ${start}` : ""}.`,
+          "A copy of the letter is attached for your records.",
+          "You will be told again when they accept or decline. Nothing is needed from you."
+        ]
+      }),
+      attachments: attachment
+    })) as any, { bulk: false }).catch(() => null);
+  }
 
   await logSends(admin, [{
     recipient: email, subject: `Offer of employment: ${b.position ?? job?.title ?? ""}`,

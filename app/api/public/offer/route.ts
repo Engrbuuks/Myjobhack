@@ -33,10 +33,42 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, already: true, status: offer.status });
 
   if (action === "decline") {
+    const declinedAt = new Date().toISOString();
     await admin.from("offer_letters").update({
-      status: "declined", declined_at: new Date().toISOString(),
+      status: "declined", declined_at: declinedAt,
       decline_reason: String(reason ?? "").slice(0, 500) || null
     }).eq("id", offer.id);
+
+    /**
+     * A decline matters more than an acceptance operationally: the role is
+     * open again and nobody is working on it. Telling the people copied in is
+     * the difference between refilling next week and discovering it on start
+     * day.
+     */
+    const { data: declSender } = offer.sent_by
+      ? await admin.from("profiles").select("email").eq("id", offer.sent_by).maybeSingle()
+      : { data: null as any };
+    const tell = Array.from(new Set([...(offer.cc_emails ?? []), declSender?.email].filter(Boolean)));
+
+    if (tell.length) {
+      const when = new Date(declinedAt).toLocaleDateString("en-GB",
+        { day: "numeric", month: "long", year: "numeric" });
+      await routeMail(tell.map((to: string) => ({
+        to,
+        subject: `Offer declined: ${offer.candidate_name}${offer.position_title ? `, ${offer.position_title}` : ""}`,
+        html: renderEmail({
+          preheader: `${offer.candidate_name} declined on ${when}`,
+          kicker: "Offer declined",
+          heading: `${offer.candidate_name} has declined`,
+          paragraphs: [
+            `${offer.candidate_name} declined the offer${offer.position_title ? ` for ${offer.position_title}` : ""} on ${when}.`,
+            reason ? `Reason given: ${String(reason).slice(0, 500)}` : "No reason was given.",
+            "The position is open again."
+          ].filter(Boolean)
+        })
+      })) as any, { bulk: false }).catch(() => null);
+    }
+
     return NextResponse.json({ ok: true, status: "declined" });
   }
 
@@ -139,7 +171,7 @@ export async function POST(request: Request) {
             ]
           : [
               `${offer.candidate_name} accepted on ${when}, signing as ${typed}.`,
-              "The countersigned copy is attached."
+              "The countersigned copy is attached for your records. Nothing is needed from you."
             ]
       }),
       attachments: attachment
