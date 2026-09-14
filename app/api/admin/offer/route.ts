@@ -114,6 +114,24 @@ async function handleOffer(request: Request) {
     }
   };
 
+  /**
+   * Whose company is making the offer.
+   *
+   * The letterhead decides, because the letter is printed on that company's
+   * paper: a letter on Eppme letterhead that calls itself MYJOBHACK is wrong
+   * on its face. The job's own company name comes next, for a role posted by
+   * an employer with no letterhead set up, and MYJOBHACK only when neither
+   * says otherwise.
+   *
+   * An explicit value on the request wins over all of it, for the case where
+   * the registered name differs from the letterhead's label.
+   */
+  const companyName =
+    String(b.company ?? "").trim() ||
+    lh?.name?.trim() ||
+    job?.company_name?.trim() ||
+    "MYJOBHACK";
+
   const start = b.start_date
     ? new Date(b.start_date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
     : "";
@@ -124,7 +142,7 @@ async function handleOffer(request: Request) {
     salary: String(b.salary ?? ""),
     start_date: start,
     reporting_to: String(b.reporting_to ?? ""),
-    company: job?.company_name ?? "MYJOBHACK",
+    company: companyName,
     today: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
   });
 
@@ -155,6 +173,7 @@ async function handleOffer(request: Request) {
     return NextResponse.json({
       preview: true, candidate: name, to: email,
       pdf_base64: Buffer.from(pdf).toString("base64"),
+      company: companyName,
       warnings: [
         ...((pdf as any).warnings ?? []),
         ...grabWarnings,

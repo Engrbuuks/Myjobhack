@@ -55,6 +55,7 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
   const [body, setBody] = useState(DEFAULT_OFFER_BODY);
   const [cc, setCc] = useState("");
   const [startOffset, setStartOffset] = useState(0);
+  const [company, setCompany] = useState("");
 
   const [busy, setBusy] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -137,7 +138,7 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
         position: r.position || position, salary: r.salary || salary,
         start_date: r.start_date || startDate || null,
         reporting_to: r.reporting_to || reportingTo,
-        countersign: true, start_offset: startOffset, preview: true
+        countersign: true, start_offset: startOffset, company: company || undefined, preview: true
       });
       if (!res.ok) { setErr(res.error); return; }
       const bytes = Uint8Array.from(atob(res.data.pdf_base64), (c) => c.charCodeAt(0));
@@ -166,7 +167,7 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
         position: r.position || position, salary: r.salary || salary,
         start_date: r.start_date || startDate || null,
         reporting_to: r.reporting_to || reportingTo,
-        countersign: true, start_offset: startOffset, cc: ccList
+        countersign: true, start_offset: startOffset, company: company || undefined, cc: ccList
       });
       setRows((prev) => prev.map((x, j) => j === i
         ? { ...x, status: res.ok ? "sent" : "failed", error: res.ok ? undefined : res.error ?? undefined }
@@ -305,7 +306,16 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
             <input className="input !h-10" type="date" value={startDate}
               onChange={(e) => { setStartDate(e.target.value); setPdfUrl(null); }} />
           </div>
-          <div className="sm:col-span-2">
+          <div>
+            <label className="label !text-xs">Company on the letter</label>
+            <input className="input !h-10" value={company}
+              onChange={(e) => { setCompany(e.target.value); setPdfUrl(null); }}
+              placeholder={letterheads.find((l) => l.id === letterheadId)?.name ?? "MYJOBHACK"} />
+            <p className="text-xs text-muted-2 mt-1">
+              Taken from the letterhead unless set here.
+            </p>
+          </div>
+          <div>
             <label className="label !text-xs">Reporting to</label>
             <input className="input !h-10" value={reportingTo}
               onChange={(e) => { setReportingTo(e.target.value); setPdfUrl(null); }} />

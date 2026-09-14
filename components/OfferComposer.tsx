@@ -23,6 +23,7 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
   const [body, setBody] = useState(DEFAULT_OFFER_BODY);
   const [cc, setCc] = useState("");
   const [startOffset, setStartOffset] = useState(0);
+  const [company, setCompany] = useState("");
   const [countersign, setCountersign] = useState(true);
 
   const [busy, setBusy] = useState(false);
@@ -46,6 +47,7 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
     application_id: applicationId, letterhead_id: letterheadId || null,
     body, position, salary, start_date: startDate || null,
     reporting_to: reportingTo, countersign, start_offset: startOffset,
+    company: company || undefined,
     cc: cc.split(/[,\s]+/).map((s) => s.trim()).filter((s) => s.includes("@"))
   });
 
@@ -131,7 +133,17 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
           <input className="input !h-10" type="date" value={startDate}
             onChange={(e) => { setStartDate(e.target.value); setPdfUrl(null); }} />
         </div>
-        <div className="sm:col-span-2">
+        <div>
+          <label className="label !text-xs">Company on the letter</label>
+          <input className="input !h-10" value={company}
+            onChange={(e) => { setCompany(e.target.value); setPdfUrl(null); }}
+            placeholder={letterheads.find((l) => l.id === letterheadId)?.name ?? "MYJOBHACK"} />
+          <p className="text-xs text-muted-2 mt-1">
+            Taken from the letterhead unless you set it here. Use this when the registered name
+            differs from the letterhead&rsquo;s label.
+          </p>
+        </div>
+        <div>
           <label className="label !text-xs">Reporting to</label>
           <input className="input !h-10" value={reportingTo} placeholder="Rita Adewale, Operations Lead"
             onChange={(e) => { setReportingTo(e.target.value); setPdfUrl(null); }} />
