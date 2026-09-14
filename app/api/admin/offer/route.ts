@@ -24,6 +24,21 @@ const APP = () => process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
  * someone's salary and start date, so it is checked before it leaves.
  */
 export async function POST(request: Request) {
+  try {
+    return await handleOffer(request);
+  } catch (e: any) {
+    /**
+     * Anything unhandled still leaves as JSON. A thrown error returned an
+     * HTML error page, which the client could only report as a generic
+     * failure, so the Preview button looked like it did nothing at all.
+     */
+    return NextResponse.json({
+      error: `Building the letter failed: ${e?.message ?? "unknown error"}`
+    }, { status: 500 });
+  }
+}
+
+async function handleOffer(request: Request) {
   const gate = await requirePermission("applicants.contact");
   if (!gate.ok) return gate.response;
   const admin = createAdminClient();
@@ -141,6 +156,7 @@ export async function POST(request: Request) {
       preview: true, candidate: name, to: email,
       pdf_base64: Buffer.from(pdf).toString("base64"),
       warnings: [
+        ...((pdf as any).warnings ?? []),
         ...grabWarnings,
         ...(lh ? [] : ["No letterhead is set up, so this letter is on plain paper. Upload one in Settings."]),
         ...(lh && !lh.signature_path ? ["No signature image on the letterhead, so a blank line is left to sign by hand."] : []),

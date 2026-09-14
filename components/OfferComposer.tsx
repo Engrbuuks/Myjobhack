@@ -54,12 +54,22 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
     try {
       const r = await postJson("/api/admin/offer", { ...payload(), preview: true });
       if (!r.ok) { setErr(r.error); return; }
-      // Rendered in an object tag so you read the real document, not a summary.
-      const bytes = Uint8Array.from(atob(r.data.pdf_base64), (c) => c.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-      setPdfUrl(url);
-      setWarnings(r.data.warnings ?? []);
+      if (!r.data?.pdf_base64) {
+        setErr("The server did not return a document. Check the letterhead is a valid PDF or PNG.");
+        return;
+      }
+      try {
+        // Rendered in an object tag so you read the real document, not a summary.
+        const bytes = Uint8Array.from(atob(r.data.pdf_base64), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+        if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+        setPdfUrl(url);
+        setWarnings(r.data.warnings ?? []);
+      } catch (e: any) {
+        // A decode failure used to throw past the handler, leaving the button
+        // looking inert with nothing on screen.
+        setErr(`The document came back but could not be displayed: ${e?.message ?? "decode failed"}. Try Download instead.`);
+      }
     } finally { setBusy(false); }
   }
 
@@ -219,6 +229,9 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
               {busy ? "Sending…" : "Send this offer"}
             </button>
             <button className="btn-ghost" onClick={preview} disabled={busy}>Rebuild preview</button>
+            {/* Some browsers refuse to render a blob PDF inline. Downloading
+                always works, so the preview is never a dead end. */}
+            <a href={pdfUrl} download="offer-preview.pdf" className="btn-ghost">Download the preview</a>
           </>
         )}
         {onDone && <button className="btn-ghost" onClick={onDone} disabled={busy}>Close</button>}

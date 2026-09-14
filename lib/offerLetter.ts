@@ -52,21 +52,47 @@ const RIGHT = 64;
 
 export async function buildOfferPdf(
   letterhead: LetterheadSpec, offer: OfferSpec
-): Promise<Uint8Array> {
+): Promise<Uint8Array & { warnings?: string[] }> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
 
   // The letterhead page, embedded once and stamped on every page.
+  /**
+   * Embedding the letterhead must never take the whole letter down.
+   *
+   * An encrypted PDF, a CMYK JPEG, a file saved with the wrong extension: any
+   * of these throws inside pdf-lib, and an unhandled throw here meant the
+   * preview returned a 500 and the button appeared to do nothing. A letter on
+   * plain paper with a warning is far better than no letter and no
+   * explanation.
+   */
+  const warnings: string[] = [];
   let bgPage: any = null;
   let bgImage: any = null;
   if (letterhead.bytes && letterhead.bytes.length) {
-    if (letterhead.kind === "pdf") {
-      const src = await PDFDocument.load(letterhead.bytes);
-      [bgPage] = await pdf.embedPdf(src, [0]);
-    } else {
-      bgImage = await pdf.embedPng(letterhead.bytes).catch(async () => pdf.embedJpg(letterhead.bytes!));
+    try {
+      if (letterhead.kind === "pdf") {
+        const src = await PDFDocument.load(letterhead.bytes, { ignoreEncryption: true });
+        if (src.getPageCount() < 1) throw new Error("the PDF has no pages");
+        [bgPage] = await pdf.embedPdf(src, [0]);
+      } else {
+        bgImage = await pdf.embedPng(letterhead.bytes).catch(async () => pdf.embedJpg(letterhead.bytes!));
+      }
+    } catch (e: any) {
+      // Try the other interpretation before giving up: a .pdf that is really
+      // a PNG, or an image that is really a PDF, is a common upload mistake.
+      try {
+        if (letterhead.kind === "pdf") {
+          bgImage = await pdf.embedPng(letterhead.bytes).catch(async () => pdf.embedJpg(letterhead.bytes!));
+        } else {
+          const src = await PDFDocument.load(letterhead.bytes, { ignoreEncryption: true });
+          [bgPage] = await pdf.embedPdf(src, [0]);
+        }
+      } catch {
+        warnings.push(`The letterhead could not be read (${e?.message ?? "unsupported file"}), so this letter is on plain paper. Re-export it as a standard PDF or PNG and upload it again.`);
+      }
     }
   }
 
@@ -297,7 +323,9 @@ export async function buildOfferPdf(
     }
   }
 
-  return pdf.save();
+  const out = await pdf.save() as Uint8Array & { warnings?: string[] };
+  if (warnings.length) out.warnings = warnings;
+  return out;
 }
 
 /** Fill {tokens} in the letter body. */
