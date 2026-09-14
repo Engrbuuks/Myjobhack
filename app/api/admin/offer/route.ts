@@ -5,7 +5,7 @@ import { buildOfferPdf, renderOfferBody, DEFAULT_OFFER_BODY } from "@/lib/offerL
 import { downloadFile, uploadFile } from "@/lib/storage";
 import { routeMail } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
-import { logSends } from "@/lib/emailAllowance";
+import { logSends, getAllowance } from "@/lib/emailAllowance";
 import { makeToken } from "@/lib/resumeScan";
 
 export const runtime = "nodejs";
@@ -29,20 +29,41 @@ export async function POST(request: Request) {
   const admin = createAdminClient();
   const b = await request.json().catch(() => ({} as any));
 
-  const { data: app } = await admin.from("applications")
-    .select("id, job_id, talent_id, guest_name, guest_email")
-    .eq("id", b.application_id).maybeSingle();
-  if (!app) return NextResponse.json({ error: "That application no longer exists." }, { status: 404 });
+  /**
+   * Two ways in.
+   *
+   * Most offers go to someone who applied, and their details come from the
+   * application. But plenty of hires never touch the site: a referral, a
+   * walk in, someone from a previous round. Those are given directly, so the
+   * offer system is not limited to people who happened to use the form.
+   */
+  let app: any = null;
+  let name = String(b.recipient_name ?? "").trim();
+  let email = String(b.recipient_email ?? "").trim();
+  let jobId: string | null = b.job_id ?? null;
 
-  const { data: prof } = app.talent_id
-    ? await admin.from("profiles").select("full_name, email").eq("id", app.talent_id).maybeSingle()
+  if (b.application_id) {
+    const { data: found } = await admin.from("applications")
+      .select("id, job_id, talent_id, guest_name, guest_email")
+      .eq("id", b.application_id).maybeSingle();
+    if (!found) return NextResponse.json({ error: "That application no longer exists." }, { status: 404 });
+    app = found;
+    jobId = found.job_id;
+
+    const { data: prof } = found.talent_id
+      ? await admin.from("profiles").select("full_name, email").eq("id", found.talent_id).maybeSingle()
+      : { data: null as any };
+    name = prof?.full_name ?? found.guest_name ?? "Candidate";
+    email = prof?.email ?? found.guest_email ?? "";
+  }
+
+  if (!name) return NextResponse.json({ error: "A name is required on the letter." }, { status: 400 });
+  if (!email.includes("@"))
+    return NextResponse.json({ error: `No usable email address for ${name}.` }, { status: 400 });
+
+  const { data: job } = jobId
+    ? await admin.from("jobs").select("title, company_name").eq("id", jobId).maybeSingle()
     : { data: null as any };
-  const name = prof?.full_name ?? app.guest_name ?? "Candidate";
-  const email = prof?.email ?? app.guest_email ?? "";
-  if (!email) return NextResponse.json({ error: "That candidate has no email address on file." }, { status: 400 });
-
-  const { data: job } = await admin.from("jobs")
-    .select("title, company_name").eq("id", app.job_id).maybeSingle();
 
   const { data: lh } = b.letterhead_id
     ? await admin.from("letterheads").select("*").eq("id", b.letterhead_id).maybeSingle()
@@ -84,7 +105,7 @@ export async function POST(request: Request) {
   }, {
     candidateName: name, body,
     dateLine: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
-    reference: `MJH-OFF-${new Date().getFullYear()}-${String(app.id).slice(0, 6).toUpperCase()}`,
+    reference: `MJH-OFF-${new Date().getFullYear()}-${String(app?.id ?? email).slice(0, 6).toUpperCase()}`,
     countersign: b.countersign !== false
   });
 
@@ -101,12 +122,27 @@ export async function POST(request: Request) {
     });
   }
 
+  /**
+   * Refuse rather than half send.
+   *
+   * An offer that generates a PDF, stores it and records a row but never
+   * reaches the candidate is worse than one not attempted: the dashboard says
+   * sent, and nobody follows up. So the allowance is checked before anything
+   * is written.
+   */
+  const allowance = await getAllowance(admin);
+  if (allowance.remaining <= 0)
+    return NextResponse.json({
+      error: `Today's email allowance is used up, ${allowance.sent_today} of ${allowance.cap} sent. Nothing was created for ${name}. It resets at midnight, and anyone already sent is skipped if you run this again.`,
+      allowance
+    }, { status: 429 });
+
   // ---- store, record, send ----
   const token = makeToken();
   const stored = await uploadFile({
     supabase: admin as any,
     body: Buffer.from(pdf),
-    path: `offers/${app.id}-${Date.now()}.pdf`,
+    path: `offers/${app?.id ?? "direct"}-${Date.now()}.pdf`,
     contentType: "application/pdf"
   }).catch(() => null);
 
@@ -115,7 +151,7 @@ export async function POST(request: Request) {
     : [];
 
   const { data: row, error } = await admin.from("offer_letters").insert({
-    application_id: app.id, job_id: app.job_id, letterhead_id: lh?.id ?? null,
+    application_id: app?.id ?? null, job_id: jobId, letterhead_id: lh?.id ?? null,
     candidate_name: name, candidate_email: email, body,
     position_title: String(b.position ?? job?.title ?? ""),
     salary: String(b.salary ?? ""), start_date: b.start_date || null,
@@ -159,14 +195,15 @@ export async function POST(request: Request) {
 
   await logSends(admin, [{
     recipient: email, subject: `Offer of employment: ${b.position ?? job?.title ?? ""}`,
-    kind: "transactional", job_id: app.job_id, application_id: app.id,
+    kind: "transactional", job_id: jobId, application_id: app?.id ?? null,
     sent_by: gate.userId, status: res?.error ? "failed" : "sent",
     error: res?.error ?? null, provider: (res as any)?.provider ?? "resend",
     preview: `Offer letter, ${cc.length ? `cc ${cc.join(", ")}` : "no cc"}`
   }]);
 
+  const after = await getAllowance(admin);
   return NextResponse.json({
-    ok: true, offer_id: row.id, sign_url: signUrl,
+    ok: true, offer_id: row.id, sign_url: signUrl, allowance: after,
     message: res?.error
       ? `The offer was saved but the email failed: ${res.error}. Download the PDF and send it by hand.`
       : `Offer letter sent to ${email}${cc.length ? `, copied to ${cc.join(", ")}` : ""}. You will see it here when they accept.`

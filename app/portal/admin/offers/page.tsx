@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/PageHeader";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { LetterheadManager } from "@/components/LetterheadManager";
+import { BulkOffers } from "@/components/BulkOffers";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,9 @@ export default async function OffersPage() {
 
   const age = (iso: string) =>
     Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+
+  const { data: letterheads } = await admin.from("letterheads")
+    .select("id, name, is_default").order("is_default", { ascending: false });
 
   return (
     <>
@@ -107,6 +111,10 @@ export default async function OffersPage() {
           )}
         </>
       )}
+
+      <div className="border-t border-line pt-8 mb-10">
+        <BulkOffers letterheads={(letterheads ?? []) as any} />
+      </div>
 
       <div className="border-t border-line pt-8">
         <h2 className="font-display font-semibold text-xl mb-1">Letterheads</h2>

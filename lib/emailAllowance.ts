@@ -40,9 +40,18 @@ export type Allowance = {
 
 export async function getAllowance(admin: any): Promise<Allowance> {
   const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  /**
+   * Count EVERY successful send, not just bulk.
+   *
+   * The provider's daily limit does not distinguish between an offer letter
+   * and a campaign: fifty offers is fifty messages off the same hundred. The
+   * old count looked only at kind = bulk, so a batch of offers consumed half
+   * the allowance while the app still reported it as free, and the next round
+   * of interview invitations failed for no visible reason.
+   */
   const { count } = await admin.from("email_log")
     .select("id", { count: "exact", head: true })
-    .eq("kind", "bulk").eq("status", "sent")
+    .eq("status", "sent")
     .gte("sent_at", midnight.toISOString());
 
   const tomorrow = new Date(midnight); tomorrow.setDate(tomorrow.getDate() + 1);
@@ -50,8 +59,7 @@ export async function getAllowance(admin: any): Promise<Allowance> {
 
   // Split by provider so the figure reflects real headroom on each.
   const { data: rows } = await admin.from("email_log")
-    .select("provider")
-    .eq("kind", "bulk").eq("status", "sent")
+    .select("provider").eq("status", "sent")
     .gte("sent_at", midnight.toISOString());
 
   const byProvider = (rows ?? []).reduce((acc: Record<string, number>, r: any) => {
