@@ -5,6 +5,14 @@ import { OFFER_TOKENS, DEFAULT_OFFER_BODY, FORMATTING_HELP } from "@/lib/offerLe
 
 type Recipient = {
   name: string; email: string;
+  /**
+   * Present when the person came from the applicant list rather than a paste.
+   *
+   * It matters: an offer tied to an application moves that application to
+   * hired when accepted, and shows on the candidate's record. An offer to a
+   * pasted address has nothing to attach to, so it stands alone.
+   */
+  application_id?: string;
   position?: string; salary?: string; start_date?: string; reporting_to?: string;
   status?: "pending" | "sent" | "failed";
   error?: string;
@@ -22,14 +30,25 @@ type Recipient = {
  * blank, the shared values below are used, so a group joining on the same
  * terms is one paste rather than one row of repetition.
  */
-export function BulkOffers({ letterheads }: { letterheads: { id: string; name: string; is_default: boolean }[] }) {
+export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
+  letterheads: { id: string; name: string; is_default: boolean }[];
+  /** Supplied when opened from a selection on the applicant list. */
+  applicants?: { id: string; name: string; email: string }[];
+  jobTitle?: string;
+  onDone?: () => void;
+}) {
+  const fromSelection = !!applicants?.length;
   const [raw, setRaw] = useState("");
-  const [rows, setRows] = useState<Recipient[]>([]);
+  const [rows, setRows] = useState<Recipient[]>(
+    applicants?.map((a) => ({
+      name: a.name, email: a.email, application_id: a.id, status: "pending" as const
+    })) ?? []
+  );
   const [parseNote, setParseNote] = useState<string | null>(null);
 
   const [letterheadId, setLetterheadId] = useState(
     letterheads.find((l) => l.is_default)?.id ?? letterheads[0]?.id ?? "");
-  const [position, setPosition] = useState("");
+  const [position, setPosition] = useState(jobTitle ?? "");
   const [salary, setSalary] = useState("");
   const [startDate, setStartDate] = useState("");
   const [reportingTo, setReportingTo] = useState("");
@@ -109,7 +128,11 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
     try {
       const r = rows[0];
       const res = await postJson("/api/admin/offer", {
-        recipient_name: r.name, recipient_email: r.email,
+        // An application id links the offer to the candidate's record and
+        // moves them to hired on acceptance.
+        ...(r.application_id
+          ? { application_id: r.application_id }
+          : { recipient_name: r.name, recipient_email: r.email }),
         letterhead_id: letterheadId || null, body,
         position: r.position || position, salary: r.salary || salary,
         start_date: r.start_date || startDate || null,
@@ -167,12 +190,20 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="font-display font-semibold text-xl mb-1">Offers to people who did not apply</h2>
-        <p className="text-sm text-muted-2">
-          Paste a list, or a CSV. Each person receives their own letter on the letterhead, with an
-          acceptance link.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-display font-semibold text-xl mb-1">
+            {fromSelection
+              ? `Offer to ${rows.length} selected candidate${rows.length === 1 ? "" : "s"}`
+              : "Offers to people who did not apply"}
+          </h2>
+          <p className="text-sm text-muted-2">
+            {fromSelection
+              ? "Same terms for everyone. Each person receives their own letter, and accepting moves them to hired."
+              : "Paste a list, or a CSV. Each person receives their own letter on the letterhead, with an acceptance link."}
+          </p>
+        </div>
+        {onDone && <button className="text-muted-2 hover:text-ink" onClick={onDone}>&#10005;</button>}
       </div>
 
       {err && (
@@ -181,7 +212,7 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
         </div>
       )}
 
-      <div className="card p-5 space-y-4">
+      <div className={`card p-5 space-y-4 ${fromSelection ? "hidden" : ""}`}>
         <div>
           <label className="label !text-xs">The people</label>
           <textarea className="input !h-auto py-2 font-mono text-xs" rows={7} value={raw}
@@ -226,9 +257,27 @@ export function BulkOffers({ letterheads }: { letterheads: { id: string; name: s
         )}
       </div>
 
+      {fromSelection && rows.length > 0 && (
+        <div className="card p-4">
+          <div className="text-xs font-bold uppercase tracking-widest text-muted mb-2">
+            Receiving this offer
+          </div>
+          <div className="rounded-xl border border-line max-h-56 overflow-y-auto divide-y divide-line">
+            {rows.map((r, i) => (
+              <div key={i} className="flex items-center gap-3 p-2.5 text-sm">
+                <span className="flex-1 min-w-0 truncate">{r.name}</span>
+                <span className="text-muted-2 text-xs truncate">{r.email}</span>
+                {r.status === "sent" && <span className="text-xs text-coral font-semibold shrink-0">sent</span>}
+                {r.status === "failed" && <span className="text-xs text-coral shrink-0" title={r.error}>failed</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="card p-5 space-y-4">
         <div className="text-xs font-bold uppercase tracking-widest text-muted">
-          Shared terms, used where a row leaves them blank
+          {fromSelection ? "Terms, the same for everyone" : "Shared terms, used where a row leaves them blank"}
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <div>

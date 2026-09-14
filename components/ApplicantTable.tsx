@@ -11,6 +11,7 @@ import { callApi, postJson } from "@/lib/apiClient";
 import { formatPhone } from "@/lib/phone";
 import { APPLICANT_TOKENS, OFFICE_INVITE_SUBJECT, OFFICE_INVITE_BODY } from "@/lib/applicantEmail";
 import { WhatsAppBlast } from "@/components/WhatsAppBlast";
+import { BulkOffers } from "@/components/BulkOffers";
 import { OfferComposer } from "@/components/OfferComposer";
 import { BulkInterview } from "@/components/BulkInterview";
 import { buildFilterFields, applyRules, describeRule, type Rule, type MatchMode } from "@/lib/applicantFilter";
@@ -94,6 +95,8 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
   const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [offerFor, setOfferFor] = useState<string | null>(null);
   const [statusErr, setStatusErr] = useState<string | null>(null);
+  const [showBulkOffer, setShowBulkOffer] = useState(false);
+  const [letterheads, setLetterheads] = useState<any[]>([]);
 
   // What is left of today's send allowance, fetched when the compose box
   // opens. Knowing this AFTER sending is useless — the damage is a silent
@@ -436,6 +439,18 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
         </div>
       )}
 
+      {showBulkOffer && (
+        <div className="mb-4">
+          <BulkOffers
+            letterheads={letterheads as any}
+            jobTitle={jobTitle}
+            applicants={(picked.size ? visible.filter((r) => picked.has(r.id)) : visible)
+              .filter((r) => r.email && r.email.includes("@"))
+              .map((r) => ({ id: r.id, name: r.name, email: r.email }))}
+            onDone={() => { setShowBulkOffer(false); setPicked(new Set()); }} />
+        </div>
+      )}
+
       {showWhatsApp && (
         <div className="mb-4">
           <WhatsAppBlast
@@ -495,6 +510,20 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
           disabled={!visible.length}
           title="Open WhatsApp for each selected candidate with the message written">
           ✆ WhatsApp {picked.size ? `${picked.size} selected` : `these ${visible.length}`}
+        </button>
+
+        {/* One offer, same terms, to everyone selected. */}
+        <button className="btn-ghost !h-8 text-xs"
+          onClick={async () => {
+            if (!showBulkOffer && !letterheads.length) {
+              const r = await callApi("/api/admin/letterheads");
+              if (r.ok) setLetterheads(r.data?.letterheads ?? []);
+            }
+            setShowBulkOffer((v) => !v);
+          }}
+          disabled={!visible.length}
+          title="Send the same offer letter to everyone selected">
+          📄 Offer {picked.size ? `${picked.size} selected` : `these ${visible.length}`}
         </button>
 
         {/* Interviews for the whole selection, each at their own time. */}
