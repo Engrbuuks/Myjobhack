@@ -13,17 +13,44 @@ export const dynamic = "force-dynamic";
  * the one that costs you a hire. Silence usually means they took something
  * else, and the sooner that is visible the sooner the role can be refilled.
  */
-export default async function OffersPage() {
+export default async function OffersPage({ searchParams }: {
+  searchParams?: { q?: string; status?: string };
+}) {
   const admin = createAdminClient();
-  const { data: offers, error } = await admin.from("offer_letters")
+
+  /**
+   * Finding a letter months later is the point of keeping them, so the list
+   * searches by name, email or role, and filters by outcome. Commas and
+   * brackets are stripped because they are the separators in the query
+   * syntax, and a name containing one would otherwise break the search.
+   */
+  const q = String(searchParams?.q ?? "").replace(/[,()%]/g, " ").trim();
+  const status = ["sent", "accepted", "declined"].includes(String(searchParams?.status))
+    ? String(searchParams?.status) : "";
+
+  let query = admin.from("offer_letters")
     .select("id, candidate_name, candidate_email, position_title, salary, start_date, status, sent_at, signed_at, signed_name, declined_at, decline_reason, cc_emails, application_id, job_id")
-    .order("sent_at", { ascending: false }).limit(100);
+    .order("sent_at", { ascending: false }).limit(300);
+  if (q) query = query.or(`candidate_name.ilike.%${q}%,candidate_email.ilike.%${q}%,position_title.ilike.%${q}%`);
+  if (status) query = query.eq("status", status);
+  const { data: offers, error } = await query;
 
   const tableMissing = error && /does not exist|could not find the table/i.test(error.message);
   const rows = offers ?? [];
-  const pending = rows.filter((o: any) => o.status === "sent");
-  const accepted = rows.filter((o: any) => o.status === "accepted");
-  const declined = rows.filter((o: any) => o.status === "declined");
+
+  // Totals across every offer, not just the filtered list, so the figures do
+  // not change meaning when you search.
+  const countOf = async (st: string) => {
+    const { count } = await admin.from("offer_letters")
+      .select("id", { count: "exact", head: true }).eq("status", st);
+    return count ?? 0;
+  };
+  const [pendingCount, acceptedCount, declinedCount] = tableMissing
+    ? [0, 0, 0]
+    : await Promise.all([countOf("sent"), countOf("accepted"), countOf("declined")]);
+
+  const fileUrl = (id: string, copy: "signed" | "sent", download = false) =>
+    `/api/admin/offer/file?id=${id}&copy=${copy}${download ? "&download=1" : ""}`;
 
   const age = (iso: string) =>
     Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -45,20 +72,39 @@ export default async function OffersPage() {
         </div>
       ) : (
         <>
-          <div className="grid sm:grid-cols-3 gap-3 mb-6">
-            {[["Awaiting a reply", pending.length], ["Accepted", accepted.length], ["Declined", declined.length]]
-              .map(([label, n]) => (
-              <div key={label as string} className="card p-4">
-                <div className="numeral !text-3xl">{n as number}</div>
-                <div className="text-sm text-muted-2 mt-1">{label as string}</div>
-              </div>
-            ))}
+          <div className="grid sm:grid-cols-3 gap-3 mb-4">
+            {([["Awaiting a reply", pendingCount, "sent"], ["Accepted", acceptedCount, "accepted"],
+               ["Declined", declinedCount, "declined"]] as const).map(([label, n, st]) => {
+              const on = status === st;
+              return (
+                <Link key={st}
+                  href={on ? `/portal/admin/offers${q ? `?q=${encodeURIComponent(q)}` : ""}`
+                           : `/portal/admin/offers?status=${st}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+                  className={`card p-4 transition hover:border-coral ${on ? "border-coral" : ""}`}>
+                  <div className="numeral !text-3xl">{n}</div>
+                  <div className="text-sm text-muted-2 mt-1">
+                    {label}{on ? ", showing only these" : ""}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
+
+          <form method="get" className="flex flex-wrap gap-2 mb-5">
+            {status && <input type="hidden" name="status" value={status} />}
+            <input className="input !h-10 flex-1 min-w-56" name="q" defaultValue={q}
+              placeholder="Search by name, email or role" />
+            <button className="btn-coral !h-10" type="submit">Search</button>
+            {(q || status) && (
+              <Link href="/portal/admin/offers" className="btn-ghost !h-10">Clear</Link>
+            )}
+          </form>
 
           {rows.length === 0 ? (
             <div className="card p-6 mb-8 text-sm text-muted">
-              No offers issued yet. Open a job&rsquo;s applicants, find someone you have decided
-              on, and use the Offer button on their row.
+              {q || status
+                ? "No offers match that. Clear the search to see them all."
+                : "No offers issued yet. Open a job\u2019s applicants, find someone you have decided on, and use the Offer button on their row."}
             </div>
           ) : (
             <div className="space-y-2 mb-10">
@@ -71,7 +117,14 @@ export default async function OffersPage() {
                     <div className="flex flex-wrap items-start gap-3">
                       <div className="flex-1 min-w-56">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold">{o.candidate_name}</span>
+                          {/* The name opens the most useful copy: signed when there is
+                              one, otherwise the letter as it went out. */}
+                          <a href={fileUrl(o.id, o.signed_at ? "signed" : "sent")}
+                            target="_blank" rel="noopener"
+                            className="font-semibold hover:text-coral underline decoration-line underline-offset-4"
+                            title={o.signed_at ? "Open the signed offer letter" : "Open the letter as sent"}>
+                            {o.candidate_name}
+                          </a>
                           <span className={`rounded-pill px-2 py-0.5 text-[10px] uppercase tracking-wide ${
                             o.status === "accepted" ? "bg-coral text-white"
                             : o.status === "declined" ? "bg-paper-2 text-muted-2"
@@ -97,12 +150,26 @@ export default async function OffersPage() {
                               : `Sent ${days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`}${stale ? ", no reply yet" : ""}`}
                         </div>
                       </div>
-                      {o.job_id && (
-                        <Link href={`/portal/admin/jobs/${o.job_id}/applicants`}
-                          className="btn-ghost !h-9 text-xs shrink-0">
-                          Open the job
-                        </Link>
-                      )}
+                      <div className="flex flex-wrap gap-2 shrink-0">
+                        {o.signed_at && (
+                          <>
+                            <a href={fileUrl(o.id, "signed")} target="_blank" rel="noopener"
+                              className="btn-coral !h-9 text-xs">Signed copy</a>
+                            <a href={fileUrl(o.id, "signed", true)}
+                              className="btn-ghost !h-9 text-xs" title="Download the signed copy">
+                              Download
+                            </a>
+                          </>
+                        )}
+                        <a href={fileUrl(o.id, "sent")} target="_blank" rel="noopener"
+                          className="btn-ghost !h-9 text-xs">Letter as sent</a>
+                        {o.job_id && (
+                          <Link href={`/portal/admin/jobs/${o.job_id}/applicants`}
+                            className="btn-ghost !h-9 text-xs">
+                            Open the job
+                          </Link>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

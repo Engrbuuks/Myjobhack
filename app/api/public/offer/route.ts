@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buildOfferPdf } from "@/lib/offerLetter";
-import { downloadFile, uploadFile } from "@/lib/storage";
+import { uploadFile } from "@/lib/storage";
+import { renderOfferFromRow } from "@/lib/offerRender";
 import { routeMail } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
 
@@ -78,52 +78,47 @@ export async function POST(request: Request) {
 
   const signedAt = new Date().toISOString();
 
-  // Regenerate the letter with the acceptance filled in.
-  const { data: lh } = offer.letterhead_id
-    ? await admin.from("letterheads").select("*").eq("id", offer.letterhead_id).maybeSingle()
-    : { data: null as any };
-
-  const grab = async (path?: string | null, bucket?: string | null, provider?: string | null) => {
-    if (!path) return null;
-    const r = await downloadFile({
-      supabase: admin as any,
-      location: { provider: (provider as any) === "supabase" ? "supabase" : "r2",
-                  bucket: bucket || process.env.R2_BUCKET || "myjobhack", path }
-    }).catch(() => null);
-    return r?.buffer ? new Uint8Array(r.buffer) : null;
-  };
-
-  let signedPath: string | null = null;
+  /**
+   * Build the countersigned copy with the same renderer the viewer uses, from
+   * the stored offer, so it matches the letter that was sent: same date line,
+   * same reference, same start position. Only the signature block differs.
+   */
+  let signedLoc: any = null;
   let signedPdf: Uint8Array | null = null;
   try {
-    const pdf = await buildOfferPdf({
-      bytes: await grab(lh?.file_path, lh?.file_bucket, lh?.file_provider),
-      kind: (lh?.file_kind === "image" ? "image" : "pdf"),
-      topMargin: lh?.top_margin_pt ?? 150,
-      bottomMargin: lh?.bottom_margin_pt ?? 110,
-      signature: await grab(lh?.signature_path, lh?.signature_bucket, lh?.signature_provider),
-      signatoryName: lh?.signatory_name ?? "",
-      signatoryTitle: lh?.signatory_title ?? ""
-    }, {
-      candidateName: offer.candidate_name, body: offer.body,
-      countersign: true, signedName: typed, signedAt
-    });
-    signedPdf = pdf;
+    signedPdf = await renderOfferFromRow(admin, offer, { signed: true, signedName: typed, signedAt });
     const stored = await uploadFile({
-      supabase: admin as any, body: Buffer.from(pdf),
+      supabase: admin as any, body: Buffer.from(signedPdf),
       path: `offers/${offer.id}-accepted.pdf`, contentType: "application/pdf"
     });
-    signedPath = stored?.location?.path ?? null;
+    signedLoc = stored?.location ?? null;
   } catch {
-    // The acceptance itself must be recorded even if the document fails.
-    signedPath = null;
+    // The acceptance itself must be recorded even if the document fails. The
+    // viewer rebuilds the signed copy from the record when no file exists.
+    signedLoc = null;
   }
 
+  // The acceptance first, on its own, so nothing below can prevent it.
   await admin.from("offer_letters").update({
     status: "accepted", signed_at: signedAt, signed_name: typed,
-    signed_ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
-    ...(signedPath ? { pdf_path: signedPath } : {})
+    signed_ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null
   }).eq("id", offer.id);
+
+  /**
+   * The signed copy goes in its own columns, leaving pdf_path as the letter
+   * that was sent. Before migration 0057 those columns do not exist, so fall
+   * back to the old behaviour rather than lose the signed file.
+   */
+  if (signedLoc) {
+    const { error: sigErr } = await admin.from("offer_letters").update({
+      signed_pdf_path: signedLoc.path,
+      signed_pdf_bucket: signedLoc.bucket,
+      signed_pdf_provider: signedLoc.provider
+    }).eq("id", offer.id);
+    if (sigErr) {
+      await admin.from("offer_letters").update({ pdf_path: signedLoc.path }).eq("id", offer.id);
+    }
+  }
 
   // Move the application on, so the pipeline reflects reality.
   if (offer.application_id) {

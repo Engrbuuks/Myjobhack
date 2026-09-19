@@ -153,6 +153,11 @@ async function handleOffer(request: Request) {
     grab(lh?.signature_path, lh?.signature_bucket, lh?.signature_provider, "signature")
   ]);
 
+  // Kept as values so they can be stored with the offer, and the signed copy
+  // rebuilt later carries exactly the same date and reference.
+  const dateLine = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  const reference = `MJH-OFF-${new Date().getFullYear()}-${String(app?.id ?? email).slice(0, 6).toUpperCase()}`;
+
   const pdf = await buildOfferPdf({
     bytes: paperBytes,
     kind: (lh?.file_kind === "image" ? "image" : "pdf"),
@@ -163,8 +168,7 @@ async function handleOffer(request: Request) {
     signatoryTitle: lh?.signatory_title ?? ""
   }, {
     candidateName: name, body,
-    dateLine: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
-    reference: `MJH-OFF-${new Date().getFullYear()}-${String(app?.id ?? email).slice(0, 6).toUpperCase()}`,
+    dateLine, reference,
     countersign: b.countersign !== false,
     startOffset: Number(b.start_offset) || 0
   });
@@ -242,6 +246,17 @@ async function handleOffer(request: Request) {
         : error.message
     }, { status: missing ? 400 : 500 });
   }
+
+  /**
+   * Stored in a separate write, and failure is ignored on purpose: these
+   * columns arrive with migration 0057, and an offer must still go out on a
+   * database that has not had it yet. Without them the signed copy falls
+   * back to the send date and simply omits the reference.
+   */
+  await admin.from("offer_letters").update({
+    reference, date_line: dateLine, start_offset: Number(b.start_offset) || 0,
+    company_name: companyName
+  }).eq("id", row.id).then(() => null, () => null);
 
   const signUrl = `${APP()}/offer/${token}`;
   const attachment = [{
