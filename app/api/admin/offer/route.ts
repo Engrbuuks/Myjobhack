@@ -7,6 +7,7 @@ import { routeMail } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
 import { logSends, getAllowance } from "@/lib/emailAllowance";
 import { makeToken } from "@/lib/resumeScan";
+import { readDate } from "@/lib/recipientCsv";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -132,8 +133,26 @@ async function handleOffer(request: Request) {
     job?.company_name?.trim() ||
     "MYJOBHACK";
 
+  /**
+   * The start date is checked here, not trusted from the client.
+   *
+   * A malformed value used to go straight into the insert, and the database
+   * answered with "date/time field value out of range", which says nothing
+   * about which field or why. Reading it here means a bad date is refused
+   * with the value named, before anything is generated, stored or sent.
+   */
+  if (b.start_date) {
+    const parsed = readDate(String(b.start_date));
+    if (!parsed) {
+      return NextResponse.json({
+        error: `The start date "${String(b.start_date).slice(0, 40)}" could not be read. Use a date such as 15/09/2026 or 2026-09-15. Nothing was sent to ${name}.`
+      }, { status: 400 });
+    }
+    b.start_date = parsed;
+  }
+
   const start = b.start_date
-    ? new Date(b.start_date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    ? new Date(`${b.start_date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
     : "";
 
   const body = renderOfferBody(String(b.body ?? DEFAULT_OFFER_BODY), {

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { postJson, callApi } from "@/lib/apiClient";
+import { parseRecipients, showDate } from "@/lib/recipientCsv";
 import { OFFER_TOKENS, DEFAULT_OFFER_BODY, FORMATTING_HELP } from "@/lib/offerLetter";
 
 type Recipient = {
@@ -45,6 +46,7 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
     })) ?? []
   );
   const [parseNote, setParseNote] = useState<string | null>(null);
+  const [readNotes, setReadNotes] = useState<string[]>([]);
 
   const [letterheadId, setLetterheadId] = useState(
     letterheads.find((l) => l.is_default)?.id ?? letterheads[0]?.id ?? "");
@@ -73,54 +75,15 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
   }, []);
 
   /**
-   * Accept what people actually paste: a CSV, a spreadsheet column pair, or
-   * "Name <email>" lines. Rejecting a paste because of its separator would
-   * just mean the work happens in a text editor first.
+   * Parsing lives in lib/recipientCsv so it can be tested on its own. It
+   * honours quoted fields (a salary like "NGN 90,000" stays whole), matches
+   * columns by header name, and reads dates in the formats people type.
    */
   function parse(text: string) {
-    const out: Recipient[] = [];
-    const problems: string[] = [];
-
-    text.split(/\r?\n/).forEach((line, i) => {
-      const l = line.trim();
-      if (!l) return;
-      // Skip a header row rather than emailing someone called "Name".
-      if (i === 0 && /^\s*(name|full ?name)\b/i.test(l) && /email/i.test(l)) return;
-
-      const angled = l.match(/^(.*?)[<(]\s*([^>)\s]+@[^>)\s]+)\s*[>)]/);
-      let parts: string[];
-      // Trimmed: "Bola Ade <b@x.com>" otherwise keeps the space before
-      // the bracket and the letter opens "Dear Bola Ade ,".
-      if (angled) parts = [angled[1].trim(), angled[2].trim()];
-      else parts = l.split(/\t|,|;/).map((p) => p.trim());
-
-      const email = parts.find((p) => p.includes("@"))?.replace(/^["']|["']$/g, "") ?? "";
-      const name = parts.find((p) => p && !p.includes("@"))?.replace(/^["']|["']$/g, "") ?? "";
-
-      if (!email) { problems.push(`Line ${i + 1}: no email address found`); return; }
-      if (!name) { problems.push(`Line ${i + 1}: no name found`); return; }
-
-      const rest = parts.filter((p) => p !== name && p !== email);
-      out.push({
-        name, email,
-        position: rest[0] || undefined,
-        salary: rest[1] || undefined,
-        start_date: rest[2] || undefined,
-        reporting_to: rest[3] || undefined,
-        status: "pending"
-      });
-    });
-
-    // The same address twice means two letters to one person.
-    const seen = new Set<string>();
-    const deduped = out.filter((r) => {
-      const k = r.email.toLowerCase();
-      if (seen.has(k)) { problems.push(`${r.email} appears more than once and was included only once`); return false; }
-      seen.add(k); return true;
-    });
-
-    setRows(deduped);
-    setParseNote(problems.length ? problems.join(". ") : null);
+    const r = parseRecipients(text);
+    setRows(r.rows.map((x) => ({ ...x, status: "pending" as const })));
+    setParseNote(r.problems.length ? r.problems.join(". ") + "." : null);
+    setReadNotes(r.notes);
   }
 
   async function preview() {
@@ -218,11 +181,13 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
           <label className="label !text-xs">The people</label>
           <textarea className="input !h-auto py-2 font-mono text-xs" rows={7} value={raw}
             onChange={(e) => { setRaw(e.target.value); parse(e.target.value); }}
-            placeholder={"Ada Okafor, ada@example.com\nBola Ade <bola@example.com>\nChidi Eze, chidi@example.com, Call Center Agent, NGN 90000, 2026-09-15, Rita Adewale"} />
+            placeholder={"Name, Email, Position, Salary, Start Date\nAda Okafor, ada@example.com, Call Center Agent, \"NGN 90,000\", 15/09/2026\nBola Ade <bola@example.com>"} />
           <p className="text-xs text-muted-2 mt-1.5">
-            Name and email are all that is required. You can add position, salary, start date and
-            reporting line per person after the email, and anything left out uses the shared
-            values below.
+            Name and email are all that is required. With a header row, columns are matched by
+            name, so their order does not matter and extra columns such as Phone are ignored:
+            Name, Email, Position, Salary, Start Date, Reporting To. Amounts like &ldquo;NGN
+            90,000&rdquo; and dates like 15/09/2026 are read correctly. Anything left out uses the
+            shared terms below.
           </p>
           <div className="flex flex-wrap gap-2 mt-2">
             <label className="btn-ghost !h-9 text-xs cursor-pointer">
@@ -236,6 +201,10 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
           </div>
         </div>
 
+        {readNotes.length > 0 && (
+          <p className="text-xs text-muted-2">{readNotes.join(" ")}</p>
+        )}
+
         {parseNote && (
           <div className="rounded-xl border border-coral/40 p-3" style={{ background: "#FFF4F2" }}>
             <p className="text-sm text-ink">{parseNote}</p>
@@ -245,12 +214,23 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
         {rows.length > 0 && (
           <div className="rounded-xl border border-line max-h-56 overflow-y-auto divide-y divide-line">
             {rows.map((r, i) => (
-              <div key={i} className="flex items-center gap-3 p-2.5 text-sm">
-                <span className="flex-1 min-w-0 truncate">{r.name}</span>
-                <span className="text-muted-2 text-xs truncate">{r.email}</span>
-                {r.status === "sent" && <span className="text-xs text-coral font-semibold shrink-0">sent</span>}
-                {r.status === "failed" && (
-                  <span className="text-xs text-coral shrink-0" title={r.error}>failed</span>
+              <div key={i} className="p-2.5 text-sm">
+                <div className="flex items-center gap-3">
+                  <span className="flex-1 min-w-0 truncate font-medium">{r.name}</span>
+                  <span className="text-muted-2 text-xs truncate">{r.email}</span>
+                  {r.status === "sent" && <span className="text-xs text-coral font-semibold shrink-0">sent</span>}
+                  {r.status === "failed" && (
+                    <span className="text-xs text-coral shrink-0" title={r.error}>failed</span>
+                  )}
+                </div>
+                {/* What was read for this person, so a column read wrongly is
+                    visible here rather than discovered as a failed send. */}
+                <div className="text-xs text-muted-2 mt-0.5">
+                  {[r.position, r.salary, r.start_date && `starts ${showDate(r.start_date)}`, r.reporting_to]
+                    .filter(Boolean).join(" \u00b7 ") || "Uses the shared terms below"}
+                </div>
+                {r.status === "failed" && r.error && (
+                  <div className="text-xs text-coral mt-0.5">{r.error}</div>
                 )}
               </div>
             ))}
