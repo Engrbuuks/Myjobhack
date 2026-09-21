@@ -189,6 +189,59 @@ const clean = (v: string | undefined) => {
 };
 
 /* ------------------------------------------------------------------ *
+ * Recognising values by what they are
+ * ------------------------------------------------------------------ */
+
+/** Honorifics that mark a cell as a person, such as a supervisor. */
+const TITLE = /^(mr|mrs|ms|miss|mx|dr|engr|eng|prof|chief|alhaji|alhaja|pastor|rev|barr|hon|sir|madam|mdm)\.?\s+\S/i;
+
+/** Money: a currency marker, a pay period, or a large number. */
+function looksLikeMoney(v: string): boolean {
+  if (/(₦|\bngn\b|\bnaira\b|\$|\busd\b|£|\bgbp\b|€|\beur\b|\bghs\b|\bkes\b)/i.test(v)) return true;
+  if (/\b(per\s*(month|annum|year|week|day|hour)|monthly|annually|p\.?\s?a\.?|p\/?m)\b/i.test(v)) return true;
+  if (/^n\s?\d/i.test(v)) return true;                           // N90,000
+  if (/^\d{1,3}(,\d{3})+(\.\d+)?\s*k?$/i.test(v)) return true;  // 90,000
+  if (/^\d+(\.\d+)?\s*k$/i.test(v)) return true;                // 90k
+  // A bare number is money here, never an Excel date serial: without a
+  // header there is no way to know it is a date, and 45000 is far more
+  // likely to be a salary than 16 March 2023.
+  if (/^\d{4,}(\.\d+)?$/.test(v)) return true;
+  return false;
+}
+
+/**
+ * Sort the optional cells of a headerless row into their fields.
+ *
+ * WHY: taking them by position meant any row that skipped a column or put
+ * them in a different order had everything after the gap in the wrong field.
+ * A list with a supervisor's name where the start date was expected had
+ * "Ms. Bello Aishah" read as a date, and the reporting line lost. Each value
+ * is recognised by what it is instead. Plain text with nothing to mark it is
+ * the only case left to order: the first is the position, the next the
+ * reporting line.
+ */
+export function classify(cells: string[]): {
+  position?: string; salary?: string; start_date?: string; reporting_to?: string;
+} {
+  const out: { position?: string; salary?: string; start_date?: string; reporting_to?: string } = {};
+  const plain: string[] = [];
+  for (const raw of cells) {
+    const v = raw.trim();
+    if (!v) continue;
+    if (!out.salary && looksLikeMoney(v)) { out.salary = v; continue; }
+    if (!out.start_date && !/^\d+$/.test(v)) {
+      const d = readDate(v);
+      if (d) { out.start_date = d; continue; }
+    }
+    if (!out.reporting_to && TITLE.test(v)) { out.reporting_to = v; continue; }
+    plain.push(v);
+  }
+  if (plain.length) out.position = plain.shift();
+  if (!out.reporting_to && plain.length) out.reporting_to = plain.shift();
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
  * The parser
  * ------------------------------------------------------------------ */
 
@@ -247,11 +300,11 @@ export function parseRecipients(text: string): ParseResult {
         const others = cells.filter((_, i) => i !== ei);
         const ni = others.findIndex((c) => c !== "");
         r.name = ni >= 0 ? others[ni] : "";
-        const rest = others.slice(ni + 1);
-        r.position = rest[0] || undefined;
-        r.salary = rest[1] || undefined;
-        rawDate = rest[2] || undefined;
-        r.reporting_to = rest[3] || undefined;
+        const c = classify(others.slice(ni + 1));
+        r.position = c.position;
+        r.salary = c.salary;
+        r.start_date = c.start_date;
+        r.reporting_to = c.reporting_to;
       }
     }
 
@@ -284,5 +337,31 @@ export function parseRecipients(text: string): ParseResult {
     return true;
   });
 
-  return { rows, problems, notes };
+  if (!hasHeader && rows.length)
+    notes.push("No header row, so each value was recognised by what it looks like. Check the line under each name before sending.");
+
+  return { rows, problems: groupProblems(problems), notes };
+}
+
+/**
+ * One line per distinct problem, not one per person.
+ *
+ * Twenty copies of the same sentence bury the one different message that
+ * actually needs attention.
+ */
+function groupProblems(list: string[]): string[] {
+  const byReason = new Map<string, string[]>();
+  const order: string[] = [];
+  for (const p of list) {
+    const m = p.match(/^(.+?): (could not read the start date .+)$/);
+    const key = m ? m[2] : p;
+    if (!byReason.has(key)) { byReason.set(key, []); order.push(key); }
+    if (m) byReason.get(key)!.push(m[1]);
+  }
+  return order.map((reason) => {
+    const who = byReason.get(reason)!;
+    if (!who.length) return reason;
+    const names = who.length > 3 ? `${who.slice(0, 3).join(", ")} and ${who.length - 3} more` : who.join(", ");
+    return `${who.length === 1 ? names : `${who.length} people (${names})`}: ${reason}`;
+  });
 }

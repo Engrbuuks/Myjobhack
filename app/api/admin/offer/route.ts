@@ -216,6 +216,36 @@ async function handleOffer(request: Request) {
    * sent, and nobody follows up. So the allowance is checked before anything
    * is written.
    */
+  /**
+   * Never send the same offer twice by accident.
+   *
+   * The bulk screen skips people it has already sent to, but only within
+   * that screen. Uploading the list again, to correct a mistake or after a
+   * browser refresh, would otherwise send everyone a second letter with a
+   * second acceptance link. An open or accepted offer for the same person
+   * and role in the last sixty days blocks a new one unless resend is asked
+   * for explicitly.
+   */
+  if (!b.resend) {
+    const since = new Date(Date.now() - 60 * 86_400_000).toISOString();
+    const position = String(b.position ?? job?.title ?? "");
+    const { data: prior } = await admin.from("offer_letters")
+      .select("id, sent_at, status, position_title")
+      .ilike("candidate_email", email)
+      .in("status", ["sent", "accepted"])
+      .gte("sent_at", since)
+      .order("sent_at", { ascending: false });
+    const same = (prior ?? []).find((o: any) =>
+      String(o.position_title ?? "").trim().toLowerCase() === position.trim().toLowerCase());
+    if (same) {
+      const sentOn = new Date(same.sent_at).toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+      return NextResponse.json({
+        duplicate: true, offer_id: same.id, sent_on: sentOn, status: same.status,
+        error: `${name} already has this offer, sent ${sentOn}${same.status === "accepted" ? " and accepted" : ""}. Nothing was sent. To replace it, tick the correction box and send again.`
+      }, { status: 409 });
+    }
+  }
+
   const allowance = await getAllowance(admin);
   if (allowance.remaining <= 0)
     return NextResponse.json({

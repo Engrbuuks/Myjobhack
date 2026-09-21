@@ -57,6 +57,12 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
   const [body, setBody] = useState(DEFAULT_OFFER_BODY);
   const [cc, setCc] = useState("");
   const [startOffset, setStartOffset] = useState(0);
+  /**
+   * Off by default. When on, people who already hold this offer receive it
+   * again, which is only right when the earlier letters were wrong and this
+   * run is the correction.
+   */
+  const [allowResend, setAllowResend] = useState(false);
   const [company, setCompany] = useState("");
 
   const [busy, setBusy] = useState(false);
@@ -125,15 +131,28 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
       const r = rows[i];
       if (r.status === "sent") continue;
       const res = await postJson("/api/admin/offer", {
-        recipient_name: r.name, recipient_email: r.email,
+        /**
+         * The application id must go on the SEND, not just the preview. It was
+         * only on the preview, so offers to candidates picked from the
+         * applicant list went out unlinked, and accepting did not move them
+         * to hired.
+         */
+        ...(r.application_id
+          ? { application_id: r.application_id }
+          : { recipient_name: r.name, recipient_email: r.email }),
         letterhead_id: letterheadId || null, body,
         position: r.position || position, salary: r.salary || salary,
         start_date: r.start_date || startDate || null,
         reporting_to: r.reporting_to || reportingTo,
-        countersign: true, start_offset: startOffset, company: company || undefined, cc: ccList
+        countersign: true, start_offset: startOffset, company: company || undefined, cc: ccList,
+        resend: allowResend
       });
+      // Someone who already holds this offer is not a failure: they are done.
+      const already = res.status === 409 && res.data?.duplicate;
       setRows((prev) => prev.map((x, j) => j === i
-        ? { ...x, status: res.ok ? "sent" : "failed", error: res.ok ? undefined : res.error ?? undefined }
+        ? { ...x,
+            status: res.ok || already ? "sent" : "failed",
+            error: res.ok ? undefined : already ? `Already had this offer, sent ${res.data?.sent_on}. Not sent again.` : res.error ?? undefined }
         : x));
       if (res.data?.allowance) setAllowance(res.data.allowance);
 
@@ -402,6 +421,11 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
           </button>
         ) : (
           <>
+            <label className="flex items-center gap-2 text-sm w-full">
+              <input type="checkbox" className="accent-[#FC5647] w-4 h-4" checked={allowResend}
+                onChange={(e) => setAllowResend(e.target.checked)} />
+              This corrects letters already sent. Send again to people who already have this offer.
+            </label>
             <button className="btn-coral" onClick={sendAll} disabled={busy}>
               {busy ? `Sending, ${sent} of ${rows.length}…` : `Send ${rows.length} offer${rows.length === 1 ? "" : "s"}`}
             </button>
