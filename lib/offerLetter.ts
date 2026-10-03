@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
+import { DEJAVU_REGULAR, DEJAVU_BOLD, DEJAVU_OBLIQUE } from "@/lib/fonts/dejavu";
 
 /**
  * Build an offer letter PDF on the company's own letterhead.
@@ -12,6 +13,57 @@ import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
  */
 
 const A4 = { width: 595.28, height: 841.89 };
+
+/**
+ * Characters the built in PDF fonts cannot encode, and the nearest thing they
+ * can. Only ever used if embedding the real font fails: a letter that says
+ * NGN is poor, a letter that fails to build at all is worse.
+ */
+const FOLD: Record<string, string> = {
+  "\u20a6": "NGN ", "\u20b5": "GHS ", "\u20a8": "Rs ", "\u20b9": "INR ",
+  "\u20ab": "VND ", "\u20bd": "RUB ", "\u20ba": "TRY ", "\u2713": "(tick)",
+  "\u2714": "(tick)", "\u2022": "-", "\u2026": "..."
+};
+
+export function foldToWinAnsi(text: string): string {
+  let out = "";
+  for (const ch of String(text ?? "")) {
+    if (FOLD[ch]) { out += FOLD[ch]; continue; }
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x100) { out += ch; continue; }
+    // Strip the marks from a letter rather than lose the letter: \u1e63 becomes s.
+    const bare = ch.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    out += bare && (bare.codePointAt(0) ?? 0) < 0x100 ? bare : "?";
+  }
+  return out;
+}
+
+/**
+ * Embed DejaVu so every character in a letter can actually be drawn.
+ *
+ * Falls back to the built in fonts if anything about embedding fails, because
+ * an offer letter that builds in a plainer font beats one that does not build.
+ */
+async function loadFonts(pdf: PDFDocument) {
+  try {
+    const fontkit = (await import("@pdf-lib/fontkit")).default;
+    (pdf as any).registerFontkit(fontkit);
+    const bytes = (b64: string) => Uint8Array.from(Buffer.from(b64, "base64"));
+    const [font, bold, italic] = await Promise.all([
+      pdf.embedFont(bytes(DEJAVU_REGULAR), { subset: true }),
+      pdf.embedFont(bytes(DEJAVU_BOLD), { subset: true }),
+      pdf.embedFont(bytes(DEJAVU_OBLIQUE), { subset: true })
+    ]);
+    return { font, bold, italic, unicode: true };
+  } catch {
+    const [font, bold, italic] = await Promise.all([
+      pdf.embedFont(StandardFonts.Helvetica),
+      pdf.embedFont(StandardFonts.HelveticaBold),
+      pdf.embedFont(StandardFonts.HelveticaOblique)
+    ]);
+    return { font, bold, italic, unicode: false };
+  }
+}
 
 export type LetterheadSpec = {
   bytes: Uint8Array | null;
@@ -54,9 +106,29 @@ export async function buildOfferPdf(
   letterhead: LetterheadSpec, offer: OfferSpec
 ): Promise<Uint8Array & { warnings?: string[] }> {
   const pdf = await PDFDocument.create();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
+  const { font, bold, italic, unicode } = await loadFonts(pdf);
+
+  /**
+   * If the real font could not be embedded, fold every piece of text ONCE,
+   * here, rather than at each place it is drawn. Folding later would leave
+   * the wrapping measured on one string and drawn with another, and lines
+   * would overrun the margin.
+   */
+  if (!unicode) {
+    offer = {
+      ...offer,
+      candidateName: foldToWinAnsi(offer.candidateName),
+      body: foldToWinAnsi(offer.body),
+      reference: offer.reference ? foldToWinAnsi(offer.reference) : offer.reference,
+      dateLine: offer.dateLine ? foldToWinAnsi(offer.dateLine) : offer.dateLine,
+      signedName: offer.signedName ? foldToWinAnsi(offer.signedName) : offer.signedName
+    };
+    letterhead = {
+      ...letterhead,
+      signatoryName: foldToWinAnsi(letterhead.signatoryName),
+      signatoryTitle: foldToWinAnsi(letterhead.signatoryTitle)
+    };
+  }
 
   // The letterhead page, embedded once and stamped on every page.
   /**

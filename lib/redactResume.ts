@@ -109,11 +109,18 @@ export async function redactResumePdf(input: ArrayBuffer): Promise<RedactionResu
  * employer — the "introduced via MYJOBHACK" notice tied to non-circumvention.
  * Deterrent, not prevention: makes going around the platform a documented act.
  */
+import { foldToWinAnsi } from "@/lib/offerLetter";
+
 export async function watermarkResumePdf(input: ArrayBuffer, note?: string): Promise<Uint8Array> {
   const { PDFDocument, rgb, degrees, StandardFonts } = await import("pdf-lib");
   const doc = await PDFDocument.load(input);
   const font = await doc.embedFont(StandardFonts.HelveticaBold);
-  const text = note ?? "Introduced via MYJOBHACK — hiring off-platform breaches your agreement";
+  /**
+   * Folded, because the built in fonts cannot encode a naira sign or a
+   * Yoruba letter, and an unencodable character here would fail the whole
+   * resume download rather than just the footer line.
+   */
+  const text = foldToWinAnsi(note ?? "Introduced via MYJOBHACK. Hiring off platform breaches your agreement");
 
   for (const page of doc.getPages()) {
     const { width, height } = page.getSize();
