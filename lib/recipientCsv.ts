@@ -117,7 +117,19 @@ function iso(y: number, m: number, d: number): string | null {
  * back before sending, so an ambiguous one can be checked by eye.
  */
 export function readDate(raw: string | undefined | null): string | null {
-  const v = String(raw ?? "").trim().replace(/^["']|["']$/g, "");
+  const v0 = String(raw ?? "").trim().replace(/^["']|["']$/g, "");
+  if (!v0) return null;
+
+  // Spreadsheets and databases often export a date with the midnight it was
+  // stored at: 15/09/2026 00:00, or 2026-09-15T00:00:00.000Z. A weekday may
+  // also be written in front of it. None of that changes which day is meant,
+  // so it is removed before the date itself is read. Without this the whole
+  // value failed to parse and the column was silently ignored.
+  const v = v0
+    .replace(/^(mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)[a-z]*\.?,?\s+/i, "")
+    .replace(/[T\s]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\s*(am|pm)?\s*(z|utc|gmt|wat|[+-]\d{2}(:?\d{2})?)?$/i, "")
+    .replace(/\s+(z|utc|gmt|wat)$/i, "")
+    .trim();
   if (!v) return null;
 
   let m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);            // 2026-09-15
@@ -177,9 +189,56 @@ const HEADERS: [Field, RegExp][] = [
   ["reporting_to", /^(reporting(\s*to)?|reports?\s*to|manager|supervisor|line\s*manager)$/i]
 ];
 
+/**
+ * Reduce a header to its words: no punctuation, no underscores, and no
+ * format hint in brackets. "Start_Date", "START DATE*" and
+ * "Start Date (DD/MM/YYYY)" are all the same column.
+ */
+function normaliseHeader(cell: string): string {
+  return cell
+    .replace(/\(.*?\)|\[.*?\]/g, " ")
+    .replace(/[*:#"']+/g, " ")
+    .replace(/[_\-–./]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Words that say nothing about which column this is. */
+const FILLER = /\b(of|the|to|on|at|in|for|a|an|and|proposed|expected|anticipated|agreed|intended|tentative|planned|preferred|confirmed|actual|employee|employees|candidate|candidates|staff|new|first|work|working|job|duty|duties|office|employment|please|yyyy|mm|dd)\b/g;
+
+const STARTISH = /^(start|starts|started|starting|resumption|resume|resumes|resuming|commence|commences|commencement|commencing|joining|join|joins|joined|onboard|onboarding|induction|effective|effectivity|resumed)$/;
+
+/**
+ * Does this header name a start date?
+ *
+ * WHY THIS IS NOT A FIXED LIST: every company words it differently —
+ * Resumption Date, Commencement Date, Date Joined, Effective Date, Expected
+ * Resumption, start_date. A fixed list meant anything outside it was dropped
+ * without a word, and the shared date was used for everyone instead.
+ *
+ * A header qualifies when it says "date" together with a starting word, when
+ * it is a starting word on its own ("Resumption"), or when it is simply
+ * "Date". "Starting Salary" and "Date of Birth" are deliberately excluded:
+ * one has a starting word but no date, the other a date but no starting word.
+ */
+function isStartDateHeader(h: string): boolean {
+  const words = h.replace(FILLER, " ").split(/\s+/).filter(Boolean);
+  if (!words.length) return false;
+  const isDate = (w: string) => /^(dates?|days?)$/.test(w);
+  const hasDate = words.some(isDate);
+  const hasStart = words.some((w) => STARTISH.test(w));
+  if (hasDate && words.every((w) => isDate(w))) return true;          // "Date"
+  if (hasDate && hasStart) return true;                                // "Date Joined"
+  if (hasStart && words.every((w) => STARTISH.test(w) || isDate(w))) return true;  // "Resumption"
+  return false;
+}
+
 function headerField(cell: string): Field | null {
-  const c = cell.trim().replace(/[*:]+$/, "").trim();
+  const c = normaliseHeader(cell);
+  if (!c) return null;
   for (const [f, re] of HEADERS) if (re.test(c)) return f;
+  if (isStartDateHeader(c)) return "start_date";
   return null;
 }
 
@@ -267,6 +326,10 @@ export function parseRecipients(text: string): ParseResult {
     const ignored = first.filter((c, i) => !columns[i] && c.trim()).map((c) => c.trim());
     notes.push(`Read by column name: ${used.join(", ")}.`);
     if (ignored.length) notes.push(`Not used: ${ignored.join(", ")}.`);
+    // Said plainly, because the previous behaviour was to use the shared date
+    // for everyone without explaining that the file's own column was missed.
+    if (!columns.includes("start_date"))
+      notes.push("No start date column was recognised, so the shared start date below applies to everyone. Name the column Start Date, Resumption Date or Commencement Date to use dates from the file.");
   }
 
   const body = hasHeader ? records.slice(1) : records;
@@ -320,7 +383,7 @@ export function parseRecipients(text: string): ParseResult {
     if (rawDate) {
       const d = readDate(rawDate);
       if (d) r.start_date = d;
-      else problems.push(`${r.name}: could not read the start date "${rawDate}", so the shared start date will be used`);
+      else problems.push(`${r.name}: could not read the start date "${rawDate}" — write it as 15/09/2026, 2026-09-15 or 15 September 2026 — so the shared start date will be used`);
     }
 
     delete (r as any).first_name;
