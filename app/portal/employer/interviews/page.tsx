@@ -21,7 +21,7 @@ export default async function EmployerInterviews() {
   const admin = createAdminClient();
   const { data: interviews } = await admin.from("interviews")
     .select("*").eq("org_id", org.id).order("scheduled_at", { ascending: true, nullsFirst: true });
-  const rows = await assembleInterviewRows(admin as any, interviews ?? []);
+  const rows = await assembleInterviewRows(admin as any, interviews ?? [], { portal: "employer" });
   const { active, past } = splitUpcoming(rows);
 
   return (

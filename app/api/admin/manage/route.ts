@@ -69,12 +69,69 @@ export async function POST(request: Request) {
       }
 
       // ---------------- INTERVIEWS ----------------
+      /**
+       * Delete one interview, or a selection of them.
+       *
+       * Deleting is not cancelling. Cancelling keeps the record and emails the
+       * candidate; this removes the record and emails nobody, which is what
+       * you want for a test row or a mistake. The UI states the difference
+       * before either one runs.
+       *
+       * Applications are put back to shortlisted, because an application left
+       * at "interviewing" with no interview counts someone in the pipeline who
+       * has nothing scheduled, and nobody looks at them again.
+       */
       case "delete_interview": {
-        const { data: iv } = await admin.from("interviews").select("id, org_id").eq("id", id).single();
-        if (!iv) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        if (!isStaff && !(await orgAuthority(admin, user.id, iv.org_id))) return deny();
-        await admin.from("interviews").delete().eq("id", id);
-        return NextResponse.json({ ok: true });
+        const many: string[] = Array.isArray(data?.ids) ? data.ids.filter(Boolean) : [];
+        const targets = many.length ? many : (id ? [id] : []);
+        if (!targets.length)
+          return NextResponse.json({ error: "Nothing was selected to delete." }, { status: 400 });
+
+        const { data: ivs } = await admin.from("interviews")
+          .select("id, org_id, application_id, status").in("id", targets);
+        if (!ivs?.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+        // Authority is checked per row, so a selection spanning jobs cannot be
+        // deleted on the strength of access to just one of them.
+        if (!isStaff) {
+          for (const iv of ivs) {
+            if (!(await orgAuthority(admin, user.id, iv.org_id))) return deny();
+          }
+        }
+
+        const ids = ivs.map((iv: any) => iv.id);
+        const { error: delErr } = await admin.from("interviews").delete().in("id", ids);
+        if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+
+        // Only applications that have no OTHER live interview go back, so
+        // deleting a duplicate does not reset someone who is still booked.
+        const appIds = Array.from(new Set(ivs.map((iv: any) => iv.application_id).filter(Boolean)));
+        let reset = 0;
+        if (appIds.length) {
+          const { data: remaining } = await admin.from("interviews")
+            .select("application_id").in("application_id", appIds)
+            .in("status", ["invited", "scheduled"]);
+          const stillBooked = new Set((remaining ?? []).map((r: any) => r.application_id));
+          const freeAgain = appIds.filter((a) => !stillBooked.has(a));
+          if (freeAgain.length) {
+            const { data: moved } = await admin.from("applications")
+              .update({ status: "shortlisted", reviewed_by: user.id })
+              .in("id", freeAgain).eq("status", "interviewing").select("id");
+            reset = moved?.length ?? 0;
+          }
+        }
+
+        await admin.from("activity_log").insert({
+          actor_id: user.id, action: "Interviews deleted", entity: "interview",
+          entity_id: ids[0], meta: { count: ids.length, applications_reset: reset }
+        });
+
+        return NextResponse.json({
+          ok: true, deleted: ids.length, applications_reset: reset,
+          message: `${ids.length} interview${ids.length === 1 ? "" : "s"} deleted.` +
+            (reset ? ` ${reset} application${reset === 1 ? "" : "s"} moved back to shortlisted.` : "") +
+            " Nobody was emailed."
+        });
       }
 
       // ---------------- FORMS ----------------
