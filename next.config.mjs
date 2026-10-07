@@ -19,7 +19,24 @@ const nextConfig = {
       "/api/ai/parse-resume": ["./node_modules/pdfjs-dist/legacy/build/**"],
       "/api/ai/resume-diagnostic": ["./node_modules/pdfjs-dist/legacy/build/**"],
       "/api/employer/resume": ["./node_modules/pdfjs-dist/legacy/build/**"]
-    }
+    },
+
+    /**
+     * Do not reuse a page the browser already has.
+     *
+     * WHAT THIS FIXES: the App Router keeps a client side copy of each page it
+     * has rendered and, by default, reuses it for 30 seconds on navigation
+     * without asking the server. On an admin portal that reads a live database
+     * this is the wrong trade. Twenty interviews were scheduled and the
+     * Interviews page showed none of them, and interviews that had been
+     * deleted reappeared when the page was navigated back to — in both cases
+     * the browser was showing a snapshot taken before the change.
+     *
+     * Zero means every navigation asks the server. These pages are already
+     * server rendered on demand, so nothing is being given up except the
+     * stale copy.
+     */
+    staleTimes: { dynamic: 0, static: 0 }
   }
 };
 export default nextConfig;

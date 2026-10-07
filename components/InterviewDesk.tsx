@@ -20,9 +20,11 @@ const STATUS_LABELS: Record<string, string> = {
  * The board: filters, counts, bulk actions. Admin interviews page.
  * ------------------------------------------------------------------ */
 
-export function InterviewBoard({ rows, jobs }: {
+export function InterviewBoard({ rows, jobs, readAt }: {
   rows: InterviewRow[];
   jobs: { id: string; title: string }[];
+  /** When the server read the table, in Lagos time. */
+  readAt?: string;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -123,6 +125,28 @@ export function InterviewBoard({ rows, jobs }: {
 
   return (
     <div>
+      {/*
+        When this list was read, and how many rows came back.
+        Without it there is no way to tell a genuinely empty list from a stale
+        one, which is exactly the confusion that cost a day: twenty invitations
+        were sent and the page showed none of them.
+      */}
+      <div className="flex flex-wrap items-center gap-3 mb-4 text-xs text-muted-2">
+        <span>
+          {rows.length} interview{rows.length === 1 ? "" : "s"} on record
+          {readAt ? `, read at ${readAt} Lagos time` : ""}
+        </span>
+        <button className="font-semibold text-coral hover:underline"
+          onClick={() => router.refresh()}>
+          Reload from the database
+        </button>
+        <a href="/api/admin/interview-doctor" target="_blank" rel="noopener"
+          className="font-semibold hover:text-coral"
+          title="Shows what the interviews table actually holds, straight from the database">
+          Check the database directly ↗
+        </a>
+      </div>
+
       {/* ---- the numbers worth seeing before the list ---- */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
         <Stat label="Today" value={stats.today} hint="interviews in Lagos time" />

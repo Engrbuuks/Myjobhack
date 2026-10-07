@@ -1,86 +1,84 @@
-MyJobHack - interview management rebuild
+MyJobHack - interviews: the stale page fix, plus the diagnostic
 Date: 7 October 2026
+This zip is CUMULATIVE. It contains everything from the interview rebuild
+earlier today as well. If you have not applied that one yet, this replaces it.
 
 HOW TO APPLY
 Unzip over the root of the myjobhack-app folder, keeping the folder structure.
-Five files are replaced. No database migration is needed. Commit, push, and
-Vercel deploys.
+No database migration. Commit, push, deploy.
 
-  lib/interviews.ts                          replaced
-  components/InterviewDesk.tsx               replaced
-  app/portal/admin/interviews/page.tsx       replaced
-  app/portal/employer/interviews/page.tsx    replaced
-  app/api/admin/manage/route.ts              replaced
+  lib/interviews.ts                            replaced
+  components/InterviewDesk.tsx                 replaced
+  app/portal/admin/interviews/page.tsx         replaced
+  app/portal/employer/interviews/page.tsx      replaced
+  app/api/admin/manage/route.ts                replaced
+  app/api/admin/interview-doctor/route.ts      NEW
+  next.config.mjs                              replaced - SEE THE NOTE BELOW
 
-WHY IT BEHAVED THE WAY IT DID
+NOTE ON next.config.mjs
+If your deployed next.config.mjs has anything in it that mine does not, do not
+overwrite it. Instead add this one line inside the existing "experimental"
+block and leave everything else alone:
 
-1. The admin Interviews page read the table as the signed in user, so row
-   level security decided what appeared. Interviews on MYJOBHACK jobs carry no
-   org_id, and the org scoped policy returns nothing for them. The page now
-   reads with the service role client. The portal layout already refuses anyone
-   who is not admin or recruiter, so the gate sits upstream where it belongs.
+    staleTimes: { dynamic: 0, static: 0 }
 
-2. The rows that did appear carried only a name, an email and a time. The CV,
-   the phone, the company, the application and the fit score were each one
-   query away and none of them were being fetched. Guests, who are most
-   applicants, had no phone at all because the code read profiles.phone and a
-   guest has no profile; the number lives on the application as guest_phone.
+That line is the actual fix for the symptom you described.
 
-3. Delete was hidden on invited and scheduled interviews. The endpoint could
-   always delete them, the button simply was not rendered, so a test row could
-   only be removed by cancelling it and emailing a real candidate.
+WHAT WAS WRONG
 
-WHAT IS NEW
+Both of your symptoms are the same fault. New interviews not appearing, and
+deleted ones coming back, is what a cached page looks like.
 
-Details on every row
-  CV opens through the same gated endpoint the applicant lists use, so
-  redaction rules stay in one place. Phone falls back correctly for guests.
-  Company, round, mode, fit score, a link into the application, the interview
-  link where one was given, and the cancellation reason on cancelled rows.
+The App Router keeps a copy of each page in the browser after it renders it,
+and by default reuses that copy for 30 seconds when you navigate to the page
+again, without asking the server at all. So:
 
-Five counts above the list
-  Today, next 7 days, awaiting a time, time has passed, needs an outcome.
+  you schedule 20 interviews, navigate to Interviews, and are handed the copy
+  taken before they existed;
 
-"Time has passed" is new and is the one that was quietly costing you. An
-interview only leaves the scheduled state when somebody marks a no-show or
-saves a review. Nothing does that automatically, so an interview from three
-weeks ago still sat at the top of the live list counted as upcoming, with its
-application still held at interviewing where nobody looks at it again.
+  you delete some, the list updates, you navigate away, come back, and are
+  handed the copy taken before the deletion.
 
-Filters and search
-  Search by name, email, role, or phone. Phone search understands both forms:
-  typing 0816 528 finds +2348165285609. Filter by job, by status, or by
-  "needs attention", which means happened but unscored, or still open after
-  its time. History is hidden by default behind a tick box.
+Nothing was wrong with the database in either case. Setting staleTimes to zero
+makes every navigation ask the server. These pages are server rendered on
+demand anyway, so nothing is lost but the stale copy. The page also now calls
+noStore(), which stops the rendered output being kept and handed out again.
 
-Grouped by day, earliest first, with unscheduled interviews last rather than
-first. An interview with no time is an outstanding task, not the thing you
-need at the top on a morning when eleven people are coming in.
+HOW TO BE SURE, RATHER THAN TRUST ME
 
-Select and act in bulk
-  Tick rows, or a whole day, then cancel or delete the selection. Export the
-  filtered list to CSV, or copy the email addresses.
+A new endpoint reads the interviews table with the service role and no cache,
+so what it returns is the live table. Open it in a browser while signed in as
+staff:
 
-Delete, at any status
-  Delete and cancel are different things and the screen now says so before
-  either one runs. Cancel keeps the record, frees the slot, emails the
-  candidate and returns the application to shortlisted. Delete removes the
-  record and emails nobody, for test rows and mistakes. Deleting also returns
-  the application to shortlisted, but only when the candidate has no other
-  live interview, so clearing a duplicate does not reset somebody who is still
-  booked.
+  https://app.myjobhack.co/api/admin/interview-doctor
 
-CSV export
-  Date as yyyy-mm-dd so a spreadsheet sorts it, alongside the readable day.
-  Phone prefixed with an apostrophe so Excel keeps it as text instead of
-  reading +234... as a formula.
+It reports the total, the count by status, the 30 most recently created rows
+with their creation times, and the last 5 bulk runs with a verdict on each.
 
-TESTED
-Forty assertions over the row assembler, the day grouping, the counts, the
-filters and the CSV, including guest and registered candidates, the timezone
-rendering, and the phone search in both formats. A full production build
-passes.
+Reading it:
 
-STILL OUTSTANDING ON YOUR SIDE
-Migration 0057_offer_signed_copy.sql, if you have not run it yet. It belongs
-to the offer letter work, not to this.
+  the 20 are listed there but not on the page   -> the page was stale, reload
+  the 20 are not listed there                   -> they were never saved
+  a batch says MISMATCH                         -> emails went out but the
+                                                   interview rows were
+                                                   rejected, almost always by
+                                                   the double booking index
+
+You can narrow it:
+  /api/admin/interview-doctor?job=<job id>
+  /api/admin/interview-doctor?email=someone@example.com
+
+ONE THING TO CHECK FIRST
+
+"Email invite to 20 persons" could mean two different features. The bulk email
+tool on the applicant list sends a personalised message and creates no
+interview, by design, so nothing from it will ever appear under Interviews.
+Only the interview scheduler creates interviews. If the doctor shows no new
+rows and no new batch, that is what happened, and the fix is to schedule them
+through the interview invitation flow instead.
+
+ALSO ADDED
+The Interviews page now shows how many rows came back and the time it read
+them, with a "Reload from the database" button and a link to the doctor. A list
+that is empty because it is stale and a list that is empty because there is
+nothing in it used to look identical.

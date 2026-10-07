@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHeader } from "@/components/PageHeader";
 import { InterviewBoard } from "@/components/InterviewDesk";
@@ -16,7 +17,19 @@ import { assembleInterviewRows } from "@/lib/interviews";
 export const dynamic = "force-dynamic";
 
 export default async function AdminInterviews() {
+  /**
+   * Never serve this page from a cache.
+   *
+   * force-dynamic above stops it being rendered at build time; this stops the
+   * rendered output being kept and handed out again. Twenty interviews were
+   * scheduled and this page showed none of them, and deleted interviews
+   * reappeared, because what was on screen had been rendered before either
+   * change happened. A roster is only useful if it is current.
+   */
+  noStore();
+
   const admin = createAdminClient();
+  const readAt = new Date();
 
   const { data: interviews, error } = await admin.from("interviews")
     .select("*")
@@ -43,7 +56,10 @@ export default async function AdminInterviews() {
         </div>
       )}
 
-      <InterviewBoard rows={rows} jobs={jobs} />
+      <InterviewBoard rows={rows} jobs={jobs}
+        readAt={readAt.toLocaleTimeString("en-GB", {
+          timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit", second: "2-digit"
+        })} />
     </>
   );
 }
