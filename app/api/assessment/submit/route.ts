@@ -80,23 +80,35 @@ export async function POST(request: Request) {
     overall: result.overall, band: result.band, percentile,
     strengths: result.strengths, gaps: result.gaps,
     pending_review: review,
+    // "Shortly" was a promise nothing kept: publishing the band sent no
+    // message at all. The review desk now emails on publication, so this says
+    // what will actually happen instead of putting a clock on it.
     message: review
-      ? "Your assessment is complete and under final review — your badge will appear shortly."
+      ? "Your assessment is complete and is with a reviewer. We will email you once your band is published, so you do not need to keep checking this page."
       : "Your competency badge is live on your profile."
   });
 }
 
-async function computePercentile(admin: any, field: string, level: string | null, overall: number): Promise<number> {
+/**
+ * Null, not 50, when there is no cohort to rank against.
+ *
+ * Returning 50 meant the candidate was shown "Top 50% in your field" as
+ * though it were measured, when in fact fewer than five people had ever sat
+ * the paper in that field. At this platform's volume that was most candidates
+ * in most fields being given a number that means nothing, and it was written
+ * to competency_percentile where employers read it as a real figure.
+ */
+async function computePercentile(admin: any, field: string, level: string | null, overall: number): Promise<number | null> {
   const { data } = await admin.from("assessment_scores")
     .select("overall, assessments!inner(field_label, role_level)")
     .eq("assessments.field_label", field);
   const peers = (data ?? []).map((r: any) => Number(r.overall));
-  if (peers.length < 5) return 50; // not enough cohort yet
+  if (peers.length < 5) return null; // no cohort yet, so there is no ranking to give
   const below = peers.filter((p: number) => p < overall).length;
   return Math.round((below / peers.length) * 100);
 }
 
-async function publishBadge(admin: any, talentId: string, field: string, score: number, band: string, percentile: number) {
+async function publishBadge(admin: any, talentId: string, field: string, score: number, band: string, percentile: number | null) {
   await admin.from("talent_profiles").update({
     competency_band: band, competency_score: score, competency_percentile: percentile,
     competency_field: field, competency_assessed_at: new Date().toISOString()

@@ -1,23 +1,22 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
 import { renderInvoiceHTML, renderReceiptHTML } from "@/lib/invoiceDoc";
+import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
-async function staffOnly() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data: me } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  return me?.role === "admin" || me?.role === "recruiter" ? user : null;
-}
-
 export async function POST(request: Request) {
-  const user = await staffOnly();
-  if (!user) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+  /**
+   * Raising, sending, voiding and receipting invoices is the money side of the
+   * platform, and it was open to anyone holding a staff role. The permission
+   * model already names this: payments.manage covers payments, invoices and
+   * placement fees.
+   */
+  const perm = await requirePermission("payments.manage");
+  if (!perm.ok) return perm.response;
+  const user = { id: perm.userId };
   const b = await request.json();
   const admin = createAdminClient();
 
@@ -79,7 +78,8 @@ export async function POST(request: Request) {
         ...(inv.notes ? [inv.notes] : [])
       ],
       details: summaryRows,
-      cta: { label: "View & download invoice", url: `${appUrl}/invoice/${inv.id}` },
+      // The share token is the credential now, so a link without it is refused.
+      cta: { label: "View & download invoice", url: `${appUrl}/invoice/${inv.id}?t=${inv.share_token}` },
       footNote: "Kindly use the invoice number as your transfer reference."
     });
     const res = await sendEmail(inv.client_email, `Invoice ${inv.number} — MYJOBHACK`, html);

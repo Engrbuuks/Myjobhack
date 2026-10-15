@@ -31,7 +31,10 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
   const [resume, setResume] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [done, setDone] = useState<null | { shortlisted: boolean }>(null);
+  // `emailed` comes back from the route, so "watch your inbox" is only said
+  // when a confirmation actually left. It used to be said unconditionally and
+  // nothing was ever sent.
+  const [done, setDone] = useState<null | { shortlisted: boolean; emailed: boolean }>(null);
 
   const setA = (id: string, v: any) => setAnswers((a) => ({ ...a, [id]: v }));
 
@@ -54,7 +57,7 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
     const json = await res.json();
     setBusy(false);
     if (!res.ok) { setErr(json.error); return; }
-    setDone({ shortlisted: !!json.shortlisted });
+    setDone({ shortlisted: !!json.shortlisted, emailed: !!json.emailed });
   }
 
   if (done) {
@@ -69,7 +72,11 @@ export function GuestApplyForm({ jobId, fields }: { jobId: string; fields?: Fiel
           <p className="text-white/60 text-sm leading-relaxed mb-6">
             {done.shortlisted
               ? "You met the role's requirements, so our system shortlisted you instantly. The hiring team sees you at the top."
-              : "The hiring team has it. Watch your inbox."}
+              : "The hiring team has it."}
+            {" "}
+            {done.emailed
+              ? "We have sent a confirmation to your email, so check your inbox and your spam folder."
+              : "We could not send a confirmation email just now, so there is nothing to look out for in your inbox. Your application is saved all the same."}
           </p>
           {/* This is the moment of maximum motivation — they have just applied.
               Lead with the assessment, because that is what actually makes them

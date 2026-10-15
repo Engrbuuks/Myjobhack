@@ -1,26 +1,56 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
 import { rankCandidates } from "@/lib/matching";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+/** Resolve caller authority over a job: 'staff' | 'org' | null. */
+async function authority(admin: any, userId: string, jobOrgId: string | null, role: string | undefined) {
+  if (role === "admin" || role === "recruiter") return "staff";
+  if (!jobOrgId) return null;
+  const { data: m } = await admin.from("org_members")
+    .select("org_id").eq("org_id", jobOrgId).eq("profile_id", userId).maybeSingle();
+  return m ? "org" : null;
+}
 
 export async function POST(request: Request) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const { job_id } = await request.json();
+  const { job_id } = await request.json().catch(() => ({} as any));
+  if (!job_id) return NextResponse.json({ error: "job_id is required" }, { status: 400 });
   const admin = createAdminClient();
 
   const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  const staffOrEmployer = ["admin", "recruiter", "employer"].includes(me?.role ?? "");
-  if (!staffOrEmployer) return NextResponse.json({ error: "Not permitted" }, { status: 403 });
 
   const { data: job } = await admin.from("jobs")
-    .select("id, title, description, location, work_mode, key_requirements, niche_id, role_level").eq("id", job_id).maybeSingle();
+    .select("id, title, description, location, work_mode, key_requirements, niche_id, role_level, org_id").eq("id", job_id).maybeSingle();
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+  /**
+   * The role check alone was not authorisation.
+   *
+   * Registration lets a stranger pick the employer role, and job_id was never
+   * checked against them, so any signed up account could rank the whole pool
+   * against someone else's posting and read the names back. An employer must
+   * belong to the organisation that owns the job; staff hold the pool
+   * capability, which is the same thing the pool browser is gated on.
+   */
+  const auth = await authority(admin, user.id, job.org_id ?? null, me?.role);
+  if (auth === "staff") {
+    const perm = await requirePermission("pool.view");
+    if (!perm.ok) return perm.response;
+  } else if (auth !== "org") {
+    return NextResponse.json({
+      error: job.org_id
+        ? "This job belongs to another organisation, so its matches are not yours to see."
+        : "This job belongs to MYJOBHACK, so only staff can match candidates against it."
+    }, { status: 403 });
+  }
 
   // pull candidate pool (talent with a profile)
   const { data: tps } = await admin.from("talent_profiles")

@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
+import { routeMail } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
+import { logSends } from "@/lib/emailAllowance";
 import { renderTemplate, toParagraphs, varsFor,
          CANCEL_SUBJECT, CANCEL_BODY, RESCHEDULE_SUBJECT, RESCHEDULE_BODY } from "@/lib/interviewEmail";
+import { OUTCOME_COPY } from "@/lib/interviewOutcomeEmail";
 
 export const runtime = "nodejs";
 
@@ -226,7 +229,9 @@ export async function PATCH(request: Request) {
         heading: "Your interview time has changed",
         paragraphs: toParagraphs(renderTemplate(RESCHEDULE_BODY, v))
       })).catch(() => null);
-      notified = !!r;
+      // sendEmail resolves with an error field rather than throwing, so the
+      // result being present says nothing about whether it was delivered.
+      notified = !!r && !r.error;
     }
 
     return NextResponse.json({
@@ -265,7 +270,9 @@ export async function PATCH(request: Request) {
         heading: "Your interview has been cancelled",
         paragraphs: toParagraphs(renderTemplate(CANCEL_BODY, v))
       })).catch(() => null);
-      notified = !!r;
+      // sendEmail resolves with an error field rather than throwing, so the
+      // result being present says nothing about whether it was delivered.
+      notified = !!r && !r.error;
       if (notified) await admin.from("interviews").update({ cancel_notified: true }).eq("id", id);
     }
 
@@ -291,26 +298,101 @@ export async function PATCH(request: Request) {
   }
 
   // outcome drives the application pipeline + tells the candidate
+  let outcomeReply: { ok: true; notified: boolean; message: string } | null = null;
   if (action === "outcome") {
     const map: Record<string, string> = { advanced: "offered", rejected: "rejected" };
     if (map[b.outcome]) {
       await admin.from("applications")
         .update({ status: map[b.outcome] as any, reviewed_by: user.id }).eq("id", iv.application_id);
     }
-    const { data: job } = await admin.from("jobs").select("title").eq("id", iv.job_id).single();
+    const { data: job } = await admin.from("jobs")
+      .select("title, company_name").eq("id", iv.job_id).maybeSingle();
+
+    const { data: prof } = iv.talent_id
+      ? await admin.from("profiles").select("full_name, email").eq("id", iv.talent_id).maybeSingle()
+      : { data: null as any };
+    const to = prof?.email ?? iv.guest_email ?? null;
+    const who = prof?.full_name ?? iv.guest_name ?? "there";
+    const first = who.split(" ")[0];
+
     const msgs: Record<string, { t: string; b: string }> = {
       advanced: { t: "Good news after your interview 🎉", b: `You've been advanced for "${job?.title}". Watch your applications for the offer.` },
-      hold: { t: "Interview update", b: `Your interview for "${job?.title}" is under review — you'll hear back soon.` },
+      hold: { t: "Interview update", b: `Your interview for "${job?.title}" is still under review. There is nothing you need to do.` },
       rejected: { t: "Interview update", b: `Thank you for interviewing for "${job?.title}". The team went another direction this time — your profile stays in the pool for matching.` }
     };
     const m = msgs[b.outcome];
-    await admin.from("notifications").insert({
-      profile_id: iv.talent_id, title: m.t, body: m.b, link: "/portal/seeker/applications"
-    });
+
+    /**
+     * The in app notification only exists for someone with a profile.
+     *
+     * notifications.profile_id is NOT NULL, so inserting iv.talent_id for a
+     * guest was always rejected. The error was never read, the route returned
+     * ok, and the desk reported that the candidate had been told.
+     */
+    if (iv.talent_id) {
+      await admin.from("notifications").insert({
+        profile_id: iv.talent_id, title: m.t, body: m.b, link: "/portal/seeker/applications"
+      });
+    }
+
+    /**
+     * The email is the part that reaches everybody, and for a guest it is the
+     * only channel there is. Routed rather than sent directly so a spent
+     * Resend allowance falls over to Brevo instead of losing the message.
+     */
+    let notified = false;
+    let sendError: string | null = null;
+    if (to && b.notify !== false) {
+      const copy = OUTCOME_COPY[b.outcome];
+      const v = varsFor({
+        name: who, role: job?.title ?? "the role",
+        company: job?.company_name ?? "MYJOBHACK",
+        slotIso: iv.scheduled_at ?? new Date().toISOString(),
+        duration: iv.duration_min ?? 30,
+        location: iv.location_or_link ?? "",
+        timezone: iv.timezone ?? "Africa/Lagos"
+      });
+      const subject = renderTemplate(copy.subject, v);
+      try {
+        const [r] = await routeMail([{
+          to, subject,
+          html: renderEmail({
+            preheader: copy.preheader,
+            kicker: copy.kicker,
+            heading: copy.heading,
+            paragraphs: toParagraphs(renderTemplate(copy.body, v))
+          })
+        }], { bulk: false });
+        notified = !!r && !r.error;
+        sendError = r?.error ?? null;
+        await logSends(admin, [{
+          recipient: to, subject, kind: "transactional",
+          job_id: iv.job_id, application_id: iv.application_id,
+          profile_id: iv.talent_id ?? null, sent_by: user.id,
+          status: notified ? "sent" : "failed",
+          error: sendError, provider: (r as any)?.provider ?? "resend",
+          preview: `Interview outcome: ${b.outcome}`
+        }]).catch(() => {});
+      } catch (err: any) {
+        sendError = err?.message ?? "send failed";
+      }
+    }
+
+    const decision = b.outcome === "advanced" ? "Advanced" : b.outcome === "rejected" ? "Rejected" : "Put on hold";
+    outcomeReply = {
+      ok: true, notified,
+      message: notified
+        ? `${decision}, and ${first} has been emailed the outcome.`
+        : !to
+          ? `${decision}, but there is no email address on file, so ${first} has not been told.`
+          : b.notify === false
+            ? `${decision}. No email was sent, so ${first} has not been told.`
+            : `${decision}, but the email did not send${sendError ? ` (${sendError})` : ""}. ${first} has not been told.`
+    };
   }
 
   await admin.from("activity_log").insert({
     actor_id: user.id, action: `Interview ${action}`, entity: "interview", entity_id: id, meta: { outcome: b.outcome }
   });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json(outcomeReply ?? { ok: true });
 }

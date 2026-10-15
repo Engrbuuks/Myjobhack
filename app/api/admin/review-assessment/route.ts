@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
+import { notifyBandDecision } from "@/lib/assessmentNotify";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  /**
+   * Behind the capability rather than an admin/recruiter role test.
+   *
+   * The ad hoc check let every recruiter publish or override a competency
+   * band, which is the number employers rank candidates by. Scoring is what
+   * assessments.manage exists to gate.
+   */
+  const gate = await requirePermission("assessments.manage");
+  if (!gate.ok) return gate.response;
 
   const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!["admin", "recruiter"].includes(me?.role ?? ""))
-    return NextResponse.json({ error: "Not permitted" }, { status: 403 });
 
   const { score_id, action, override_overall, override_band, note } = await request.json();
   const { data: score } = await admin.from("assessment_scores").select("*").eq("id", score_id).maybeSingle();
@@ -27,7 +31,7 @@ export async function POST(request: Request) {
 
   await admin.from("assessment_scores").update({
     review_status: action === "override" ? "overridden" : "confirmed",
-    overall, band, reviewer_id: user.id, reviewer_note: note ?? null,
+    overall, band, reviewer_id: gate.userId, reviewer_note: note ?? null,
     reviewed_at: new Date().toISOString()
   }).eq("id", score_id);
 
@@ -38,5 +42,28 @@ export async function POST(request: Request) {
     competency_field: asmt?.field_label ?? null, competency_assessed_at: new Date().toISOString()
   }).eq("profile_id", score.talent_id);
 
-  return NextResponse.json({ ok: true });
+  /**
+   * Tell the candidate the band is live.
+   *
+   * Submitting promised the badge would appear shortly. Publishing it sent
+   * nothing, so the only way to find out was to keep checking the page.
+   */
+  const told = await notifyBandDecision({
+    admin, talentId: score.talent_id,
+    field: asmt?.field_label ?? "",
+    band, score: overall,
+    event: action === "override" ? "overridden" : "confirmed",
+    note: note ?? null, reviewerId: gate.userId
+  });
+
+  return NextResponse.json({
+    ok: true,
+    notified: told.notified, emailed: told.emailed,
+    // The band is published either way, so say plainly whether they know.
+    message: told.emailed
+      ? "Published, and the candidate has been emailed."
+      : `Published, but the candidate was not emailed${told.error ? ` (${told.error})` : ""}.${
+          told.notified ? " They will see it in the portal when they next sign in." : ""
+        }`
+  });
 }

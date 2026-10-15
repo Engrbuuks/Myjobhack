@@ -45,24 +45,52 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // carry the application form across, so screening questions come too
+  /**
+   * Carry the application form across, so screening questions come too.
+   *
+   * WHAT WENT WRONG: this queried a table called `forms`, which does not
+   * exist. It is `application_forms` everywhere else in the codebase. The
+   * columns were wrong too (`title` and `description`, where the table has
+   * `name`) and so was the sort column (`position`, where it is `sort`). The
+   * query returned null, `if (form)` was false, the whole block was skipped,
+   * and the route still answered ok. So duplicating a role handed out a copy
+   * with no screening questions at all, with nothing saying anything had been
+   * dropped, while the button's own tooltip promised an editable copy of the
+   * role.
+   *
+   * A failure here is now reported rather than swallowed, because a job
+   * published without its eligibility rules lets through applicants the rules
+   * existed to filter out.
+   */
+  let formWarning: string | null = null;
   if (form_id) {
-    const { data: form } = await admin.from("forms").select("title, description").eq("id", form_id).maybeSingle();
-    if (form) {
-      const { data: newForm } = await admin.from("forms")
-        .insert({ title: form.title, description: form.description, created_by: user.id })
+    const { data: form, error: formErr } = await admin.from("application_forms")
+      .select("name, is_template").eq("id", form_id).maybeSingle();
+    if (formErr || !form) {
+      formWarning = "The job was copied, but its application form could not be read, so the copy has no screening questions yet.";
+    } else {
+      const { data: newForm, error: newFormErr } = await admin.from("application_forms")
+        .insert({ name: form.name, is_template: false, created_by: user.id })
         .select("id").single();
-      if (newForm) {
-        const { data: fields } = await admin.from("form_fields").select("*").eq("form_id", form_id).order("position");
+      if (newFormErr || !newForm) {
+        formWarning = "The job was copied, but a new application form could not be created, so the copy has no screening questions yet.";
+      } else {
+        const { data: fields } = await admin.from("form_fields")
+          .select("*").eq("form_id", form_id).order("sort");
         if (fields?.length) {
-          await admin.from("form_fields").insert(
-            fields.map(({ id: _fid, form_id: _f, created_at: _c, ...f }) => ({ ...f, form_id: newForm.id }))
+          const { error: fieldErr } = await admin.from("form_fields").insert(
+            fields.map(({ id: _fid, form_id: _f, ...f }) => ({ ...f, form_id: newForm.id }))
           );
+          if (fieldErr)
+            formWarning = `The job was copied with an empty application form: the questions could not be copied (${fieldErr.message}).`;
         }
         await admin.from("jobs").update({ form_id: newForm.id }).eq("id", copy.id);
       }
     }
   }
 
-  return NextResponse.json({ ok: true, id: copy.id });
+  return NextResponse.json({
+    ok: true, id: copy.id,
+    ...(formWarning ? { warning: formWarning } : {})
+  });
 }

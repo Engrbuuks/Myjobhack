@@ -31,8 +31,42 @@ export async function POST(request: Request) {
 
   // Load the posting to tailor the test.
   const { data: job } = await admin.from("jobs")
-    .select("title, description, key_requirements, role_level").eq("id", job_id).maybeSingle();
+    .select("title, description, key_requirements, role_level, org_id").eq("id", job_id).maybeSingle();
   if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
+
+  /**
+   * The role gate was the only check, and registration lets anyone pick the
+   * employer role, so job_id and talent_ids could both be anything: order
+   * tests against a competitor's posting, or push an assessment onto a user
+   * who has nothing to do with it. An employer must own the job, and every
+   * candidate must already be attached to that job, either as an applicant
+   * who reached shortlist or as one of the matches ranked for it.
+   */
+  const isStaff = ["admin", "recruiter"].includes(me?.role ?? "");
+  if (!isStaff) {
+    if (!job.org_id)
+      return NextResponse.json({ error: "This job belongs to MYJOBHACK, so only staff can order assessments on it." }, { status: 403 });
+    const { data: membership } = await admin.from("org_members")
+      .select("org_id").eq("org_id", job.org_id).eq("profile_id", user.id).maybeSingle();
+    if (!membership)
+      return NextResponse.json({ error: "This job belongs to another organisation." }, { status: 403 });
+  }
+
+  const [{ data: linkedApps }, { data: linkedMatches }] = await Promise.all([
+    admin.from("applications").select("talent_id")
+      .eq("job_id", job_id).in("talent_id", ids)
+      .in("status", ["shortlisted", "interviewing", "offered", "hired"]),
+    admin.from("job_matches").select("talent_id").eq("job_id", job_id).in("talent_id", ids)
+  ]);
+  const linked = new Set([
+    ...(linkedApps ?? []).map((a: any) => a.talent_id),
+    ...(linkedMatches ?? []).map((m: any) => m.talent_id)
+  ]);
+  const strangers = ids.filter((t) => !linked.has(t));
+  if (strangers.length)
+    return NextResponse.json({
+      error: `${strangers.length} of the people selected are not shortlisted for this role and were not matched to it, so they cannot be assessed on it. Shortlist them first, or run the matcher.`
+    }, { status: 403 });
 
   const pricing = await getPricing();
   const perCandidate = pricing.job_assessment_per_candidate_ngn ?? 5000;

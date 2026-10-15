@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activateSubscription } from "@/lib/subscription";
-import { enrollAfterPayment } from "@/lib/trainingPay";
+import { checkTrainingCharge, enrollAfterPayment } from "@/lib/trainingPay";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
 
@@ -8,22 +8,37 @@ import { renderEmail } from "@/lib/email";
  * Settles a successful Paystack charge based on its `purpose`.
  * Idempotent: safe to call from both the webhook and the verify return page.
  */
-export async function settlePayment(data: any): Promise<{ settled: boolean; note?: string }> {
+export async function settlePayment(data: any): Promise<{
+  settled: boolean; note?: string; already?: boolean; subscription_id?: string;
+}> {
   const admin = createAdminClient();
   const m = data?.metadata ?? {};
   const purpose = m.purpose;
   const reference = data?.reference;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
 
-  // Global idempotency guard on reference.
+  // Global idempotency guard on reference. Read several rather than one:
+  // maybeSingle() raises when a reference somehow sits on two rows, which left
+  // this guard open in exactly the case it exists for.
   if (reference) {
-    const { data: seen } = await admin.from("payments").select("id, status").eq("provider_ref", reference).maybeSingle();
-    if (seen?.status === "confirmed") return { settled: true, note: "already settled" };
+    const { data: seen } = await admin.from("payments").select("id, status").eq("provider_ref", reference).limit(5);
+    if ((seen ?? []).some((p: any) => p.status === "confirmed"))
+      return { settled: true, already: true, note: "already settled" };
   }
 
   switch (purpose) {
     case "training": {
-      if (m.payment_id) await enrollAfterPayment(admin, m.payment_id, m.profile_id ?? "system");
+      if (m.payment_id) {
+        // The charge still has to match the row it claims to pay. The metadata
+        // on a charge is only as trustworthy as whoever initialised it, and a
+        // charge can be initialised with our public key.
+        const check = await checkTrainingCharge(admin, String(m.payment_id), data);
+        if (!check.ok) {
+          if (check.already) return { settled: true, already: true, note: "already settled" };
+          return { settled: false, note: check.error };
+        }
+        await enrollAfterPayment(admin, check.pay.id, check.pay.profile_id ?? m.profile_id ?? "system");
+      }
 
       // If a coupon was used, record the redemption now that money has actually
       // moved — this is what enforces usage limits and reports what each code earned.
@@ -46,11 +61,31 @@ export async function settlePayment(data: any): Promise<{ settled: boolean; note
     case "employer_subscription": {
       if (!m.profile_id || !m.plan_id) return { settled: false, note: "missing sub metadata" };
       const subId = await activateSubscription(m.profile_id, m.plan_id, "paystack", 30);
-      if (m.payment_id) await admin.from("payments").update({
-        status: "confirmed", subscription_id: subId, confirmed_at: new Date().toISOString(), provider_ref: reference
-      }).eq("id", m.payment_id);
-      await notify(admin, m.profile_id, "Subscription active 🎉", "Your plan is active.", "/portal");
-      return { settled: true };
+      if (m.payment_id) {
+        await admin.from("payments").update({
+          status: "confirmed", subscription_id: subId, confirmed_at: new Date().toISOString(), provider_ref: reference
+        }).eq("id", m.payment_id);
+      } else if (reference) {
+        // No pending row to confirm, so write one. The guard at the top of this
+        // function recognises a replay by finding a confirmed row for the
+        // reference, and activateSubscription extends from the existing period
+        // end: a reference that settles without leaving a trace buys 30 days
+        // every time it is presented.
+        await admin.from("payments").insert({
+          profile_id: m.profile_id, amount: Number(data?.amount ?? 0) / 100,
+          currency: data?.currency ?? "NGN", method: "paystack", status: "confirmed",
+          purpose, provider_ref: reference, subscription_id: subId,
+          confirmed_at: new Date().toISOString(), meta: m
+        });
+      }
+      // Seekers buy this to reach the toolkit, so say so and land them there.
+      if (purpose === "seeker_subscription") {
+        await notify(admin, m.profile_id, "Career Toolkit unlocked 🎉",
+          "Your subscription is active — all toolkit are now available.", "/portal/seeker/ai-tools");
+      } else {
+        await notify(admin, m.profile_id, "Subscription active 🎉", "Your plan is active.", "/portal");
+      }
+      return { settled: true, subscription_id: subId };
     }
 
     case "profile_unlock": {

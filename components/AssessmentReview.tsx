@@ -9,20 +9,41 @@ export function AssessmentReview({ row }: { row: any }) {
   const [band, setBand] = useState(row.band);
   const [note, setNote] = useState("");
 
+  const [outcome, setOutcome] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  /**
+   * Publishing a band emails the candidate, and whether that email left is
+   * part of the outcome, not a detail.
+   *
+   * This checked res.ok and showed a tick. A candidate who sat a thirty five
+   * minute assessment and was told to watch for their badge is relying on that
+   * message, so a failed send has to be visible to the reviewer who can do
+   * something about it.
+   */
   async function act(action: "confirm" | "override") {
-    setBusy(true);
+    setBusy(true); setErr(null);
     const res = await fetch("/api/admin/review-assessment", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ score_id: row.id, action, override_overall: Number(overall), override_band: band, note })
     });
+    const json = await res.json().catch(() => ({} as any));
     setBusy(false);
-    if (res.ok) setDone(true);
+    if (!res.ok) { setErr(json.error ?? "That review could not be saved."); return; }
+    setOutcome(json.message ?? null);
+    setDone(true);
   }
 
-  if (done) return <div className="card p-4 text-sm text-green-600 font-semibold">✓ Reviewed — {row.name}</div>;
+  if (done) return (
+    <div className="card p-4 text-sm">
+      <span className="text-green-600 font-semibold">✓ Reviewed — {row.name}</span>
+      {outcome && <span className="text-muted-2"> · {outcome}</span>}
+    </div>
+  );
 
   return (
     <div className="card p-5">
+      {err && <p className="text-coral text-sm mb-3">{err}</p>}
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="font-semibold">{row.name} <span className="text-muted-2 font-normal">· {row.field}</span></div>

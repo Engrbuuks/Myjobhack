@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
@@ -9,10 +10,12 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
+  // A coupon is a price change, so it answers to the pricing capability. The
+  // staff role on its own let anyone on the staff side discount anything.
+  const perm = await requirePermission("pricing.manage");
+  if (!perm.ok) return perm.response;
+
   const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!["admin", "recruiter"].includes(me?.role ?? ""))
-    return NextResponse.json({ error: "Not permitted" }, { status: 403 });
 
   const { action, id, data } = await request.json();
 

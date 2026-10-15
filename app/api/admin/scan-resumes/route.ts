@@ -25,7 +25,13 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
-  const perm = await requirePermission("applicants.view");
+  /**
+   * This writes resume_signals and resume_scanned_at onto every application on
+   * the job, so it is a change to the applicant record and not a look at it.
+   * On the view capability a read only reviewer could overwrite the signals
+   * everyone else triages from.
+   */
+  const perm = await requirePermission("applicants.manage");
   if (!perm.ok) return perm.response;
 
   const body = await request.json().catch(() => ({}));

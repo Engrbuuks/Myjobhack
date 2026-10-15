@@ -77,7 +77,11 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       email: prof?.email, amount: amount * 100, currency: "NGN",
       callback_url: `${appUrl}/api/pay/training/verify?payment_id=${payment.id}`,
-      metadata: { kind: "training", training_id, profile_id: user.id, payment_id: payment.id, ...couponMeta }
+      // purpose is what settlePayment dispatches on. Without it the webhook
+      // fell through to "unknown purpose" and only the browser return URL
+      // settled the payment, so anyone who paid and closed the tab was
+      // charged and never enrolled.
+      metadata: { purpose: "training", kind: "training", training_id, profile_id: user.id, payment_id: payment.id, ...couponMeta }
     })
   });
   const json = await res.json();

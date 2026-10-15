@@ -24,6 +24,68 @@ const APP = () => process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
  * preview returns the PDF as base64 and sends nothing. An offer letter states
  * someone's salary and start date, so it is checked before it leaves.
  */
+/**
+ * Withdraw an offer, so its signing link stops working.
+ *
+ * PATCH { offer_id, reason? }
+ *
+ * There was no way to do this. Once a letter was sent its token was valid
+ * indefinitely, so an offer the business had moved on from could still be
+ * accepted, and that acceptance moved the application to hired and emailed a
+ * countersigned PDF to everyone copied in. Withdrawing keeps the record, which
+ * is what you need if the candidate turns up quoting the letter.
+ */
+export async function PATCH(request: Request) {
+  const gate = await requirePermission("applicants.contact");
+  if (!gate.ok) return gate.response;
+
+  const b = await request.json().catch(() => ({} as any));
+  const id = String(b.offer_id ?? "");
+  if (!id) return NextResponse.json({ error: "Which offer? None was named." }, { status: 400 });
+
+  const admin = createAdminClient();
+  const { data: offer } = await admin.from("offer_letters")
+    .select("id, candidate_name, signed_at, declined_at, withdrawn_at").eq("id", id).maybeSingle();
+  if (!offer) return NextResponse.json({ error: "That offer no longer exists." }, { status: 404 });
+
+  if (offer.signed_at)
+    return NextResponse.json({
+      error: `${offer.candidate_name} has already accepted this offer, so it cannot be withdrawn here. That is a conversation, not a button.`
+    }, { status: 409 });
+  if (offer.declined_at)
+    return NextResponse.json({ ok: true, already: true, message: "That offer was already declined." });
+  if (offer.withdrawn_at)
+    return NextResponse.json({ ok: true, already: true, message: "That offer was already withdrawn." });
+
+  const { error } = await admin.from("offer_letters").update({
+    status: "withdrawn",
+    withdrawn_at: new Date().toISOString(),
+    withdrawn_by: gate.userId,
+    // The token is cleared as well as dated, so even a mistaken expiry check
+    // cannot let the old link through.
+    sign_token: null
+  }).eq("id", id);
+
+  if (error) {
+    const missing = /withdrawn_at|withdrawn_by/.test(error.message);
+    return NextResponse.json({
+      error: missing
+        ? "Withdrawing an offer needs migration 0060_guest_placements_and_offer_expiry.sql. Run it in the Supabase SQL editor, then try again."
+        : error.message
+    }, { status: missing ? 400 : 500 });
+  }
+
+  await admin.from("activity_log").insert({
+    actor_id: gate.userId, action: "Offer withdrawn", entity: "offer", entity_id: id,
+    meta: { candidate: offer.candidate_name, reason: String(b.reason ?? "").slice(0, 300) || null }
+  });
+
+  return NextResponse.json({
+    ok: true,
+    message: `The offer to ${offer.candidate_name} is withdrawn and its signing link no longer works. They have not been told, so send them a note if they are expecting it.`
+  });
+}
+
 export async function POST(request: Request) {
   try {
     return await handleOffer(request);
@@ -274,7 +336,7 @@ async function handleOffer(request: Request) {
     ? b.cc.map((x: any) => String(x).trim()).filter((x: string) => x.includes("@")).slice(0, 5)
     : [];
 
-  const { data: row, error } = await admin.from("offer_letters").insert({
+  const offerRow: Record<string, any> = {
     application_id: app?.id ?? null, job_id: jobId, letterhead_id: lh?.id ?? null,
     candidate_name: name, candidate_email: email, body,
     position_title: String(b.position ?? job?.title ?? ""),
@@ -284,8 +346,35 @@ async function handleOffer(request: Request) {
     pdf_bucket: stored?.location?.bucket ?? null,
     pdf_provider: stored?.location?.provider ?? "r2",
     cc_emails: cc, sign_token: token, status: "sent",
-    sent_at: new Date().toISOString(), sent_by: gate.userId
-  }).select("id").single();
+    sent_at: new Date().toISOString(), sent_by: gate.userId,
+    /**
+     * The signing link stops working after this.
+     *
+     * It used to have no deadline at all, so a letter forwarded to a colleague
+     * or left in an old mailbox could be accepted months later. The sender can
+     * set their own window; two weeks is the default because that is how long
+     * these are left open in practice.
+     */
+    expires_at: new Date(
+      Date.now() + (Math.min(Math.max(Number(b.expires_in_days) || 14, 1), 90)) * 86_400_000
+    ).toISOString()
+  };
+
+  let { data: row, error } = await admin.from("offer_letters")
+    .insert(offerRow).select("id").single();
+
+  /**
+   * Deploying the code before running migration 0060 must not stop offers
+   * going out. If the expiry column is not there yet, send the letter without
+   * one and say so, rather than failing in front of a candidate.
+   */
+  let expiryWarning: string | null = null;
+  if (error && /expires_at/.test(error.message)) {
+    delete offerRow.expires_at;
+    expiryWarning = "The offer was sent, but its signing link has no expiry because migration 0060 has not been run yet.";
+    ({ data: row, error } = await admin.from("offer_letters")
+      .insert(offerRow).select("id").single());
+  }
 
   if (error) {
     const missing = /relation .* does not exist|could not find the table/i.test(error.message);
@@ -295,6 +384,14 @@ async function handleOffer(request: Request) {
         : error.message
     }, { status: missing ? 400 : 500 });
   }
+
+  // Everything below writes against row.id, so an insert that reported no
+  // error but produced no row stops here rather than failing later with a
+  // message that says nothing useful.
+  if (!row)
+    return NextResponse.json({
+      error: "The offer letter could not be saved, so nothing was sent. Try again."
+    }, { status: 500 });
 
   /**
    * Stored in a separate write, and failure is ignored on purpose: these
@@ -370,7 +467,7 @@ async function handleOffer(request: Request) {
   const after = await getAllowance(admin);
   return NextResponse.json({
     ok: true, offer_id: row.id, sign_url: signUrl, allowance: after,
-    warnings: grabWarnings,
+    warnings: expiryWarning ? [...grabWarnings, expiryWarning] : grabWarnings,
     message: res?.error
       ? `The offer was saved but the email failed: ${res.error}. Download the PDF and send it by hand.`
       : `Offer letter sent to ${email}${cc.length ? `, copied to ${cc.join(", ")}` : ""}.` +

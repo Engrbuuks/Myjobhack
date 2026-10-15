@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { makeToken } from "@/lib/resumeScan";
 
 export const runtime = "nodejs";
 
@@ -33,7 +34,9 @@ export async function POST(request: Request) {
     .select("id, serial").eq("talent_id", user.id).eq("course_id", course_id).maybeSingle();
   if (existing) return NextResponse.json({ certificate_id: existing.id, serial: existing.serial });
 
-  const serial = `MJH-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  // A certificate serial is quoted by employers checking it, so it must
+  // not be guessable from another one. Math.random is reproducible.
+  const serial = `MJH-${new Date().getFullYear()}-${makeToken().slice(0, 8).toUpperCase()}`;
   const { data: cert, error } = await admin.from("certificates")
     .insert({ talent_id: user.id, course_id, serial }).select("id").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

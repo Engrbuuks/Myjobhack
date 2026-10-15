@@ -2,16 +2,16 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { requireCronAuth } from "../_auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  const auth = request.headers.get("authorization");
-  const ua = request.headers.get("user-agent") ?? "";
-  if (secret && !ua.includes("vercel-cron") && auth !== `Bearer ${secret}`)
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // This run emails subscribers and expires subscription rows, so the caller
+  // has to prove it is the scheduler. See _auth.ts.
+  const denied = requireCronAuth(request);
+  if (denied) return denied;
 
   const admin = createAdminClient();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";

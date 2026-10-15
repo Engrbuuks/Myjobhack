@@ -23,6 +23,48 @@ export async function POST(request: Request) {
   const { talent_id, job_id, monthly_salary } = await request.json();
   if (!talent_id) return NextResponse.json({ error: "talent_id required" }, { status: 400 });
 
+  /**
+   * A placement raises an invoice, so the hire behind it has to be real.
+   *
+   * talent_id, job_id and monthly_salary all arrived from the body with
+   * nothing checked, which meant any account holding the employer role could
+   * invoice a placement fee against a candidate it had never hired, on a job
+   * belonging to someone else. The hire is proved by the application record,
+   * and the right to act on it by owning the job that application is for.
+   *
+   * job_id is optional because the applicant desk records a placement from
+   * the candidate's row. When it is absent the hire itself names the job.
+   */
+  let hiresQuery = admin.from("applications")
+    .select("id, job_id").eq("talent_id", talent_id).eq("status", "hired");
+  if (job_id) hiresQuery = hiresQuery.eq("job_id", job_id);
+  const { data: hires } = await hiresQuery;
+
+  if (!hires?.length)
+    return NextResponse.json({
+      error: "This candidate has no application marked hired, so there is no placement to record. Move them to hired first."
+    }, { status: 400 });
+
+  const hiredJobIds = Array.from(new Set(hires.map((h: any) => h.job_id).filter(Boolean)));
+  const { data: hiredJobs } = await admin.from("jobs")
+    .select("id, title, org_id").in("id", hiredJobIds);
+
+  const isStaff = ["admin", "recruiter"].includes(me?.role ?? "");
+  let placedJob: { id: string; title: string | null; org_id: string | null } | null = null;
+
+  if (isStaff) {
+    placedJob = (hiredJobs?.[0] as any) ?? null;
+  } else {
+    const { data: mems } = await admin.from("org_members").select("org_id").eq("profile_id", user.id);
+    const mine = new Set((mems ?? []).map((m: any) => m.org_id));
+    placedJob = ((hiredJobs ?? []).find((j: any) => j.org_id && mine.has(j.org_id)) as any) ?? null;
+  }
+
+  if (!placedJob)
+    return NextResponse.json({
+      error: "That hire is on a job belonging to another organisation, so the placement is not yours to record."
+    }, { status: 403 });
+
   // Is this candidate Elite?
   const { data: elite } = await admin.from("elite_memberships")
     .select("id, status").eq("talent_id", talent_id).eq("status", "verified").maybeSingle();
@@ -65,7 +107,7 @@ export async function POST(request: Request) {
 
   // candidate + job labels
   const { data: cand } = await admin.from("profiles").select("full_name, email").eq("id", talent_id).maybeSingle();
-  const { data: job } = job_id ? await admin.from("jobs").select("title").eq("id", job_id).maybeSingle() : { data: null };
+  const job = { title: placedJob.title };
 
   // Raise a draft invoice for the fee.
   const invNumber = `PLC-${new Date().getFullYear()}-${Date.now().toString().slice(-5)}`;
@@ -83,13 +125,37 @@ export async function POST(request: Request) {
     created_by: user.id
   }).select("id, number").single();
 
-  // Record the placement, linked to the invoice.
-  const { data: placement, error } = await admin.from("placements").insert({
-    employer_id: user.id, talent_id, job_id: job_id ?? null,
+  /**
+   * One placement per hire, not two.
+   *
+   * Moving an applicant to hired already creates a pending placement in
+   * employer/application-status. That insert used to fail on two wrong column
+   * names, so this route always had a clean table to insert into and the
+   * duplication never showed. With the column names fixed, a blind insert here
+   * would bill the same hire twice. So the pending row is completed in place
+   * when it exists, and only created when it does not.
+   */
+  const { data: pending } = await admin.from("placements")
+    .select("id, status, invoice_id")
+    .eq("job_id", placedJob.id).eq("talent_id", talent_id)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+  const row = {
+    employer_id: user.id, talent_id, job_id: placedJob.id,
     is_elite: isElite, monthly_salary: monthly_salary ?? null,
     fee_amount: feeAmount, fee_basis: feeBasis, fee_basis_detail: feeNote, currency: "NGN",
     status: "invoiced", invoice_id: inv?.id ?? null
-  }).select("id").single();
+  };
+
+  if (pending?.invoice_id && pending.status === "invoiced") {
+    return NextResponse.json({
+      error: "This placement has already been invoiced. Open the invoice rather than raising a second one."
+    }, { status: 409 });
+  }
+
+  const { data: placement, error } = pending
+    ? await admin.from("placements").update(row).eq("id", pending.id).select("id").single()
+    : await admin.from("placements").insert(row).select("id").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({

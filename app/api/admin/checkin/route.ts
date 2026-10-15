@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
@@ -14,9 +15,15 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!["admin", "recruiter"].includes(me?.role ?? ""))
-    return NextResponse.json({ error: "Not permitted" }, { status: 403 });
+
+  /**
+   * A check-in sets the placement's retention status, and "left early" inside
+   * the guarantee window is what owes the client a free replacement. That puts
+   * it with placements, which payments.manage is the capability for. It is the
+   * loosest fit on the list, but the alternative was no capability at all.
+   */
+  const perm = await requirePermission("payments.manage");
+  if (!perm.ok) return perm.response;
 
   const { checkin_id, still_employed, employer_rating, talent_sentiment,
           employer_notes, talent_notes, risk_flag } = await request.json();

@@ -68,7 +68,13 @@ export function AssessmentRunner({ current, pendingId }: { current: Current | nu
           <div className="text-sm text-muted-2 mb-2">Your result</div>
           <div className="text-5xl font-display font-semibold">{result.overall}<span className="text-2xl text-muted-2">/100</span></div>
           <span className={`inline-block mt-3 px-4 py-1.5 rounded-pill text-sm font-bold capitalize ${BAND_STYLE[result.band]}`}>{result.band}</span>
-          {result.percentile != null && <div className="text-sm text-muted-2 mt-2">Top {100 - result.percentile}% in your field</div>}
+          {/* A ranking is only shown when there is a cohort behind it. The
+              server sends null when fewer than five people have sat this paper
+              in the field, and "Top 50%" from a sample of two is a made up
+              statistic the candidate has no way to question. */}
+          {result.percentile != null
+            ? <div className="text-sm text-muted-2 mt-2">Top {100 - result.percentile}% in your field</div>
+            : <div className="text-sm text-muted-2 mt-2">Too few people have sat this assessment in your field to rank you yet, so this is your band on its own.</div>}
           <p className="text-sm mt-4 text-muted-2">{result.message}</p>
         </div>
         {result.strengths?.length > 0 && (
@@ -144,7 +150,9 @@ export function AssessmentRunner({ current, pendingId }: { current: Current | nu
           <div className="flex items-center gap-3">
             <span className={`px-4 py-1.5 rounded-pill text-sm font-bold capitalize ${BAND_STYLE[current.band]}`}>{current.band}</span>
             <span className="font-semibold">{current.score}/100</span>
-            {current.percentile != null && <span className="text-sm text-muted-2">· top {100 - current.percentile}% in {current.field}</span>}
+            {current.percentile != null
+              ? <span className="text-sm text-muted-2">· top {100 - current.percentile}% in {current.field}</span>
+              : current.field ? <span className="text-sm text-muted-2">· in {current.field}</span> : null}
           </div>
         </div>
       )}

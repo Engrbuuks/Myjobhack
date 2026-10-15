@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
 import { dispatchDue } from "@/lib/campaigns";
+import { requireCronAuth } from "../_auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -147,16 +148,11 @@ const DRIPS: Drip[] = [
 ];
 
 export async function GET(request: Request) {
-  // Vercel Cron identifies itself with a user-agent; it does NOT send an
-  // Authorization header unless you configure one. Requiring a bearer token
-  // therefore silently rejected every scheduled run — which is why no funnel
-  // email had ever sent. Accept either signal.
-  const secret = process.env.CRON_SECRET;
-  const auth = request.headers.get("authorization");
-  const ua = request.headers.get("user-agent") ?? "";
-  const isVercelCron = ua.includes("vercel-cron");
-  if (secret && !isVercelCron && auth !== `Bearer ${secret}`)
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // This run sends live email to the whole seeker list, so it is the one that
+  // most needs a caller it can prove. See _auth.ts for why the user agent is
+  // no longer accepted as a substitute for the bearer token.
+  const denied = requireCronAuth(request);
+  if (denied) return denied;
 
   const admin = createAdminClient();
   const { data: cfg } = await admin.from("app_settings").select("value").eq("key", "funnel").maybeSingle();

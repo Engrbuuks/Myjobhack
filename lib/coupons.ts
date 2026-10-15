@@ -6,6 +6,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * is quoted is always what they pay.
  */
 
+/**
+ * A training id reaches the filter below inside a string, so it is checked
+ * against this first. Every caller resolves the training before asking about a
+ * coupon, which is why nothing has slipped through, but a filter built by
+ * concatenation should never depend on a caller being careful.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export type CouponResult =
   | { ok: true; coupon_id: string; code: string; label: string | null;
       original: number; discount: number; final: number; describe: string }
@@ -20,13 +28,16 @@ export async function validateCoupon(opts: {
   const code = (opts.code || "").trim().toUpperCase();
   if (!code) return { ok: false, error: "Enter a coupon code." };
 
+  const trainingId = String(opts.training_id ?? "");
+  if (!UUID_RE.test(trainingId)) return { ok: false, error: "We couldn't match that training." };
+
   const admin = createAdminClient();
 
   // A training-specific code wins over a global one with the same word.
   const { data: matches } = await admin.from("coupons")
     .select("*")
     .eq("active", true)
-    .or(`training_id.eq.${opts.training_id},training_id.is.null`);
+    .or(`training_id.eq.${trainingId},training_id.is.null`);
 
   const coupon = (matches ?? [])
     .filter((c: any) => String(c.code).toUpperCase() === code)

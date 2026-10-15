@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
@@ -18,9 +19,12 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!["admin", "recruiter"].includes(me?.role ?? ""))
-    return NextResponse.json({ error: "Not permitted" }, { status: 403 });
+
+  // This emails candidates and asks them for documents, which is exactly what
+  // the contact capability covers. A coordinator is deliberately kept out of
+  // candidates' inboxes, and the staff role check was letting them in.
+  const perm = await requirePermission("applicants.contact");
+  if (!perm.ok) return perm.response;
 
   const { profile_ids } = await request.json();
   const ids: string[] = Array.isArray(profile_ids) ? profile_ids : [profile_ids].filter(Boolean);

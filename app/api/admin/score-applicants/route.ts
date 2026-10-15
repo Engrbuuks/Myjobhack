@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractDocumentText, extractTextFromPath } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
+import { can } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -19,7 +20,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
+  const { data: me } = await admin.from("profiles")
+    .select("role, permissions").eq("id", user.id).single();
   if (!["admin", "recruiter", "employer"].includes(me?.role ?? ""))
     return NextResponse.json({ error: "Not permitted" }, { status: 403 });
 
@@ -27,8 +29,29 @@ export async function POST(request: Request) {
   if (!job_id) return NextResponse.json({ error: "job_id is required." }, { status: 400 });
 
   const { data: job } = await admin.from("jobs")
-    .select("id, title, description, jd_document_id").eq("id", job_id).maybeSingle();
+    .select("id, title, description, jd_document_id, org_id").eq("id", job_id).maybeSingle();
   if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
+
+  /**
+   * The employer role is self selected at registration and the job was never
+   * checked against the caller, so anyone could score a competitor's
+   * applicants, read the summaries back off the job and spend the shared AI
+   * budget doing it. Same split as the applicant desk: staff by capability,
+   * employers by membership of the organisation that owns the job.
+   */
+  const isStaff = ["admin", "recruiter"].includes(me?.role ?? "");
+  if (!isStaff) {
+    if (!job.org_id)
+      return NextResponse.json({ error: "This job belongs to MYJOBHACK, so only staff can score its applicants." }, { status: 403 });
+    const { data: membership } = await admin.from("org_members")
+      .select("org_id").eq("org_id", job.org_id).eq("profile_id", user.id).maybeSingle();
+    if (!membership)
+      return NextResponse.json({ error: "This job belongs to another organisation." }, { status: 403 });
+  } else if (!can(me, "applicants.manage")) {
+    return NextResponse.json({
+      error: "You do not have permission to score applicants. Ask an administrator for applicant management access."
+    }, { status: 403 });
+  }
 
   // The job description is what we score against — without it there is nothing to compare.
   let jd = (job.description ?? "").slice(0, 4000);

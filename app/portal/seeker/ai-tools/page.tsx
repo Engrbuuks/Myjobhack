@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -20,11 +21,28 @@ export default async function AiToolsHub() {
   // The toolkit is now the improvement layer for competency assessment.
   const { data: tp } = await supabase.from("talent_profiles")
     .select("competency_band, competency_field").eq("profile_id", user!.id).maybeSingle();
+  /**
+   * The candidate's own skill gaps, read with the service role and scoped to
+   * their own assessments by the filter below.
+   *
+   * WHY NOT THE USER CLIENT: migration 0058 stops a candidate reading an
+   * assessment_scores row until a human has confirmed it, because the row also
+   * carries the mark, the reviewer's private note and the anti cheat flags,
+   * and a candidate was being shown all three, including being told they had
+   * been flagged as suspicious. Row level security cannot hand over one column
+   * and withhold another, so the one legitimate reader of a benign column
+   * fetches it here instead. The talent_id filter is what keeps this to the
+   * signed in person.
+   */
   let gaps: string[] = [];
-  const { data: lastScore } = await supabase.from("assessment_scores")
-    .select("gaps, assessment_id, assessments!inner(talent_id)")
-    .eq("assessments.talent_id", user!.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
-  if (lastScore?.gaps) gaps = lastScore.gaps as string[];
+  if (user?.id) {
+    const admin = createAdminClient();
+    const { data: lastScore } = await admin.from("assessment_scores")
+      .select("gaps, assessment_id, assessments!inner(talent_id)")
+      .eq("assessments.talent_id", user.id)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (lastScore?.gaps) gaps = lastScore.gaps as string[];
+  }
 
   return (
     <>

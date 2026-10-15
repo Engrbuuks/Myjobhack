@@ -6,6 +6,8 @@ type Item = { description: string; qty: number; amount: number };
 type Invoice = {
   id: string; number: string; client_name: string; client_email: string;
   currency: string; total: number; amount_paid?: number; status: string; created_at: string;
+  // The credential in a share link. Without it /invoice/<id> is refused.
+  share_token: string;
 };
 
 function sym0(c: string) { return c === "USD" ? "$" : c === "GBP" ? "£" : "₦"; }
@@ -27,9 +29,9 @@ export function InvoiceDesk({ invoices }: { invoices: Invoice[] }) {
   const [payRef, setPayRef] = useState("");
 
   const appUrl = typeof window !== "undefined" ? window.location.origin : "https://app.myjobhack.co";
-  function invoiceUrl(id: string) { return `${appUrl}/invoice/${id}`; }
+  function invoiceUrl(inv: Invoice) { return `${appUrl}/invoice/${inv.id}?t=${inv.share_token}`; }
   function waLink(inv: Invoice) {
-    const msg = `Hello ${inv.client_name}, here is your invoice ${inv.number} from MYJOBHACK: ${invoiceUrl(inv.id)}`;
+    const msg = `Hello ${inv.client_name}, here is your invoice ${inv.number} from MYJOBHACK: ${invoiceUrl(inv)}`;
     return `https://wa.me/?text=${encodeURIComponent(msg)}`;
   }
 
@@ -152,7 +154,7 @@ export function InvoiceDesk({ invoices }: { invoices: Invoice[] }) {
               )}
 
               {/* Download — opens the printable invoice; browser saves as PDF */}
-              <a className="btn-ghost !h-9 text-xs" href={invoiceUrl(inv.id)} target="_blank" rel="noopener">Download ⤓</a>
+              <a className="btn-ghost !h-9 text-xs" href={invoiceUrl(inv)} target="_blank" rel="noopener">Download ⤓</a>
 
               {/* WhatsApp share */}
               <a className="btn-ghost !h-9 text-xs !text-green-700" href={waLink(inv)} target="_blank" rel="noopener">WhatsApp</a>

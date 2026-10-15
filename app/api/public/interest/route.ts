@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { rateLimit, clientIp, LIMITS, tooMany } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -10,8 +11,24 @@ export async function POST(request: Request) {
   if (String(b.website ?? "")) return NextResponse.json({ ok: true }); // honeypot
 
   const { training_id, name, email, phone, country, message } = b;
-  if (!training_id || !name?.trim() || !String(email ?? "").includes("@"))
+  if (!training_id || !name?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email ?? "")))
     return NextResponse.json({ error: "Name and a valid email are required." }, { status: 400 });
+
+  /**
+   * This was the cheapest way to break the platform's email.
+   *
+   * The duplicate insert error was swallowed while the email sent anyway, and
+   * this route calls Resend directly without consulting the daily allowance.
+   * So about ninety requests exhausted the day's sending, after which offer
+   * letters, signup confirmations and interview invitations stopped going out
+   * with nothing on screen to say why.
+   */
+  const ip = await rateLimit(clientIp(request), LIMITS.interest_ip);
+  if (!ip.ok)
+    return tooMany("That is a lot of enquiries from one connection. Try again in an hour.", ip.retryAfterSeconds);
+  const byEmail = await rateLimit(String(email).toLowerCase(), LIMITS.interest_email);
+  if (!byEmail.ok)
+    return tooMany("We already have your enquiry and have emailed you about it. The team will be in touch.", byEmail.retryAfterSeconds);
 
   const admin = createAdminClient();
   const { data: training } = await admin.from("trainings")

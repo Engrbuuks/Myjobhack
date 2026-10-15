@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 const APP = () => process.env.NEXT_PUBLIC_APP_URL || "https://app.myjobhack.co";
@@ -13,9 +14,11 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!["admin", "recruiter"].includes(me?.role ?? ""))
-    return NextResponse.json({ error: "Not permitted" }, { status: 403 });
+
+  // With select_all this mails the entire talent base, so it answers to the
+  // capability that governs contacting candidates rather than to the role.
+  const perm = await requirePermission("applicants.contact");
+  if (!perm.ok) return perm.response;
 
   const body = await request.json();
   const reason: string = body.reason || "keep your profile current";

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
 import { geminiJson } from "@/lib/gemini";
 import { renderEmail } from "@/lib/email";
 import { renderCampaign as renderStored, resolveAudience, dispatchCampaign } from "@/lib/campaigns";
@@ -9,12 +10,21 @@ import { sendBatch, sendEmail } from "@/lib/resend";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/**
+ * A campaign is bulk mail to the talent base, so it answers to the capability
+ * that governs contacting candidates as well as to the admin role. The role
+ * check stays: unrestricted permissions mean everything the role may do, so
+ * dropping it would hand mass mail to every recruiter instead of taking it
+ * away from restricted admins.
+ */
 async function requireAdmin() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in" };
   const { data: me } = await supabase.from("profiles").select("role, email").eq("id", user.id).single();
   if (me?.role !== "admin") return { error: "Admin only" };
+  const perm = await requirePermission("applicants.contact");
+  if (!perm.ok) return { response: perm.response };
   return { user, email: me.email };
 }
 
@@ -32,6 +42,7 @@ function renderCampaign(d: any) {
 
 export async function POST(request: Request) {
   const auth = await requireAdmin();
+  if ("response" in auth) return auth.response;
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: 403 });
   const b = await request.json();
 

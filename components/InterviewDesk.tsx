@@ -350,6 +350,7 @@ function InterviewCard({ r, picked, onPick }: {
   const [newWhen, setNewWhen] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [resumeErr, setResumeErr] = useState<string | null>(null);
 
   /**
@@ -376,6 +377,13 @@ function InterviewCard({ r, picked, onPick }: {
     const json = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) { setErr(json.error ?? "That did not work."); return false; }
+    /**
+     * The route reports whether the candidate was actually emailed. Throwing
+     * that away is how "the candidate is notified either way" stayed on screen
+     * while guests were told nothing at all. If it says the mail did not send,
+     * that belongs in front of whoever just clicked.
+     */
+    if (json.message) setNote(String(json.message));
     setPanel(null);
     router.refresh();
     return true;
@@ -531,6 +539,7 @@ function InterviewCard({ r, picked, onPick }: {
       </div>
 
       {err && <p className="text-coral text-sm mt-2">{err}</p>}
+      {note && <p className="text-sm text-muted mt-2">{note}</p>}
 
       {panel === "cancel" && (
         <div className="mt-3 pt-3 border-t border-line space-y-3">
@@ -682,7 +691,8 @@ function Review({ r, busy, onSave, onOutcome }: {
             onClick={() => onOutcome("rejected")}>Reject</button>
         </div>
         <p className="text-[11px] text-muted-2 mt-2 leading-relaxed">
-          Advance → application becomes <b>offered</b>. Reject → <b>rejected</b>. Hold keeps it at interviewing. The candidate is notified either way.
+          Advance → application becomes <b>offered</b>. Reject → <b>rejected</b>. Hold keeps it at interviewing.
+          The candidate is emailed on all three, and the line above will say so if the email did not send.
         </p>
       </div>
     </div>

@@ -17,7 +17,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "id and valid status required" }, { status: 400 });
 
   const admin = createAdminClient();
-  const { data: app } = await admin.from("applications").select("id, job_id, talent_id").eq("id", id).single();
+  const { data: app } = await admin.from("applications")
+    .select("id, job_id, talent_id, guest_name, guest_email").eq("id", id).single();
   if (!app) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { data: job } = await admin.from("jobs").select("org_id").eq("id", app.job_id).single();
   if (!job) return NextResponse.json({ error: "That job no longer exists." }, { status: 404 });
@@ -54,35 +55,91 @@ export async function POST(request: Request) {
   // happened at all.
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
-  // On HIRE, record a placement + compute the fee (once per application).
-  if (status === "hired" && app.talent_id) {
-    const { data: existing } = await admin.from("placements")
-      .select("id").eq("job_id", app.job_id).eq("talent_id", app.talent_id).maybeSingle();
+  /**
+   * On HIRE, record a placement and compute the fee, once per application.
+   *
+   * The guard used to be `app.talent_id`, which skipped every guest. Guests
+   * are most of the applicants on this system, so most hires raised no fee at
+   * all. placements.talent_id is nullable from 0060 and carries the guest's
+   * name and email instead, because the fee is owed whether or not the person
+   * made an account.
+   */
+  if (status === "hired") {
+    const guestEmail = app.talent_id ? null : (app.guest_email ?? null);
+    if (!app.talent_id && !guestEmail) {
+      return NextResponse.json({
+        ok: true, status_changed: true, placement_error: "no_candidate_identity",
+        message: "Moved to hired, but no fee record could be created because this application has neither a profile nor an email address."
+      });
+    }
+
+    const found = app.talent_id
+      ? await admin.from("placements").select("id")
+          .eq("job_id", app.job_id).eq("talent_id", app.talent_id).maybeSingle()
+      : await admin.from("placements").select("id")
+          .eq("job_id", app.job_id).eq("guest_email", guestEmail!).maybeSingle();
+    const existing = found.data;
     if (!existing) {
       const pricing = await getPricing();
-      // Is this candidate an Elite member?
-      const { data: elite } = await admin.from("elite_memberships")
-        .select("id, status").eq("talent_id", app.talent_id).maybeSingle();
+      // Elite status lives on a profile, so a guest is never Elite and the
+      // lookup is skipped rather than run with a null id, which matches
+      // nothing and reads as an error in the logs.
+      const { data: elite } = app.talent_id
+        ? await admin.from("elite_memberships")
+            .select("id, status").eq("talent_id", app.talent_id).maybeSingle()
+        : { data: null as any };
       const isElite = !!elite && elite.status === "verified";
 
-      let fee_type = "flat";
+      /**
+       * The column names here were wrong, and every automatic placement insert
+       * had failed silently since launch.
+       *
+       * The code wrote salary_monthly and fee_type; the table has
+       * monthly_salary and fee_basis (0028_placement_fees.sql). Neither of the
+       * names used appeared in any migration, so Postgres rejected the insert,
+       * the error went into placement_error, and the bulk path in
+       * ApplicantTable discarded the response, which is why nobody saw it. No
+       * placement meant no fee, no invoice, and no retention check ins either,
+       * because schedule_checkins fires on a placement insert.
+       *
+       * The fee basis was also wrong: this path charged a percentage of ONE
+       * month while the configured default is annual, roughly a twelvefold
+       * undercharge. It now uses the same calculation as the manual route in
+       * record-placement, which was correct all along.
+       */
+      let fee_basis = "flat";
       let fee_amount = pricing.placement_general_ngn;
-      let salary_monthly: number | null = null;
+      let monthly_salary: number | null = null;
 
-      if (isElite) {
-        fee_type = "percent";
-        // Try to read an expected salary to apply the %; fall back to flat if unknown.
+      if (isElite && app.talent_id) {
         const { data: tp } = await admin.from("talent_profiles")
           .select("salary_min, salary_max").eq("profile_id", app.talent_id).maybeSingle();
-        salary_monthly = Number(tp?.salary_max ?? tp?.salary_min ?? 0) || null;
-        fee_amount = salary_monthly
-          ? Math.round(salary_monthly * (pricing.placement_elite_percent / 100))
-          : pricing.placement_general_ngn; // no salary on file → flat fallback
+        monthly_salary = Number(tp?.salary_max ?? tp?.salary_min ?? 0) || null;
+
+        if (monthly_salary) {
+          const basis = pricing.placement_basis || "annual";
+          const pct = Number(pricing.placement_elite_percent) || 0;
+          if (basis === "multiple") {
+            const mult = Number(pricing.placement_multiple) || 1;
+            fee_basis = "multiple";
+            fee_amount = Math.round(monthly_salary * mult);
+          } else if (basis === "monthly") {
+            fee_basis = "percent_monthly";
+            fee_amount = Math.round(monthly_salary * (pct / 100));
+          } else {
+            fee_basis = "percent_annual";
+            fee_amount = Math.round(monthly_salary * 12 * (pct / 100));
+          }
+        }
+        // No salary on file keeps the flat fee rather than charging zero.
       }
 
       const { error: plErr } = await admin.from("placements").insert({
-        job_id: app.job_id, employer_id: user.id, talent_id: app.talent_id,
-        is_elite: isElite, salary_monthly, fee_type, fee_amount, status: "pending"
+        job_id: app.job_id, employer_id: user.id,
+        talent_id: app.talent_id ?? null,
+        guest_name: app.talent_id ? null : (app.guest_name ?? null),
+        guest_email: app.talent_id ? null : guestEmail,
+        is_elite: isElite, monthly_salary, fee_basis, fee_amount, status: "pending"
       });
       /**
        * The hire itself has already been recorded, so a placement failure must

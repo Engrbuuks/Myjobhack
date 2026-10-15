@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { rematchDirtySeekers, notifyNewMatches } from "@/lib/proactiveMatch";
+import { requireCronAuth } from "../_auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,16 +17,10 @@ export const maxDuration = 300;
  * so this pass only handles what changed on the candidate side.
  */
 export async function GET(request: Request) {
-  // Vercel cron sends this header; block anything else.
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = request.headers.get("authorization");
-    const ua = request.headers.get("user-agent") ?? "";
-    // Vercel Cron sends a user-agent, not an Authorization header.
-    if (!ua.includes("vercel-cron") && auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-    }
-  }
+  // Each run spends real money on AI calls, so only the scheduler may start
+  // one. See _auth.ts for why the bearer token is the only accepted proof.
+  const denied = requireCronAuth(request);
+  if (denied) return denied;
 
   try {
     // Cost is capped: at most 25 AI calls per run, regardless of pool size.

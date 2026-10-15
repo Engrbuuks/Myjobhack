@@ -34,9 +34,20 @@ export async function POST(request: Request) {
     body.notes ? `Extra context from the hiring manager: ${body.notes}` : ""
   ].filter(Boolean).join("\n");
 
-  // niches, so the AI can pick one that exists rather than inventing a label
-  const { data: niches } = await admin.from("niches").select("id, name").limit(60);
-  const nicheList = (niches ?? []).map((n) => n.name).join(", ");
+  /**
+   * Niches, so the AI can pick one that exists rather than inventing a label.
+   *
+   * This queried a table called `niches`, which does not exist: niches are
+   * rows in `taxonomies` with kind 'niche'. The query returned nothing, the
+   * list was always empty, and the guardrail this comment describes had been
+   * inert, so the composer did exactly what the comment was written to
+   * prevent. A failure is logged now rather than silently producing invented
+   * labels that then need correcting by hand on every posting.
+   */
+  const { data: niches, error: nicheErr } = await admin.from("taxonomies")
+    .select("id, label").eq("kind", "niche").eq("active", true).order("label").limit(60);
+  if (nicheErr) console.error("[compose-job] could not read niches:", nicheErr.message);
+  const nicheList = (niches ?? []).map((n: any) => n.label).join(", ");
 
   const prompt = `You are an experienced recruiter writing a job posting for MYJOBHACK, a workforce platform operating across Africa. Write for African candidates — use African context, currencies, and city names naturally. Never invent facts about the company; if something is unknown, write it generically rather than inventing specifics.
 
@@ -72,9 +83,9 @@ Give 4 to 6 screening questions. Make them things a CV cannot answer — availab
   let niche_id: string | null = null;
   if (data.niche_suggestion) {
     const match = (niches ?? []).find(
-      (n) => n.name.toLowerCase() === String(data.niche_suggestion).toLowerCase()
+      (n: any) => String(n.label).toLowerCase() === String(data.niche_suggestion).toLowerCase()
     );
-    niche_id = match?.id ?? null;
+    niche_id = (match as any)?.id ?? null;
   }
 
   await admin.from("ai_runs").insert({

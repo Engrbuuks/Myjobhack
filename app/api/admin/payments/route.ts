@@ -5,6 +5,7 @@ import { activateSubscription } from "@/lib/subscription";
 import { enrollAfterPayment } from "@/lib/trainingPay";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,16 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const { data: me } = await supabase.from("profiles").select("role").eq("id", user.id).single();
   if (me?.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
+
+  /**
+   * Confirming a manual transfer grants a paid subscription, so it belongs to
+   * whoever holds the payments capability and not to the admin role as a
+   * whole. The role check stays above it: unrestricted permissions mean
+   * everything the role may do, so this narrows restricted admins rather than
+   * opening the queue to every recruiter.
+   */
+  const perm = await requirePermission("payments.manage");
+  if (!perm.ok) return perm.response;
 
   const { payment_id, action } = await request.json();
   if (!payment_id || !["confirm", "reject"].includes(action))

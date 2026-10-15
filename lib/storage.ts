@@ -172,13 +172,100 @@ export function locationFromDocument(doc: { bucket?: string | null; path: string
 
 export const MAX_FILE_BYTES = 8 * 1024 * 1024;      // 8 MB per file
 
-/** General document uploads — logos, proofs, course assets. Images allowed. */
+/**
+ * General document uploads — logos, proofs, course assets. Images allowed.
+ *
+ * This list is the whitelist for EVERY upload kind, not decoration. It sat
+ * imported by nothing while /api/upload sniffed the bytes of résumés only, so
+ * a credential, a job description, a payment proof or an "other" file was
+ * stored with whatever content type the uploader declared. An HTML or SVG file
+ * went in untouched, and the admin verifications page then handed staff a link
+ * that rendered it in their own session.
+ *
+ * GIF is here because compressUpload already converts an uploaded GIF to WebP,
+ * so refusing it would reject an ordinary avatar for no gain.
+ */
 export const ALLOWED_DOC_TYPES = [
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "image/png", "image/jpeg", "image/webp"
+  "image/png", "image/jpeg", "image/webp", "image/gif"
 ];
+
+const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/** Content types a browser may be allowed to render inline. Everything else downloads. */
+const INLINE_SAFE_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp", "image/gif"];
+
+/**
+ * Identify a file by its actual bytes. Returns null when we do not recognise it.
+ *
+ * The declared type and the file extension are both attacker controlled, so
+ * neither decides anything here.
+ */
+export function sniffFileType(buf: Buffer, filename?: string): string | null {
+  const name = (filename ?? "").toLowerCase();
+  const head = buf.subarray(0, 12);
+  const latin = head.toString("latin1");
+
+  if (latin.startsWith("%PDF")) return "application/pdf";
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
+  if (head[0] === 0x89 && head.toString("latin1", 1, 4) === "PNG") return "image/png";
+  if (latin.startsWith("RIFF") && buf.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  if (latin.startsWith("GIF87a") || latin.startsWith("GIF89a")) return "image/gif";
+  // Legacy Word (.doc) is an OLE compound document.
+  if (head[0] === 0xd0 && head[1] === 0xcf && head[2] === 0x11 && head[3] === 0xe0) return "application/msword";
+  /**
+   * DOCX is a zip. Only trust a zip as a Word document when the name agrees:
+   * on its own, PK could be an xlsx, a jar, or an svgz that a browser will
+   * happily unpack and render as script bearing SVG.
+   */
+  if (head[0] === 0x50 && head[1] === 0x4b && name.endsWith(".docx")) return DOCX_MIME_TYPE;
+  return null;
+}
+
+/**
+ * Validate any upload by its bytes, whatever kind it claims to be.
+ *
+ * Résumés keep their own, more specific check because its error messages
+ * explain what to do about a photographed CV.
+ */
+export function checkUploadFile(opts: {
+  buf: Buffer; kind: string; declaredMime?: string; filename?: string;
+}): { ok: boolean; error?: string; sniffed?: string } {
+  const { buf, kind, declaredMime, filename } = opts;
+  if (kind === "resume") {
+    const r = checkResumeFile(buf, declaredMime, filename);
+    return r.ok ? { ok: true, sniffed: sniffFileType(buf, filename) ?? undefined } : r;
+  }
+
+  const sniffed = sniffFileType(buf, filename);
+  if (!sniffed) return {
+    ok: false,
+    error: "We don't recognise that file. Upload a PDF, a Word document, or a PNG, JPEG or WebP image. "
+      + "Web pages, SVG files and archives aren't accepted."
+  };
+
+  if (kind === "avatar" && !sniffed.startsWith("image/"))
+    return { ok: false, error: "A profile picture has to be an image: PNG, JPEG or WebP." };
+
+  if (!ALLOWED_DOC_TYPES.includes(sniffed))
+    return { ok: false, error: "That file type isn't accepted. Upload a PDF, a Word document, or an image." };
+
+  return { ok: true, sniffed };
+}
+
+/**
+ * The content type we are willing to STORE a file under.
+ *
+ * Anything that is not an image or a PDF is stored as application/octet-stream
+ * so that a signed link downloads it instead of rendering it in the viewer's
+ * session. Stored content type is what R2 and Supabase serve back, so this is
+ * the setting that decides render versus download, not the file name.
+ */
+export function safeStoredMime(mime: string | null | undefined): string {
+  return INLINE_SAFE_TYPES.includes(mime ?? "") ? (mime as string) : "application/octet-stream";
+}
 
 /**
  * Résumés only: PDF and DOCX.

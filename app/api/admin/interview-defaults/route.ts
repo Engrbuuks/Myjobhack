@@ -11,6 +11,26 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
+
+  /**
+   * These are internal booking details, the team's scheduling link and the
+   * standing meeting room, and being signed in was the only thing standing in
+   * front of them, so any candidate could read them.
+   *
+   * The gate is whoever can actually schedule an interview rather than the
+   * admin only check on POST: the scheduler also runs on the employer and
+   * recruiter desks, and locking the read to admins would silently stop it
+   * pre-filling there.
+   */
+  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const isStaff = ["admin", "recruiter"].includes(me?.role ?? "");
+  if (!isStaff) {
+    const { data: membership } = await admin.from("org_members")
+      .select("org_id").eq("profile_id", user.id).limit(1).maybeSingle();
+    if (!membership)
+      return NextResponse.json({ error: "These are the hiring team's interview settings." }, { status: 403 });
+  }
+
   const { data } = await admin.from("app_settings").select("value").eq("key", "interviews").maybeSingle();
   const v = (data?.value ?? {}) as any;
   return NextResponse.json({

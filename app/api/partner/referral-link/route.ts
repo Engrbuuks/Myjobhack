@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { makeToken } from "@/lib/resumeScan";
 
 export const runtime = "nodejs";
 
 function slug(kind: string) {
-  const rand = Math.random().toString(36).slice(2, 8);
+  /**
+   * A code nobody can predict.
+   *
+   * Math.random is a fast pseudo random generator with a published
+   * algorithm, not a source of secrets: six of its base 36 characters
+   * carry about thirty one bits from a stream an attacker can reproduce
+   * once they have seen a few outputs. These codes grant a tier at
+   * signup, so they are guessed and tried in bulk. makeToken uses the
+   * platform's cryptographic generator, as the answer links already do.
+   */
+  const rand = makeToken().slice(0, 10);
   const prefix = kind === "elite" ? "elite" : kind === "employer" ? "hire" : "join";
   return `${prefix}-${rand}`;
 }

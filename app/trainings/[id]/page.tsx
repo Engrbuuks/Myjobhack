@@ -84,7 +84,11 @@ export default async function PublicTrainingPage({ params }: { params: { id: str
 
   return (
     <div className="min-h-screen bg-ink text-white overflow-x-hidden">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      {/* A training title or description can carry a closing script tag, and
+          JSON.stringify leaves < and > alone, so it would end this tag early and
+          run on a public page. These three escapes are still valid JSON, so
+          search engines read the same data. */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026") }} />
       <header className="border-b border-white/10">
         <div className="max-w-6xl mx-auto px-5 sm:px-6 py-4 flex items-center justify-between gap-3">
           <a href="https://myjobhack.co" className="font-bold tracking-tight">myjob<span className="text-coral">hack</span></a>

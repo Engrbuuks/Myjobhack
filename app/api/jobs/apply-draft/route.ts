@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { can } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 
@@ -27,8 +28,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Nothing to add" }, { status: 400 });
 
   const admin = createAdminClient();
-  const { data: job } = await admin.from("jobs").select("id, form_id, title").eq("id", job_id).single();
+  const { data: job } = await admin.from("jobs").select("id, form_id, title, org_id").eq("id", job_id).maybeSingle();
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+  /**
+   * Being signed in was the only check, and the job_id came from the body.
+   *
+   * That let any account attach a new screening form to someone else's
+   * posting, or add questions to the form already on it, which rewrites what
+   * that company's applicants are asked and can block them outright. Whoever
+   * edits a job's questions must be allowed to edit the job: staff by
+   * capability, an employer by membership of the organisation that owns it.
+   */
+  const { data: me } = await admin.from("profiles")
+    .select("id, role, permissions").eq("id", user.id).maybeSingle();
+  const isStaff = ["admin", "recruiter"].includes(me?.role ?? "");
+
+  if (!isStaff) {
+    if (!job.org_id)
+      return NextResponse.json({ error: "This job belongs to MYJOBHACK, so only staff can change its questions." }, { status: 403 });
+    const { data: membership } = await admin.from("org_members")
+      .select("org_id").eq("org_id", job.org_id).eq("profile_id", user.id).maybeSingle();
+    if (!membership)
+      return NextResponse.json({ error: "This job belongs to another organisation." }, { status: 403 });
+  } else if (!can(me, "jobs.manage")) {
+    return NextResponse.json({
+      error: "You do not have permission to change job postings. Ask an administrator for job management access."
+    }, { status: 403 });
+  }
 
   let formId = job.form_id;
   if (!formId) {

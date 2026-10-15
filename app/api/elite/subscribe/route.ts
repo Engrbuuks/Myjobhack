@@ -12,13 +12,25 @@ export async function POST() {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
-  const { data: mem } = await admin.from("elite_memberships").select("id, status").eq("talent_id", user.id).maybeSingle();
+  const { data: mem } = await admin.from("elite_memberships")
+    .select("id, status, tier, perks").eq("talent_id", user.id).maybeSingle();
 
-  // Record intent; activation follows payment confirmation (bank/Paystack), like other billing.
+  /**
+   * Choosing premium is not buying it.
+   *
+   * This wrote tier "premium" and the full perks object before a naira moved,
+   * which is the entitlement itself: anyone who could reach this route had the
+   * paid tier on their record. The intent is recorded as pending and nothing
+   * else changes. Payment settlement is what promotes the membership, the same
+   * way every other purchase on the platform is granted.
+   */
   if (mem) {
     await admin.from("elite_memberships").update({
-      tier: "premium",
-      perks: { toolkit: true, unlimited_assessments: true, priority: true }
+      perks: {
+        ...((mem.perks as Record<string, any>) ?? {}),
+        pending_tier: "premium",
+        pending_since: new Date().toISOString()
+      }
     }).eq("id", mem.id);
   }
 

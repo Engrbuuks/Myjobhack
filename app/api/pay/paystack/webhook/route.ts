@@ -16,7 +16,13 @@ export async function POST(request: Request) {
   const raw = await request.text();
   const signature = request.headers.get("x-paystack-signature") ?? "";
   const expected = crypto.createHmac("sha512", key).update(raw).digest("hex");
-  if (signature !== expected) return NextResponse.json({ error: "invalid signature" }, { status: 401 });
+  // Length is checked first because timingSafeEqual throws on a mismatch, and
+  // the compare itself is constant time so a wrong signature leaks nothing
+  // about how much of it was right.
+  const sent = Buffer.from(signature, "utf8");
+  const want = Buffer.from(expected, "utf8");
+  if (sent.length !== want.length || !crypto.timingSafeEqual(sent, want))
+    return NextResponse.json({ error: "invalid signature" }, { status: 401 });
 
   const event = JSON.parse(raw);
   if (event?.event !== "charge.success") return NextResponse.json({ received: true });

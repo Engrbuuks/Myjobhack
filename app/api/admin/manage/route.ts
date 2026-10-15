@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,15 @@ export async function POST(request: Request) {
       case "delete_job": {
         const { data: job } = await admin.from("jobs").select("id, org_id, title").eq("id", id).single();
         if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        if (!isStaff && !(await orgAuthority(admin, user.id, job.org_id))) return deny();
+        /**
+         * Deleting a job takes its applications and interviews with it, so
+         * staff need the capability that covers deleting jobs and not merely
+         * the staff role. Employers are still authorised by owning the job.
+         */
+        if (isStaff) {
+          const perm = await requirePermission("jobs.manage");
+          if (!perm.ok) return perm.response;
+        } else if (!(await orgAuthority(admin, user.id, job.org_id))) return deny();
         await admin.from("interviews").delete().eq("job_id", id);
         await admin.from("applications").delete().eq("job_id", id);
         await admin.from("jobs").delete().eq("id", id);
@@ -170,7 +179,19 @@ export async function POST(request: Request) {
       }
       case "update_chapter": {
         if (!isAdmin) return deny();
-        await admin.from("chapters").update(data).eq("id", id);
+        /**
+         * Only the three columns the chapter editor actually offers. The body
+         * went into `update(data)` whole, so any column on the row could be
+         * set from the request, including ones the form never shows.
+         */
+        const patch: Record<string, any> = {};
+        if (typeof data?.city === "string") patch.city = data.city;
+        if (typeof data?.country === "string") patch.country = data.country;
+        if (typeof data?.active === "boolean") patch.active = data.active;
+        if (!Object.keys(patch).length)
+          return NextResponse.json({ error: "Nothing to change on this chapter." }, { status: 400 });
+        const { error } = await admin.from("chapters").update(patch).eq("id", id);
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
         return NextResponse.json({ ok: true });
       }
       case "delete_chapter": {
@@ -186,6 +207,11 @@ export async function POST(request: Request) {
       // ---------------- PLANS ----------------
       case "update_plan": {
         if (!isAdmin) return deny();
+        // Same money as the Pricing Center, so the same capability guards it.
+        {
+          const perm = await requirePermission("pricing.manage");
+          if (!perm.ok) return perm.response;
+        }
         await admin.from("plans").update({
           name: data.name, price_ngn: data.price_ngn, price_usd: data.price_usd,
           interval: data.interval, features: data.features, active: data.active
@@ -196,6 +222,17 @@ export async function POST(request: Request) {
       // ---------------- USERS (admin only — the nuclear option) ----------------
       case "delete_user": {
         if (!isAdmin) return deny();
+        /**
+         * Deleting an account and changing a role were the two actions the
+         * permission system most needed to cover and the only ones it did not
+         * reach: on `role === "admin"` alone, an admin restricted to
+         * applicants could delete a colleague or promote an accomplice to
+         * admin and take everything else that way.
+         */
+        {
+          const perm = await requirePermission("users.manage");
+          if (!perm.ok) return perm.response;
+        }
         if (id === user.id) return NextResponse.json({ error: "You can't delete your own admin account from here." }, { status: 400 });
         const { data: target } = await admin.from("profiles").select("email, role").eq("id", id).single();
         if (target?.role === "admin")
@@ -216,6 +253,12 @@ export async function POST(request: Request) {
 
       case "set_role": {
         if (!isAdmin) return deny();
+        // Promotion is the route to every other capability, so it needs the
+        // one that covers changing roles. See delete_user above.
+        {
+          const perm = await requirePermission("users.manage");
+          if (!perm.ok) return perm.response;
+        }
         if (id === user.id) return NextResponse.json({ error: "Change your own role in SQL, not here — this prevents locking yourself out." }, { status: 400 });
         const ROLES = ["job_seeker", "elite_member", "employer", "recruiter", "trainer", "partner", "admin"];
         if (!ROLES.includes(data?.role)) return NextResponse.json({ error: "Invalid role" }, { status: 400 });

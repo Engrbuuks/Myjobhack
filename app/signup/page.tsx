@@ -40,14 +40,14 @@ export default function SignupPage() {
     // basic checks before we call out, so failures are self-explanatory
     if (!fullName.trim()) { setErr("Please enter your full name."); setBusy(false); return; }
     if (!email.trim() || !email.includes("@")) { setErr("Please enter a valid email address."); setBusy(false); return; }
-    if (password.length < 6) { setErr("Password must be at least 6 characters."); setBusy(false); return; }
+    if (password.length < 12) { setErr("Please use a password of at least 12 characters. A short phrase you will remember is stronger than a short word."); setBusy(false); return; }
 
     try {
       const refTag = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("ref") : null;
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password, full_name: fullName.trim(), role, ref: refTag, invite_as: inviteTier || null })
+        body: JSON.stringify({ email: email.trim(), password, full_name: fullName.trim(), role, ref: refTag })
       });
 
       // Read as text first — an empty body would break res.json() outright.
@@ -116,7 +116,7 @@ export default function SignupPage() {
             <label className="label block text-left">Email</label>
             <input className="input mb-4" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             <label className="label block text-left">Password</label>
-            <input className="input mb-6" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <input className="input mb-6" type="password" minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} required />
             {err && <p className="text-coral text-sm mb-4">{err}</p>}
             <button className="btn-coral w-full justify-center" disabled={busy}>
               {busy ? "Creating…" : role === "employer" ? "Create hiring account →" : "Create free profile →"}

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/permissions.server";
 import { geminiGrounded, geminiJson } from "@/lib/gemini";
@@ -25,15 +24,16 @@ export const dynamic = "force-dynamic";
  * is a starting point for a human decision, not a fact about your market.
  */
 
+/**
+ * Every verb here fetches, edits, approves or deletes benchmark rows, and the
+ * permission list has a capability for exactly that. The staff role check it
+ * replaces meant a coordinator could approve a market benchmark, which is the
+ * figure the whole pool is then judged against.
+ */
 async function gate() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
-  const admin = createAdminClient();
-  const { data: me } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!["admin", "recruiter"].includes(me?.role ?? ""))
-    return { error: NextResponse.json({ error: "Admins only" }, { status: 403 }) };
-  return { admin, userId: user.id };
+  const perm = await requirePermission("benchmarks.manage");
+  if (!perm.ok) return { error: perm.response };
+  return { admin: createAdminClient(), userId: perm.userId };
 }
 
 function tableMissing(err: any): string | null {

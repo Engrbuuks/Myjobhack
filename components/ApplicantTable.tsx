@@ -245,19 +245,45 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
   const allPicked = visible.length > 0 && visible.every((r) => picked.has(r.id));
   function toggleAll() { setPicked(allPicked ? new Set() : new Set(visible.map((r) => r.id))); }
 
+  /**
+   * Move several applicants at once, and say what happened.
+   *
+   * WHAT WENT WRONG: this fired the request in a loop and checked nothing. A
+   * 403, a rejected status change and a failed placement all looked identical
+   * to success, because router.refresh() ran regardless. That is how the
+   * placement fee bug stayed invisible for months: the single row path
+   * surfaced placement_error, and moving people in bulk, which is how hiring
+   * actually happens, threw it away.
+   *
+   * Failures are counted rather than aborting the run, so one bad row does not
+   * strand the other nineteen, and the ones that failed are named.
+   */
   async function bulkStatus(status: string) {
-    if (picked.size === 0) return;
-    setBulkBusy(true);
+    if (picked.size === 0 || !statusEndpoint) return;
+    setBulkBusy(true); setStatusErr(null);
+    const failed: string[] = [];
+    const feeProblems: string[] = [];
+    let moved = 0;
+
     for (const id of Array.from(picked)) {
-      if (statusEndpoint) {
-        await fetch(statusEndpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
-      } else {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        await supabase.from("applications").update({ status: status as any, reviewed_by: user!.id }).eq("id", id);
-      }
+      const who = rows.find((r) => r.id === id)?.name ?? "someone";
+      const r = await postJson(statusEndpoint, { id, status });
+      if (!r.ok) { failed.push(who); continue; }
+      moved++;
+      if (r.data?.placement_error) feeProblems.push(who);
     }
-    setBulkBusy(false); setPicked(new Set()); router.refresh();
+
+    setBulkBusy(false); setPicked(new Set());
+
+    const name = (list: string[]) =>
+      list.length > 3 ? `${list.slice(0, 3).join(", ")} and ${list.length - 3} more` : list.join(", ");
+    const parts: string[] = [];
+    if (failed.length) parts.push(`${failed.length} could not be moved (${name(failed)}).`);
+    if (feeProblems.length)
+      parts.push(`${feeProblems.length} moved, but no fee record was created (${name(feeProblems)}). Raise those placements by hand.`);
+    setStatusErr(parts.length ? `${moved} moved. ${parts.join(" ")}` : null);
+
+    router.refresh();
   }
 
   /**
@@ -357,18 +383,23 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
   async function setStatus(id: string, status: string) {
     setBusy(id); setStatusErr(null);
     try {
-      if (statusEndpoint) {
-        const r = await postJson(statusEndpoint, { id, status });
-        if (!r.ok) { setStatusErr(r.error); return; }
-        if (r.data?.placement_error) setStatusErr(r.data.message);
-      } else {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { setStatusErr("Your session expired. Reload the page and sign in again."); return; }
-        const { error } = await supabase.from("applications")
-          .update({ status: status as any, reviewed_by: user.id }).eq("id", id);
-        if (error) { setStatusErr(`Could not move them: ${error.message}`); return; }
+      /**
+       * Always through the endpoint, never straight to the database.
+       *
+       * There used to be a fallback that wrote applications.status with the
+       * browser client when no endpoint was passed. Every page passes one, so
+       * it was dead code, but it was also a hole: it skipped the permission
+       * and organisation checks the route performs, and it skipped the
+       * placement and fee record that a hire is supposed to raise. A status
+       * change is a business event, not a field edit.
+       */
+      if (!statusEndpoint) {
+        setStatusErr("This list cannot change stages. Open the applicants page for the job instead.");
+        return;
       }
+      const r = await postJson(statusEndpoint, { id, status });
+      if (!r.ok) { setStatusErr(r.error); return; }
+      if (r.data?.placement_error) setStatusErr(r.data.message);
       router.refresh();
     } finally {
       setBusy(null);

@@ -5,6 +5,8 @@ import { extractDocumentText, extractTextFromPath } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
 import { MAX_FILE_BYTES, RESUME_MIME_TYPES, checkResumeFile, humanBytes, logUpload, uploadFile } from "@/lib/storage";
 import { evaluateRules } from "@/lib/rules";
+import { sendApplicationReceipt, notifyStaffOfApplication } from "@/lib/applicationNotify";
+import { rateLimit, clientIp, LIMITS, tooMany } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,6 +19,26 @@ export async function POST(request: Request) {
   const name = String(fd.get("name") ?? "").trim();
   const email = String(fd.get("email") ?? "").trim().toLowerCase();
   const phone = String(fd.get("phone") ?? "").trim();
+
+  /**
+   * A limit, because there was none.
+   *
+   * The honeypot stops a careless bot and the duplicate check stops the same
+   * address applying twice to one role, but rotating addresses defeats both.
+   * Without a limit a script could fill this table overnight, drive the AI
+   * scoring on every row, upload a few hundred megabytes, and push invented
+   * addresses into the marketing contacts. Counted per address as well as per
+   * network, because one office shares an address and one person does not
+   * apply for twelve roles an hour.
+   */
+  const ip = await rateLimit(clientIp(request), LIMITS.apply_ip);
+  if (!ip.ok)
+    return tooMany("That is a lot of applications from one connection in a short time. Try again in an hour.", ip.retryAfterSeconds);
+  if (email) {
+    const byEmail = await rateLimit(email, LIMITS.apply_email);
+    if (!byEmail.ok)
+      return tooMany("You have sent several applications in the last hour. Try again later, and check your inbox for the ones already received.", byEmail.retryAfterSeconds);
+  }
   const country = String(fd.get("country") ?? "").trim();
   const city = String(fd.get("city") ?? "").trim();
   const answersRaw = String(fd.get("answers") ?? "{}");
@@ -41,7 +63,7 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
   const { data: job } = await admin.from("jobs")
-    .select("id, title, status, org_id, form_id, description, jd_document_id").eq("id", job_id).single();
+    .select("id, title, status, org_id, form_id, description, jd_document_id, company_name").eq("id", job_id).single();
   if (!job || job.status !== "published")
     return NextResponse.json({ error: "This role is no longer open." }, { status: 404 });
 
@@ -160,11 +182,58 @@ JOB DESCRIPTION:\n${jd}\n\nCANDIDATE CV:\n${cv.text.slice(0, 6000)}`
         link: `/portal/employer/jobs/${job_id}/applicants`
       });
     }
+  } else {
+    /**
+     * A first party posting has no org, which used to mean no alert at all.
+     * Our own staff are the hiring side for these, so they are who gets told.
+     */
+    await notifyStaffOfApplication({
+      admin, jobId: job_id, jobTitle: job.title,
+      applicantName: name, applicantEmail: email, applicantPhone: phoneCheck.e164,
+      applicationId: app.id, shortlisted: status === "shortlisted"
+    });
   }
   // Add the applicant to the marketing database (consented via apply).
   await admin.rpc("upsert_marketing_contact", {
     p_email: email, p_name: name, p_source: "application", p_job_id: job_id, p_profile: null
   });
 
-  return NextResponse.json({ ok: true, shortlisted: status === "shortlisted" });
+  /**
+   * Confirm receipt to the applicant, which the form has always promised.
+   *
+   * Awaited rather than fired and forgotten: on serverless the function stops
+   * once the response is returned, so an unawaited promise is simply dropped
+   * and the receipt never leaves. It is wrapped instead, so a mail outage
+   * cannot turn a saved application into an error on the applicant's screen.
+   */
+  let receipt = { sent: false, error: null as string | null };
+  try {
+    receipt = await sendApplicationReceipt({
+      admin, to: email, name, role: job.title,
+      company: await companyNameFor(admin, job),
+      jobId: job_id, applicationId: app.id,
+      profileId: null, shortlisted: status === "shortlisted",
+      canTrack: false
+    });
+  } catch (err: any) {
+    receipt = { sent: false, error: err?.message ?? "receipt send failed" };
+  }
+  if (!receipt.sent) console.error("[public/apply] receipt not sent", { application: app.id, email, error: receipt.error });
+
+  return NextResponse.json({
+    ok: true,
+    shortlisted: status === "shortlisted",
+    // Honest about the inbox promise the form makes, so the form can soften it.
+    emailed: receipt.sent
+  });
+}
+
+/** The name the applicant should see: the job's own, the org's, or ours. */
+async function companyNameFor(admin: any, job: { org_id: string | null; company_name?: string | null }) {
+  if (job.company_name?.trim()) return job.company_name.trim();
+  if (job.org_id) {
+    const { data: org } = await admin.from("organizations").select("name").eq("id", job.org_id).maybeSingle();
+    if (org?.name) return org.name;
+  }
+  return "MYJOBHACK";
 }

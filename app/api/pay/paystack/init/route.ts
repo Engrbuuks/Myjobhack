@@ -34,7 +34,10 @@ export async function POST(request: Request) {
       email: user.email,
       amount: Math.round(Number(plan.price_ngn) * 100), // kobo
       callback_url: `${appUrl}/api/pay/paystack/verify`,
-      metadata: { profile_id: user.id, plan_id: plan.id, payment_id: payment!.id }
+      // Same reason as the training charge: the webhook needs a purpose to
+      // settle this, otherwise a closed tab means a paid subscription that
+      // was never activated.
+      metadata: { purpose: "seeker_subscription", profile_id: user.id, plan_id: plan.id, payment_id: payment!.id }
     })
   });
   const json = await res.json();

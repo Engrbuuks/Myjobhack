@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
+import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,21 @@ export async function POST(request: Request) {
     return NextResponse.json({
       error: "Give a reason for the rejection — it goes to the candidate so they know what to correct."
     }, { status: 400 });
+
+  /**
+   * Approving an Elite application changes the person's role, which is what
+   * the users capability governs, so it is checked here rather than left to
+   * the staff role.
+   *
+   * Credential review has no capability that fits it: the list covers
+   * applicants, jobs, the pool, learning, insight, money and administration,
+   * and vetting a degree certificate is none of those. It keeps the staff role
+   * check above until a capability for verification exists.
+   */
+  if (type === "elite") {
+    const perm = await requirePermission("users.manage");
+    if (!perm.ok) return perm.response;
+  }
 
   const admin = createAdminClient();
   const status = action === "verify" ? "verified" : "rejected";

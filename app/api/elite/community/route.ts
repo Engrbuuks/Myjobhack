@@ -4,19 +4,33 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
+/**
+ * Elite membership, as awarded by staff rather than as claimed.
+ *
+ * status = 'verified' on its own was not proof of anything: the membership row
+ * is self serve, so a member who could set their own status could open the
+ * whole directory, which carries other members' names and contact details.
+ * verified_at and reviewer_id are written only by the staff review route, so
+ * the two together say a human actually approved this person. The database
+ * policy is being tightened separately; this check does not depend on it.
+ */
 async function verifiedElite() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
   const admin = createAdminClient();
   const { data: em } = await admin.from("elite_memberships")
-    .select("id").eq("talent_id", user.id).eq("status", "verified").maybeSingle();
-  return em ? user : null;
+    .select("id, verified_at, reviewer_id")
+    .eq("talent_id", user.id).eq("status", "verified").maybeSingle();
+  if (!em || !em.verified_at || !em.reviewer_id) return null;
+  return user;
 }
 
 export async function POST(request: Request) {
   const user = await verifiedElite();
-  if (!user) return NextResponse.json({ error: "Verified Elite members only" }, { status: 403 });
+  if (!user) return NextResponse.json({
+    error: "The Elite directory is open to members whose application our team has approved. If yours is still under review you will be told when it is through."
+  }, { status: 403 });
   const admin = createAdminClient();
   const b = await request.json();
 

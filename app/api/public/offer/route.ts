@@ -8,6 +8,34 @@ import { renderEmail } from "@/lib/email";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Name parts, lowercased, unaccented, punctuation and titles removed. */
+function nameTokens(v: string): string[] {
+  return String(v ?? "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\b(mr|mrs|ms|miss|mx|dr|engr|eng|prof|chief|alhaji|alhaja|pastor|rev|barr|hon|sir|madam)\.?\b/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+}
+
+/**
+ * Does the typed signature belong to the person the offer names?
+ *
+ * Enough of the stored name must appear, in any order: both parts of a two
+ * part name, or half of a longer one. Strict equality would refuse real
+ * candidates who leave out a middle name, and no check at all let anyone
+ * accept in anyone's name, which is what this replaces.
+ */
+function nameMatches(typed: string, candidate: string): boolean {
+  const want = nameTokens(candidate);
+  const got = new Set(nameTokens(typed));
+  if (!want.length || !got.size) return false;
+  const hits = want.filter((t) => got.has(t)).length;
+  const needed = Math.min(want.length, Math.max(2, Math.ceil(want.length / 2)));
+  return hits >= needed;
+}
+
 /**
  * A candidate accepting or declining their offer.
  *
@@ -31,6 +59,25 @@ export async function POST(request: Request) {
   // Answering twice is a no-op, not an error: people revisit to check.
   if (offer.signed_at || offer.declined_at)
     return NextResponse.json({ ok: true, already: true, status: offer.status });
+
+  /**
+   * A link that is no longer live.
+   *
+   * The token used to have no expiry and no way to cancel it, so a letter
+   * forwarded to a colleague, or sitting in an old mailbox, could be accepted
+   * months later. An offer is a commitment with a date on it; the link should
+   * not outlive it. Both columns arrive in migration 0060 and are treated as
+   * absent on an older database rather than blocking acceptance.
+   */
+  if (offer.withdrawn_at)
+    return NextResponse.json({
+      error: "This offer has been withdrawn. Please contact the person who sent it."
+    }, { status: 410 });
+
+  if (offer.expires_at && new Date(offer.expires_at) < new Date())
+    return NextResponse.json({
+      error: "This offer link has expired. Reply to the email and a fresh one can be issued."
+    }, { status: 410 });
 
   if (action === "decline") {
     const declinedAt = new Date().toISOString();
@@ -75,6 +122,27 @@ export async function POST(request: Request) {
   const typed = String(full_name ?? "").trim();
   if (typed.length < 3)
     return NextResponse.json({ error: "Type your full name to accept." }, { status: 400 });
+
+  /**
+   * The typed signature has to be the candidate's name.
+   *
+   * It was only checked for length, and whatever was typed went into the
+   * countersigned PDF as the signature. So anyone holding a forwarded link
+   * could book a hire in any name at all, and the stamped document looked
+   * exactly like a real acceptance.
+   *
+   * The comparison is deliberately forgiving, because a person signing their
+   * own offer should not be refused over a middle name or a different order.
+   * Tokens are compared without case, accents or punctuation, in any order,
+   * and enough of the stored name must appear: both parts of a two part name,
+   * or half of a longer one. "Ishola Motunrayo" accepts an offer addressed to
+   * "Ishola Motunrayo Oluwabusayomi"; "Not The Candidate" does not.
+   */
+  if (!nameMatches(typed, offer.candidate_name)) {
+    return NextResponse.json({
+      error: `To accept, type the name this offer was addressed to: ${offer.candidate_name}. If that name is wrong, reply to the email and ask for a corrected letter rather than signing a different name.`
+    }, { status: 400 });
+  }
 
   const signedAt = new Date().toISOString();
 
