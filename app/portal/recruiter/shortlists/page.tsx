@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ApplicantTable } from "@/components/ApplicantTable";
 import { ApplicantCharts } from "@/components/ApplicantCharts";
 import { buildCandidateCard } from "@/lib/candidateCard";
+import { fetchContactHistory, contactFor } from "@/lib/contactHistory";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,14 @@ export default async function RecruiterShortlists({ searchParams }: { searchPara
       formFields = (fields ?? []).map((f: any) => ({ id: f.id, label: f.label, type: f.field_type }));
     }
 
+    /**
+     * When each of these applicants was last emailed. Keyed by application id
+     * only, so what shows here is contact about THIS role and nothing else.
+     */
+    const history = await fetchContactHistory(admin, {
+      applicationIds: (apps ?? []).map((a: any) => a.id)
+    });
+
     rows = await Promise.all((apps ?? []).map(async (a) => {
       const { data: prof } = await admin.from("profiles").select("full_name, email").eq("id", a.talent_id).maybeSingle();
       const answers = Object.entries((a.answers as Record<string, any>) ?? {})
@@ -44,7 +53,11 @@ export default async function RecruiterShortlists({ searchParams }: { searchPara
         ai_fit_score: a.ai_fit_score, ai_summary: a.ai_summary, created_at: a.created_at,
         name: prof?.full_name ?? a.guest_name ?? "—", guest: !a.talent_id,
         email: "🔒 Unlock to view", contact_locked: true, card,
-        answers, resumeUrl: (a.guest_resume_path || a.resume_document_id) ? `/api/employer/resume?application_id=${a.id}` : null
+        answers, resumeUrl: (a.guest_resume_path || a.resume_document_id) ? `/api/employer/resume?application_id=${a.id}` : null,
+        contact: (() => {
+          const c = contactFor(history, { applicationId: a.id });
+          return c ? { sentAt: c.sentAt, count: c.count, mailings: c.mailings } : null;
+        })()
       };
     }));
   }

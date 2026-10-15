@@ -9,6 +9,7 @@ import { GapFiller } from "@/components/GapFiller";
 import { describeSignals } from "@/lib/resumeScan";
 import { ResumeScanReport } from "@/components/ResumeScanReport";
 import { OrphanedAnswers } from "@/components/OrphanedAnswers";
+import { fetchContactHistory, contactFor } from "@/lib/contactHistory";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,28 @@ export default async function Applicants({ params }: { params: { id: string } })
     })
   );
 
+  /**
+   * Who has already heard from us, and when.
+   *
+   * Two queries for the whole page rather than one per applicant. Read with
+   * the service-role client because email_log is not readable by a signed-in
+   * user, and deliberately so: it holds every address the business has ever
+   * written to.
+   */
+  const history = await fetchContactHistory(admin, {
+    applicationIds: rows.map((r) => r.id),
+    emails: rows.map((r) => r.email)
+  });
+  const rowsWithContact = rows.map((r) => {
+    const c = contactFor(history, { applicationId: r.id, email: r.email });
+    return {
+      ...r,
+      contact: c
+        ? { sentAt: c.sentAt, subject: c.subject, count: c.count, mailings: c.mailings }
+        : null
+    };
+  });
+
   // Signs the WhatsApp and email messages, so a candidate knows who wrote.
   const { data: { user: me } } = await supabase.auth.getUser();
   const { data: meProfile } = me
@@ -121,7 +144,7 @@ export default async function Applicants({ params }: { params: { id: string } })
       <GapFiller jobId={params.id} formFields={formFields} />
       <ResumeScanReport rows={scanRows as any} questionLabel={matchedField?.label ?? null} />
       <ApplicantCharts rows={rows as any} openings={job?.openings ?? 1} formFields={formFields} />
-      <ApplicantTable rows={rows as any} statusEndpoint="/api/employer/application-status"
+      <ApplicantTable rows={rowsWithContact as any} statusEndpoint="/api/employer/application-status"
         jobId={params.id} formFields={formFields}
         jobTitle={job?.title} senderName={senderName} />
     </>

@@ -6,6 +6,7 @@ import { routeMail, summariseRouting } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
 import { renderApplicantTemplate, applicantVars, checkTokens, toParagraphs } from "@/lib/applicantEmail";
 import { getAllowance, getOptOuts, unsubscribeUrlFor, logSends } from "@/lib/emailAllowance";
+import { alreadyReceived, messageTag } from "@/lib/contactHistory";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -86,8 +87,18 @@ export async function POST(request: Request) {
    * them. Fetching only name and email would silently leave {location}
    * unfilled in a template that used it.
    */
+  /**
+   * application_id travels with the recipient now.
+   *
+   * It used to be recovered after sending by matching the address back to a
+   * guest application, which meant every REGISTERED applicant was logged with
+   * no application at all. So half the send history could not be tied to
+   * anybody, which is why the applicant list could never show who had been
+   * contacted.
+   */
   type Recipient = {
     email: string; name: string; phone: string; location: string; status: string;
+    applicationId: string;
   };
   const recipients: Recipient[] = [];
   for (const a of apps as any[]) {
@@ -97,12 +108,14 @@ export async function POST(request: Request) {
         .select("full_name, email, phone").eq("id", a.talent_id).maybeSingle();
       if (p?.email) recipients.push({
         email: p.email, name: p.full_name ?? "there",
-        phone: p.phone ?? "", location, status: a.status ?? ""
+        phone: p.phone ?? "", location, status: a.status ?? "",
+        applicationId: a.id
       });
     } else if (a.guest_email) {
       recipients.push({
         email: a.guest_email, name: a.guest_name ?? "there",
-        phone: a.guest_phone ?? "", location, status: a.status ?? ""
+        phone: a.guest_phone ?? "", location, status: a.status ?? "",
+        applicationId: a.id
       });
     }
   }
@@ -112,8 +125,42 @@ export async function POST(request: Request) {
   // Never email someone who has opted out. Ignoring this is what turns a
   // provider account into a blocked one.
   const optedOut = await getOptOuts(admin, recipients.map((r) => r.email));
-  const allowed = recipients.filter((r) => !optedOut.has(r.email.toLowerCase()));
-  const skippedOptOut = recipients.length - allowed.length;
+  const notOptedOut = recipients.filter((r) => !optedOut.has(r.email.toLowerCase()));
+  const skippedOptOut = recipients.length - notOptedOut.length;
+
+  /**
+   * Nobody gets the same message twice.
+   *
+   * This is the common shape of the problem: some people at a stage were
+   * emailed, more people were then moved to that stage, and the whole stage
+   * gets selected again because the two groups look identical on screen.
+   * Repeats are now recognised by tag and skipped, and the count is reported
+   * so the choice is visible rather than silent.
+   *
+   * send_to_all overrides it, for the case where a resend is the point.
+   */
+  /**
+   * The mailing's name, if the sender gave it one.
+   *
+   * Taken as a string or not at all: a client is not trusted to send the
+   * right type, and messageTag calls trim on it.
+   */
+  const explicitTag = typeof b.tag === "string" && b.tag.trim() ? b.tag : null;
+  const tag = messageTag(String(subject), explicitTag);
+  const sendToAll = b.send_to_all === true;
+  const had = sendToAll
+    ? new Set<string>()
+    : await alreadyReceived(admin, notOptedOut.map((r) => ({ applicationId: r.applicationId, email: r.email })), String(subject), explicitTag);
+  const allowed = notOptedOut.filter((r) => !had.has(r.email.toLowerCase()));
+  const skippedAlready = notOptedOut.length - allowed.length;
+
+  if (!allowed.length && skippedAlready > 0)
+    return NextResponse.json({
+      error: explicitTag
+        ? `All ${skippedAlready} of those applicants have already had "${tag}", so nothing was sent. Tick "send anyway" if you mean to send it again, or give this mailing a new name.`
+        : `All ${skippedAlready} of those applicants have already received this message, so nothing was sent. Tick "send anyway" if you mean to send it again.`,
+      already_sent: skippedAlready
+    }, { status: 409 });
 
   if (!allowed.length)
     return NextResponse.json({
@@ -169,7 +216,9 @@ export async function POST(request: Request) {
         body: renderApplicantTemplate(body, v)
       },
       recipients: willSend.length,
+      mailing: tag,
       deferred, skipped_opt_out: skippedOptOut,
+      already_sent: skippedAlready,
       allowance,
       warnings: [
         ...(tokens.unknown.length
@@ -177,7 +226,11 @@ export async function POST(request: Request) {
         ...(tokens.empty.length
           ? [`Empty for this recipient, and will appear as written: ${tokens.empty.map((t) => "{" + t + "}").join(", ")}`] : []),
         ...(deferred ? [`${deferred} will not be emailed today because the allowance runs out. Send again tomorrow.`] : []),
-        ...(skippedOptOut ? [`${skippedOptOut} have unsubscribed and are excluded.`] : [])
+        ...(skippedOptOut ? [`${skippedOptOut} have unsubscribed and are excluded.`] : []),
+        ...(skippedAlready
+          ? [explicitTag
+              ? `${skippedAlready} already had "${tag}" and will be skipped. Tick "send anyway" to include them.`
+              : `${skippedAlready} already received this message and will be skipped. Tick "send anyway" to include them.`] : [])
       ]
     });
   }
@@ -211,14 +264,15 @@ export async function POST(request: Request) {
 
   // Record every send AND every failure. Without this there is no way to know
   // who has already been contacted after an interrupted batch.
-  const appByEmail = new Map<string, any>();
-  for (const a of apps as any[]) if (a.guest_email) appByEmail.set(a.guest_email.toLowerCase(), a);
   await logSends(admin, willSend.map((r, i) => ({
     recipient: r.email,
     subject: subject.trim(),
     kind: "bulk",
+    tag,
     job_id: job_id ?? null,
-    application_id: appByEmail.get(r.email.toLowerCase())?.id ?? null,
+    // Taken from the recipient, so a registered applicant is recorded too.
+    // The old lookup matched addresses against guest applications only.
+    application_id: r.applicationId,
     sent_by: user.id,
     status: results[i]?.error ? "failed" : "sent",
     error: results[i]?.error ?? null,
@@ -233,9 +287,14 @@ export async function POST(request: Request) {
   if (failed) notes.push(`${failed} failed`);
   if (skippedOptOut) notes.push(`${skippedOptOut} skipped — unsubscribed`);
   if (deferred) notes.push(`${deferred} not sent — today's allowance ran out, run this again tomorrow and they'll be next`);
+  if (skippedAlready)
+    notes.push(explicitTag
+      ? `${skippedAlready} skipped, they already had "${tag}"`
+      : `${skippedAlready} skipped, they already had this message`);
 
   return NextResponse.json({
-    ok: true, sent, failed, deferred, skipped_opt_out: skippedOptOut, allowance: after,
+    ok: true, sent, failed, deferred, skipped_opt_out: skippedOptOut,
+    already_sent: skippedAlready, allowance: after,
     message: `Sent to ${sent} applicant${sent === 1 ? "" : "s"}.` +
       (routing.note ? ` ${routing.note}` : "") +
       (notes.length ? ` ${notes.join(". ")}.` : "") +

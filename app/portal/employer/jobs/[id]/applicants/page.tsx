@@ -7,6 +7,7 @@ import { ApplicantTable } from "@/components/ApplicantTable";
 import { ApplicantCharts } from "@/components/ApplicantCharts";
 import { buildCandidateCard } from "@/lib/candidateCard";
 import { getMyOrg } from "@/lib/org";
+import { fetchContactHistory, contactFor } from "@/lib/contactHistory";
 
 export default async function EmployerApplicants({ params }: { params: { id: string } }) {
   const supabase = createClient();
@@ -37,6 +38,20 @@ export default async function EmployerApplicants({ params }: { params: { id: str
   const { data: placed } = await admin.from("placements").select("talent_id").eq("employer_id", empId);
   const released = new Set([...(unlocks ?? []).map((u: any) => u.talent_id), ...(placed ?? []).map((p: any) => p.talent_id)]);
 
+  /**
+   * When each applicant was last written to.
+   *
+   * Keyed by application id ONLY, never by email address. Keying by address
+   * would pull in every message MYJOBHACK has ever sent that person, for
+   * other jobs and other employers, and none of that belongs on this page.
+   * The subject is withheld for the same reason: the employer gets the fact
+   * that contact happened on their job, not the wording of someone else's
+   * message.
+   */
+  const history = await fetchContactHistory(admin, {
+    applicationIds: (apps ?? []).map((a: any) => a.id)
+  });
+
   const rows = await Promise.all(
     (apps ?? []).map(async (a) => {
       const { data: prof } = await admin.from("profiles").select("full_name, email, phone").eq("id", a.talent_id).single();
@@ -63,7 +78,14 @@ export default async function EmployerApplicants({ params }: { params: { id: str
          */
         phone: isReleased ? (a.guest_phone ?? "") : "Unlock to view",
         applied_location: (a.answers as any)?._location ?? "",
-        answers, resumeUrl
+        answers, resumeUrl,
+        contact: (() => {
+          const c = contactFor(history, { applicationId: a.id });
+          // The mailing NAMES travel, the subject does not. A name describes
+          // contact about this employer's own role, which is theirs to see;
+          // the subject is MYJOBHACK's wording and is not.
+          return c ? { sentAt: c.sentAt, count: c.count, mailings: c.mailings } : null;
+        })()
       };
     })
   );

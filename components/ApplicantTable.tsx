@@ -9,6 +9,7 @@ import { PayButton } from "@/components/PayButton";
 import { ApplicantFilterBar } from "@/components/ApplicantFilterBar";
 import { callApi, postJson } from "@/lib/apiClient";
 import { formatPhone } from "@/lib/phone";
+import { howLongAgo } from "@/lib/contactHistory";
 import { APPLICANT_TOKENS, OFFICE_INVITE_SUBJECT, OFFICE_INVITE_BODY } from "@/lib/applicantEmail";
 import { WhatsAppBlast } from "@/components/WhatsAppBlast";
 import { BulkOffers } from "@/components/BulkOffers";
@@ -27,6 +28,24 @@ type Row = {
   /** Built-in application fields, captured outside the form definition. */
   phone?: string | null;
   applied_location?: string | null;
+  /**
+   * When this person was last emailed, and how many times.
+   *
+   * Every send was already recorded and nothing read it back, so after
+   * emailing some of a stage and then adding more people to it, the two
+   * groups were indistinguishable here. That left two choices: email nobody,
+   * or email everybody again.
+   */
+  /**
+   * subject is optional on purpose. The employer view shows WHEN someone was
+   * last written to but not what was said, because the message was written by
+   * MYJOBHACK rather than by the employer.
+   */
+  contact?: {
+    sentAt: string; subject?: string; count: number;
+    /** Each named mailing this person has had, newest first, with its date. */
+    mailings?: { name: string; sentAt: string }[];
+  } | null;
 };
 const STATUSES = ["submitted", "shortlisted", "interviewing", "offered", "hired", "rejected"];
 
@@ -45,6 +64,16 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
   const [sortBy, setSortBy] = useState<"fit" | "newest" | "oldest" | "name" | "band" | "stage">("fit");
   const [filterStage, setFilterStage] = useState<string>("all");
   const [filterBand, setFilterBand] = useState<string>("all");
+  // all | never | emailed. "never" is the one that gets used: it selects
+  // exactly the people added to a stage since the last send.
+  const [filterContact, setFilterContact] = useState<string>("all");
+  /**
+   * A named mailing, and whether to show the people who HAVE had it or the
+   * people who have NOT. "Not yet had" is the one that gets used: a stage is
+   * being worked as a mailing category, so after a send the question is
+   * always who has joined the category since.
+   */
+  const [filterMailing, setFilterMailing] = useState<string>("all");
   const [query, setQuery] = useState("");
   // Filters over every field on the job's application form, plus the core
   // application columns. Built from the form definition, so a question with
@@ -96,6 +125,20 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
   const [offerFor, setOfferFor] = useState<string | null>(null);
   const [statusErr, setStatusErr] = useState<string | null>(null);
   const [showBulkOffer, setShowBulkOffer] = useState(false);
+  // Off by default: a repeat of the same message is almost always a mistake,
+  // so sending one has to be a deliberate choice rather than the default.
+  const [sendToAll, setSendToAll] = useState(false);
+  // Set when the server refuses because EVERY chosen person already had this
+  // message. There is no preview in that case, so without this the override
+  // would be the one control not on screen at the moment it is needed.
+  const [repeatBlocked, setRepeatBlocked] = useState(0);
+  /**
+   * What this mailing is called. Blank means "name it after the subject",
+   * which is what the server does. Naming it explicitly is what lets the
+   * same mailing be recognised after the wording has been edited, and lets a
+   * second mailing with a similar subject stay a separate thing.
+   */
+  const [mailingTag, setMailingTag] = useState("");
   const [letterheads, setLetterheads] = useState<any[]>([]);
 
   // What is left of today's send allowance, fetched when the compose box
@@ -116,9 +159,12 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
     try {
       const res = await postJson("/api/admin/email-applicants", {
         application_ids: targets, subject: emailSubject, body: emailBody,
-        detail: emailDetail, job_id: jobId, preview: true
+        detail: emailDetail, job_id: jobId, preview: true,
+        send_to_all: sendToAll,
+        tag: mailingTag.trim() || undefined
       });
-      if (res.ok) setEmailPreview(res.data); else setAsmtNote(res.error);
+      if (res.ok) { setEmailPreview(res.data); setRepeatBlocked(0); }
+      else { setAsmtNote(res.error); setRepeatBlocked(Number(res.data?.already_sent ?? 0)); }
     } finally { setEmailing(false); }
   }
 
@@ -130,15 +176,18 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
     try {
       const res = await postJson("/api/admin/email-applicants", {
         application_ids: targets, subject: emailSubject, body: emailBody,
-        detail: emailDetail, job_id: jobId
+        detail: emailDetail, job_id: jobId,
+        send_to_all: sendToAll,
+        tag: mailingTag.trim() || undefined
       });
       ok = res.ok;
       setAsmtNote(res.ok ? (res.data?.message ?? "Sent.") : res.error);
+      if (!res.ok) setRepeatBlocked(Number(res.data?.already_sent ?? 0));
       if (res.data?.allowance) setAllowance(res.data.allowance);
     } finally {
       setEmailing(false);
     }
-    if (ok) { setShowCompose(false); setEmailSubject(""); setEmailBody(""); setEmailDetail(""); setEmailPreview(null); setPicked(new Set()); }
+    if (ok) { setShowCompose(false); setEmailSubject(""); setEmailBody(""); setEmailDetail(""); setEmailPreview(null); setPicked(new Set()); setSendToAll(false); setRepeatBlocked(0); setMailingTag(""); }
   }
 
   // How many applicants have never been scored? Guest applications were not
@@ -202,6 +251,29 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
   // Every filterable field: the job's questions, then the core columns.
   const filterFields = buildFilterFields(formFields, rows as any);
 
+  /**
+   * Which mailings this group has already had, newest first.
+   *
+   * Derived from the rows on screen rather than passed in, so the names in
+   * the dropdown are exactly the names shown against the candidates. Counted
+   * over ALL rows, not the filtered ones, or choosing "has not yet had X"
+   * would immediately drop X out of the list it was chosen from.
+   */
+  const mailings = (() => {
+    const seen = new Map<string, { name: string; sentAt: string; recipients: number }>();
+    for (const r of rows as Row[]) {
+      for (const sent of r.contact?.mailings ?? []) {
+        // Keyed by lower case so one mailing typed in two capitalisations is
+        // one entry in the dropdown rather than two.
+        const key = sent.name.toLowerCase();
+        const m = seen.get(key);
+        if (m) { m.recipients += 1; if (sent.sentAt > m.sentAt) m.sentAt = sent.sentAt; }
+        else seen.set(key, { name: sent.name, sentAt: sent.sentAt, recipients: 1 });
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => (a.sentAt < b.sentAt ? 1 : -1));
+  })();
+
   const filtered = applyRules(
     (rows as any)
       .filter((r: Row) => filterStage === "all" || r.status === filterStage)
@@ -209,6 +281,20 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
         if (filterBand === "all") return true;
         const b = (r as any).card?.competency_band ?? null;
         return filterBand === "none" ? !b : b === filterBand;
+      })
+      .filter((r: Row) => {
+        if (filterContact === "all") return true;
+        return filterContact === "never" ? !r.contact : !!r.contact;
+      })
+      .filter((r: Row) => {
+        if (filterMailing === "all") return true;
+        // The value carries the direction, so one control does both:
+        // "not:Office invitation" or "had:Office invitation".
+        const negate = filterMailing.startsWith("not:");
+        const name = filterMailing.replace(/^(not|had):/, "");
+        const had = (r.contact?.mailings ?? [])
+          .some((m) => m.name.toLowerCase() === name.toLowerCase());
+        return negate ? !had : had;
       })
       .filter((r: Row) => {
         if (!query.trim()) return true;
@@ -326,6 +412,10 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
     { key: "source", label: "Applied as" },
     { key: "resume", label: "Résumé" },
     { key: "applied", label: "Date applied" },
+    // So the spreadsheet answers the same question the screen does.
+    { key: "last_emailed", label: "Last emailed" },
+    { key: "emails_sent", label: "Emails sent" },
+    { key: "mailings", label: "Mailings received" },
     { key: "resume_hint", label: "Résumé mentions (unverified)" },
     { key: "cv_link", label: "CV link" },
     ...formFields.map((f) => ({ key: `field:${f.id}`, label: f.label }))
@@ -350,6 +440,9 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
       source: r.guest ? "Guest" : "Registered",
       resume: r.resumeUrl ? "yes" : "no",
       applied: new Date(r.created_at).toLocaleDateString(),
+      last_emailed: r.contact ? new Date(r.contact.sentAt).toLocaleDateString() : "never",
+      emails_sent: r.contact ? r.contact.count : 0,
+      mailings: (r.contact?.mailings ?? []).map((m) => m.name).join("; "),
       resume_hint: r.resume_hint ?? "",
       // Opens the same redaction-aware endpoint the table uses, so the CSV
       // grants no access the viewer didn't already have — they must be signed
@@ -442,14 +535,49 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
             </select>
           </div>
         )}
+        <div>
+          <label className="label !text-xs">Contacted</label>
+          <select className="input !h-9 !w-auto text-xs" value={filterContact}
+            onChange={(e) => setFilterContact(e.target.value)}>
+            <option value="all">Anyone</option>
+            <option value="never">Not yet emailed</option>
+            <option value="emailed">Already emailed</option>
+          </select>
+        </div>
+        {/*
+          The mailings this group has already had. Empty until something has
+          been sent, so it is hidden rather than shown as a dropdown with one
+          useless option in it.
+        */}
+        {mailings.length > 0 && (
+          <div>
+            <label className="label !text-xs">Mailing</label>
+            <select className="input !h-9 !w-auto text-xs max-w-56" value={filterMailing}
+              onChange={(e) => setFilterMailing(e.target.value)}>
+              <option value="all">Any mailing</option>
+              <optgroup label="Has NOT yet had">
+                {mailings.map((m) => (
+                  <option key={`not:${m.name}`} value={`not:${m.name}`}>{m.name}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Already had">
+                {mailings.map((m) => (
+                  <option key={`had:${m.name}`} value={`had:${m.name}`}>
+                    {m.name} · {m.recipients} sent {howLongAgo(m.sentAt)}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+        )}
         <div className="flex-1 min-w-40">
           <label className="label !text-xs">Search</label>
           <input className="input !h-9 text-xs" placeholder="Name or answer text…"
             value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        {(filterStage !== "all" || filterBand !== "all" || query) && (
+        {(filterStage !== "all" || filterBand !== "all" || filterContact !== "all" || filterMailing !== "all" || query) && (
           <button className="btn-ghost !h-9 text-xs"
-            onClick={() => { setFilterStage("all"); setFilterBand("all"); setQuery(""); }}>
+            onClick={() => { setFilterStage("all"); setFilterBand("all"); setFilterContact("all"); setFilterMailing("all"); setQuery(""); }}>
             Clear
           </button>
         )}
@@ -583,7 +711,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
           current filters if none are individually selected. */}
       {showCompose && (
         <div className="fixed inset-0 bg-ink/50 grid place-items-center z-50 p-4"
-          onClick={() => !emailing && setShowCompose(false)}>
+          onClick={() => { if (!emailing) { setShowCompose(false); setSendToAll(false); setRepeatBlocked(0); } }}>
           {/* Constrained and scrollable. Adding the tokens, the detail box and
               the preview made this taller than a laptop screen, and because
               the container had no height limit the buttons ended up below the
@@ -601,6 +729,92 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
                   : "Everyone matching your current filters will receive this. Narrow the filters first if that is not what you want."}
               </p>
             </div>
+
+            {/*
+              Who in this selection has heard from us before.
+              Counted from the rows on screen, so it appears the moment the
+              box opens rather than after a preview. The exact "already had
+              THIS message" figure comes from the server on preview, because
+              only the send log knows that.
+            */}
+            {(() => {
+              const chosen = picked.size ? visible.filter((r) => picked.has(r.id)) : visible;
+              const fresh = chosen.filter((r) => !r.contact).length;
+              const before = chosen.length - fresh;
+              if (!chosen.length) return null;
+              // The server's figure, available only once a preview has run.
+              // It is the one that matters: it counts who had THIS message,
+              // not who has ever been emailed.
+              /**
+               * How many of these have had this particular mailing.
+               *
+               * Once the mailing is named and that name has been used before,
+               * this is answerable from the rows on screen, so it appears as
+               * the name is typed rather than after a preview. The server
+               * still has the final say, because only the send log knows
+               * about people who are not on this page.
+               */
+              const named = mailingTag.trim();
+              const knownName = !!named
+                && mailings.some((m) => m.name.toLowerCase() === named.toLowerCase());
+              const localRepeats = knownName
+                ? chosen.filter((r) => (r.contact?.mailings ?? [])
+                    .some((m) => m.name.toLowerCase() === named.toLowerCase())).length
+                : -1;
+              const repeats: number = emailPreview
+                ? Number(emailPreview.already_sent ?? 0)
+                : repeatBlocked > 0 ? repeatBlocked
+                : localRepeats;
+              return (
+                <div className="rounded-xl border border-line p-3">
+                  <div className="text-sm">
+                    <strong className="text-ink">{chosen.length}</strong>
+                    <span className="text-muted-2"> selected · </span>
+                    <strong className="text-ink">{fresh}</strong>
+                    <span className="text-muted-2"> never emailed · </span>
+                    <strong className="text-ink">{before}</strong>
+                    <span className="text-muted-2"> emailed before</span>
+                  </div>
+
+                  {repeats > 0 ? (
+                    <p className="text-xs mt-1.5 font-medium" style={{ color: "#B23A2A" }}>
+                      {repeats} of these {repeats === 1 ? "has" : "have"} already had{" "}
+                      {named ? <>the mailing &ldquo;{named}&rdquo;</> : "this exact message"}.{" "}
+                      {sendToAll
+                        ? "They will receive it again."
+                        : chosen.length - repeats <= 0
+                          ? "Everyone chosen is a repeat, so nothing would be sent. Tick the box below if you mean to send it again."
+                          : `${repeats === 1 ? "It" : "They"} will be skipped, so ${chosen.length - repeats} ${chosen.length - repeats === 1 ? "person" : "people"} will be emailed.`}
+                    </p>
+                  ) : repeats === 0 ? (
+                    <p className="text-xs text-muted-2 mt-1.5">
+                      Nobody here has had {named ? <>&ldquo;{named}&rdquo;</> : "this message"} before.
+                      All {chosen.length} will receive it.
+                    </p>
+                  ) : before > 0 ? (
+                    <p className="text-xs text-muted-2 mt-1">
+                      Anyone who already received <em>this</em> message is skipped automatically.
+                      Having been emailed before about something else does not exclude them.
+                      Use the Contacted filter to pick only the people added since your last send.
+                    </p>
+                  ) : null}
+
+                  {/* The override. Off by default, and it resets the preview
+                      because the skip count the server returned no longer
+                      describes what pressing Send would do. */}
+                  {(before > 0 || repeats > 0 || sendToAll) && (
+                    <label className="flex items-start gap-2 mt-2.5 pt-2.5 border-t border-line cursor-pointer">
+                      <input type="checkbox" className="mt-0.5" checked={sendToAll}
+                        onChange={(e) => { setSendToAll(e.target.checked); setEmailPreview(null); setRepeatBlocked(0); }} />
+                      <span className="text-xs text-muted">
+                        <strong className="text-ink">Send anyway, including repeats.</strong>{" "}
+                        Only tick this if you mean to send the same message to someone a second time.
+                      </span>
+                    </label>
+                  )}
+                </div>
+              );
+            })()}
 
             {allowance && (() => {
               const want = picked.size || visible.length;
@@ -634,6 +848,33 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
                 Start from the office invitation
               </button>
             )}
+
+            {/*
+              What this mailing is called, which is a different thing from
+              what it says. A stage here is a mailing category, and a category
+              gets written to more than once, so the mailing needs a name of
+              its own for "who has already had this one" to mean anything.
+              Reusing a name from the list is what makes a later batch count
+              as the same mailing even after the wording has been edited.
+            */}
+            <div>
+              <label className="label !text-xs">
+                Name this mailing <span className="text-muted-2 font-normal">· optional</span>
+              </label>
+              <input className="input !h-10" value={mailingTag} list="mjh-mailing-names"
+                onChange={(e) => { setMailingTag(e.target.value); setEmailPreview(null); setRepeatBlocked(0); }}
+                placeholder={mailings.length ? "Pick one you have sent before, or type a new name" : "Office invitation, batch 1"} />
+              <datalist id="mjh-mailing-names">
+                {mailings.map((m) => <option key={m.name} value={m.name} />)}
+              </datalist>
+              <p className="text-xs text-muted-2 mt-1">
+                {mailingTag.trim()
+                  ? mailings.some((m) => m.name.toLowerCase() === mailingTag.trim().toLowerCase())
+                    ? `Anyone who already had "${mailingTag.trim()}" will be left out, however the wording has changed since.`
+                    : "A new mailing. Nobody has had it, so everyone you have chosen will receive it."
+                  : "Left blank, it is named after the subject line. Name it instead if you expect to send this same mailing again later."}
+              </p>
+            </div>
 
             <div>
               <label className="label !text-xs">Subject</label>
@@ -715,7 +956,9 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
                   {emailing ? "Sending…" : `Send to ${emailPreview.recipients ?? (picked.size || visible.length)}`}
                 </button>
               )}
-              <button className="btn-ghost" onClick={() => { setShowCompose(false); setEmailPreview(null); }} disabled={emailing}>
+              <button className="btn-ghost"
+                onClick={() => { setShowCompose(false); setEmailPreview(null); setSendToAll(false); setRepeatBlocked(0); }}
+                disabled={emailing}>
                 Cancel
               </button>
               {/* Says why the button is inert, rather than leaving a greyed
@@ -747,6 +990,44 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
                     Guest · not assessed
                   </span>
                 )}</div>
+              {/*
+                Whether this person has heard from us, on the row itself.
+                This is the fact that decides whether to include them in the
+                next send, so it belongs where the selection happens rather
+                than two clicks away.
+              */}
+              <div className="text-xs mt-0.5">
+                {r.contact ? (
+                  <span className="text-muted-2"
+                    title={r.contact.subject ? `Last subject: ${r.contact.subject}` : undefined}>
+                    ✉ Emailed {howLongAgo(r.contact.sentAt)}
+                    {r.contact.count > 1 ? `, ${r.contact.count} in total` : ""}
+                  </span>
+                ) : (
+                  <span className="text-coral font-semibold">Not yet emailed</span>
+                )}
+              </div>
+              {/*
+                The mailings by name. "Emailed 3 days ago" is not enough to
+                act on when a stage is being worked as a mailing category:
+                what decides the next send is WHICH mailing they have had.
+              */}
+              {(r.contact?.mailings?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {r.contact!.mailings!.slice(0, 3).map((m) => (
+                    <span key={m.name} title={`Had "${m.name}" ${howLongAgo(m.sentAt)}`}
+                      className="px-1.5 py-0.5 rounded bg-paper-2 text-[10px] text-muted max-w-56 truncate">
+                      {m.name}
+                    </span>
+                  ))}
+                  {r.contact!.mailings!.length > 3 && (
+                    <span className="text-[10px] text-muted-2 self-center"
+                      title={r.contact!.mailings!.slice(3).map((m) => m.name).join(", ")}>
+                      +{r.contact!.mailings!.length - 3} more
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {r.ai_fit_score != null && (
               <div className="text-center">

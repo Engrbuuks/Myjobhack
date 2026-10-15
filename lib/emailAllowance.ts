@@ -120,7 +120,7 @@ export async function unsubscribeUrlFor(admin: any, email: string): Promise<stri
 
 /** Record what was sent. Failures are logged too — that is the useful half. */
 export async function logSends(admin: any, rows: {
-  recipient: string; subject: string; kind?: string;
+  recipient: string; subject: string; kind?: string; tag?: string | null;
   job_id?: string | null; application_id?: string | null; profile_id?: string | null;
   sent_by?: string | null; status: "sent" | "failed"; error?: string | null; preview?: string;
   provider?: string;
@@ -128,6 +128,14 @@ export async function logSends(admin: any, rows: {
   if (!rows.length) return;
   await admin.from("email_log").insert(rows.map((r) => ({
     ...r,
+    /**
+     * Stored lowercased, because this column is now looked up as well as
+     * written. "Ada@Gmail.com" and "ada@gmail.com" are one person, and an
+     * exact-match lookup on the mixed-case form would report that person as
+     * never contacted and email them a second time. Migration 0063
+     * normalises the rows written before this.
+     */
+    recipient: String(r.recipient ?? "").trim().toLowerCase(),
     kind: r.kind ?? "bulk",
     provider: r.provider ?? "resend",
     preview: (r.preview ?? "").slice(0, 300)
