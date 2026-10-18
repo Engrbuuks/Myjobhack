@@ -55,11 +55,34 @@ export async function POST(request: Request) {
   // pull candidate pool (talent with a profile)
   const { data: tps } = await admin.from("talent_profiles")
     .select("profile_id, headline, niche_id, expected_role_level, years_experience, custom_skills, competency_band, competency_score");
-  const ids = (tps ?? []).map((t: any) => t.profile_id);
+
+  /**
+   * Elite members come first. This is the perk the membership page has been
+   * selling, and until now nothing in this route knew what an Elite member
+   * was.
+   *
+   * Two separate things had to change, and the ordering was the smaller one.
+   * The pool is cut to 300 candidates before ranking, and that cut was taken
+   * from an unordered fetch, so a verified member could be dropped before
+   * being considered at all. Elite members are moved to the front of the
+   * pool first, so the people who were promised priority are never the ones
+   * the limit discards.
+   */
+  const { data: eliteRows } = await admin.from("elite_memberships")
+    .select("talent_id").eq("status", "verified");
+  const elite = new Set((eliteRows ?? []).map((e: any) => e.talent_id));
+
+  const pool = [...(tps ?? [])].sort((a: any, b: any) => {
+    const ae = elite.has(a.profile_id) ? 1 : 0;
+    const be = elite.has(b.profile_id) ? 1 : 0;
+    return be - ae;
+  });
+
+  const ids = pool.map((t: any) => t.profile_id);
   const { data: profs } = await admin.from("profiles").select("id, country, state").in("id", ids.slice(0, 500));
   const geo = new Map((profs ?? []).map((p: any) => [p.id, p]));
 
-  const candidates = (tps ?? []).slice(0, 300).map((t: any) => ({
+  const candidates = pool.slice(0, 300).map((t: any) => ({
     talent_id: t.profile_id, headline: t.headline, niche_id: t.niche_id,
     role_level: t.expected_role_level, years: t.years_experience, skills: t.custom_skills,
     competency_band: t.competency_band, competency_score: t.competency_score,
@@ -75,8 +98,20 @@ export async function POST(request: Request) {
     }, { onConflict: "job_id,talent_id" });
   }
 
-  // hydrate names for display
-  const top = ranked.sort((a, b) => b.score - a.score).slice(0, 20);
+  /**
+   * Verified members first, then by score inside each group.
+   *
+   * Deliberately two groups rather than a points bonus. A hidden boost would
+   * mean an employer could not tell why one candidate outranked another, and
+   * the copy promises that Elite members appear "above the general list",
+   * which is a list, not a thumb on the scale. The flag travels with each
+   * match so the interface can label the block and the employer can see
+   * exactly what they are looking at.
+   */
+  const top = ranked
+    .map((r) => ({ ...r, elite: elite.has(r.talent_id) }))
+    .sort((a, b) => (a.elite === b.elite ? b.score - a.score : (a.elite ? -1 : 1)))
+    .slice(0, 20);
   const { data: names } = await admin.from("profiles").select("id, full_name").in("id", top.map((t) => t.talent_id));
   const nameMap = new Map((names ?? []).map((n: any) => [n.id, n.full_name]));
 

@@ -14,10 +14,21 @@ export const metadata: Metadata = {
 
 export default async function RolesPage({ searchParams }: { searchParams: { q?: string; mode?: string } }) {
   const admin = createAdminClient();
+  /**
+   * The public board, which is read with the service role and therefore
+   * ignores row level security entirely. The Elite window has to be in the
+   * query or it is not enforced here at all.
+   *
+   * This page is also the one search engines index, so a held back role must
+   * not appear even as a title: an early access window that leaks through a
+   * sitemap is not a window.
+   */
+  const nowIso = new Date().toISOString();
   const { data: allJobs } = await admin.from("jobs")
     .select("id, title, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, org_id, company_name, company_logo_path, published_at")
     .eq("status", "published")
-    .or(`closes_at.is.null,closes_at.gt.${new Date().toISOString()}`)
+    .or(`closes_at.is.null,closes_at.gt.${nowIso}`)
+    .or(`elite_until.is.null,elite_until.lte.${nowIso}`)
     .order("published_at", { ascending: false }).limit(80);
 
   const orgIds = Array.from(new Set((allJobs ?? []).map((j) => j.org_id).filter(Boolean))) as string[];

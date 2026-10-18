@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSubscriber } from "@/lib/ai-gate";
+import { requireSubscriber, recordRun } from "@/lib/ai-gate";
 import { extractDocumentText } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
 
@@ -36,9 +36,14 @@ ${ex.text}`;
   const r = await geminiJson(prompt);
   if (!r.data) return NextResponse.json({ error: r.error }, { status: 500 });
 
-  await supabase.from("ai_runs").insert({
-    profile_id: user!.id, tool: "resume_review",
-    input: { resume: ex.name, resume_document_id: talent.resume_document_id }, output: r.data, model: (r as any).model ?? "gemini"
+  /**
+   * The credit was already taken when the gate reserved this row, before the
+   * model was called. This attaches the result to it rather than inserting a
+   * second row.
+   */
+  await recordRun(g.runId, {
+    input: { resume: ex.name, resume_document_id: talent.resume_document_id },
+    output: r.data, model: (r as any).model ?? "gemini"
   });
   return NextResponse.json({ result: r.data });
 }

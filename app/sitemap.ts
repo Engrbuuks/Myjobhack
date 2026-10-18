@@ -14,8 +14,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
   try {
     const admin = createAdminClient();
+    /**
+     * A role inside its Elite early access window is not in the sitemap.
+     *
+     * It would be a strange kind of early access that announced the role to
+     * Google while hiding it from the board. The public job page returns 404
+     * for these, so listing them would also feed the index dead URLs.
+     */
     const { data: jobs } = await admin.from("jobs")
-      .select("id, published_at").eq("status", "published").limit(500);
+      .select("id, published_at").eq("status", "published")
+      .or(`elite_until.is.null,elite_until.lte.${new Date().toISOString()}`)
+      .limit(500);
     for (const j of jobs ?? []) {
       entries.push({
         url: `${base}/jobs/${j.id}`,

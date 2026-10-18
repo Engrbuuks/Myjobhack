@@ -47,6 +47,16 @@ export async function GET(request: Request) {
      * this filter is not part of the optional set.
      */
     if (withExpiry) q = q.or(`closes_at.is.null,closes_at.gt.${nowIso}`);
+    /**
+     * The Elite early access window, on BOTH paths for the same reason the
+     * expiry filter is. This feed serves the marketing site, so a role still
+     * inside its window would be published to the whole internet by the one
+     * reader nobody thinks about.
+     *
+     * Not optional and not inside the extras branch: a held back role
+     * escaping is worse than a missing column.
+     */
+    q = q.or(`elite_until.is.null,elite_until.lte.${nowIso}`);
     if (withExtras && onlyFeatured) {
       q = q.eq("is_featured", true)
            .order("featured_rank", { ascending: true, nullsFirst: false })

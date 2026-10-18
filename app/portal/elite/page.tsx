@@ -8,7 +8,17 @@ export default async function EliteDashboard() {
   const { data: { user } } = await supabase.auth.getUser();
   const [{ data: profile }, { data: em }] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", user!.id).single(),
-    supabase.from("elite_memberships").select("*").eq("talent_id", user!.id).maybeSingle()
+    /**
+     * Named columns, not a star.
+     *
+     * This is read as the signed in user, and `select("*")` means the page
+     * silently starts carrying whatever column the next migration adds. That
+     * is exactly how a verification code or a reviewer note ends up in a
+     * client bundle.
+     */
+    supabase.from("elite_memberships")
+      .select("status, member_no, chapter_id, class_year, distinction, verified_at, public_profile")
+      .eq("talent_id", user!.id).maybeSingle()
   ]);
   const { data: chapter } = em?.chapter_id
     ? await supabase.from("chapters").select("city, country").eq("id", em.chapter_id).single()
@@ -26,7 +36,12 @@ export default async function EliteDashboard() {
 
   const first = (profile?.full_name || "there").split(" ")[0];
   const memberNo = em?.member_no ? String(em.member_no).padStart(4, "0") : null;
-  const year = em?.verified_at ? new Date(em.verified_at).getFullYear() : new Date().getFullYear();
+  /**
+   * The induction class. Read from the column migration 0064 fills rather
+   * than recomputed from verified_at, so it cannot drift if a verification
+   * date is ever corrected: a class year is an identity, not a calculation.
+   */
+  const year = em?.class_year ?? (em?.verified_at ? new Date(em.verified_at).getFullYear() : new Date().getFullYear());
 
   return (
     <>
@@ -60,7 +75,7 @@ export default async function EliteDashboard() {
             </div>
             <div className="flex justify-between text-xs text-white/50 border-t border-white/10 pt-4">
               <span>Member <b className="text-white">№ {memberNo ?? "····"}</b></span>
-              <span>Est. <b className="text-white">{year}</b></span>
+              <span>Class of <b className="text-white">{year}</b></span>
             </div>
           </div>
         </div>
@@ -78,6 +93,8 @@ export default async function EliteDashboard() {
             <Link href="/portal/elite/community" className="btn-ghost">Directory</Link>
             <Link href="/portal/elite/messages" className="btn-ghost">Messages{(myConns ?? 0) > 0 ? ` · ${myConns}` : ""}</Link>
             <Link href="/portal/seeker/jobs" className="btn-ghost">Priority roles</Link>
+            <Link href="/portal/elite/proof" className="btn-ghost">My proof</Link>
+            <Link href="/portal/elite/benchmark" className="btn-ghost">Salary benchmark</Link>
           </div>
 
           <div className="relative overflow-hidden rounded-card bg-ink text-white border border-white/10 p-6">

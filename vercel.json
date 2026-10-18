@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/matching",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/answer-sla",
+      "schedule": "0 9 * * 1-5"
     }
   ]
 }

@@ -1,7 +1,23 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/auth", "/jobs", "/join", "/roles", "/trainings", "/api/public", "/a/", "/offer/", "/unsubscribe", "/j/", "/invoice/", "/logo-mark.png", "/robots.txt", "/sitemap.xml"];
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/auth", "/jobs", "/join", "/roles", "/trainings", "/api/public", "/a/", "/offer/", "/unsubscribe", "/j/", "/invoice/", "/logo-mark.png", "/robots.txt", "/sitemap.xml",
+  // Credential proof. Open on purpose: an employer checking a member's
+  // letter has no account here and should not need one.
+  "/verify", "/e/", "/api/elite/verify"];
+
+/**
+ * Public pages a SIGNED IN person may also stay on.
+ *
+ * This list used to be written out again inside the redirect condition as a
+ * chain of negated startsWith calls, which is how a page gets added to one
+ * list and forgotten in the other: the result is an employer who clicks a
+ * credential link and gets thrown into their own dashboard instead. One list,
+ * read twice.
+ */
+const OPEN_TO_SIGNED_IN = ["/jobs", "/roles", "/join", "/trainings", "/api/public", "/api/auth",
+  "/a/", "/offer/", "/unsubscribe", "/invoice/", "/j/", "/logo-mark",
+  "/verify", "/e/", "/api/elite/verify"];
 
 export async function middleware(request: NextRequest) {
   const reqHeaders = new Headers(request.headers);
@@ -32,7 +48,8 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  if (user && ((isPublic && !path.startsWith("/jobs") && !path.startsWith("/roles") && !path.startsWith("/join") && !path.startsWith("/trainings") && !path.startsWith("/api/public") && !path.startsWith("/api/auth") && !path.startsWith("/a/") && !path.startsWith("/offer/") && !path.startsWith("/unsubscribe") && !path.startsWith("/invoice/") && !path.startsWith("/j/") && !path.startsWith("/logo-mark")) || path === "/")) {
+  const staysPut = OPEN_TO_SIGNED_IN.some((p) => path.startsWith(p));
+  if (user && ((isPublic && !staysPut) || path === "/")) {
     const { data: profile } = await supabase
       .from("profiles").select("role").eq("id", user.id).single();
     const dest: Record<string, string> = {

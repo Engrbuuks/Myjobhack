@@ -33,6 +33,8 @@ export const CAPABILITIES = {
   "pool.export":          "Export candidate lists and contact details",
   "pool.search":          "Search CV text across the pool",
 
+  "chapters.manage":      "Create and cancel Elite chapter meetups",
+
   "trainings.manage":     "Create and run trainings",
   "assessments.manage":   "Set and score assessments",
 
@@ -55,6 +57,7 @@ export const CAPABILITY_GROUPS: { label: string; caps: Capability[] }[] = [
   { label: "Jobs", caps: ["jobs.view", "jobs.manage"] },
   { label: "Talent pool", caps: ["pool.view", "pool.search", "pool.export"] },
   { label: "Learning", caps: ["trainings.manage", "assessments.manage"] },
+  { label: "Elite", caps: ["chapters.manage"] },
   { label: "Insight", caps: ["intelligence.view", "benchmarks.manage"] },
   { label: "Money", caps: ["pricing.manage", "payments.manage", "payouts.manage"] },
   { label: "Administration", caps: ["users.view", "users.manage", "settings.manage"] }
@@ -136,5 +139,6 @@ export const NAV_CAPABILITY: Record<string, Capability> = {
   "/portal/admin/intelligence": "intelligence.view",
   "/portal/admin/trainings": "trainings.manage",
   "/portal/admin/jobs": "jobs.view",
-  "/portal/admin/settings": "settings.manage"
+  "/portal/admin/settings": "settings.manage",
+  "/portal/admin/chapters": "chapters.manage"
 };

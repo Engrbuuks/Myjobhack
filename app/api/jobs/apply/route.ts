@@ -5,6 +5,7 @@ import { evaluateRules, FieldDef } from "@/lib/rules";
 import { extractDocumentText } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
 import { sendApplicationReceipt, notifyStaffOfApplication } from "@/lib/applicationNotify";
+import { isEliteVerified, eliteSettings, addWorkingDays } from "@/lib/elite";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -65,6 +66,29 @@ export async function POST(request: Request) {
     const dup = insErr.message.includes("duplicate") || insErr.code === "23505";
     return NextResponse.json({ error: dup ? "You've already applied to this role." : insErr.message }, { status: 400 });
   }
+
+  /**
+   * The answer guarantee, written down at the moment it is promised.
+   *
+   * A verified Elite member is told their application will get a decision
+   * within a set number of working days. That promise is only real if the
+   * deadline exists as a date: computed at display time it would drift with
+   * whatever the setting happened to be later, and an employer would be shown
+   * as late for a rule that changed after they received the application.
+   *
+   * Written with the service role because the applicant must not be able to
+   * set their own deadline, and the write policy on applications pins the
+   * fields a candidate may touch.
+   */
+  try {
+    const slaAdmin = createAdminClient();
+    if (await isEliteVerified(user.id, slaAdmin)) {
+      const { sla_days } = await eliteSettings();
+      await slaAdmin.from("applications")
+        .update({ answer_due_at: addWorkingDays(new Date(), sla_days).toISOString() })
+        .eq("id", app.id);
+    }
+  } catch { /* the guarantee is a promise about service, never a reason to lose an application */ }
 
   // AI fit score — CV vs JD (best effort; never blocks the application)
   let ai: { fit_score?: number; summary?: string } | null = null;

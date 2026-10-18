@@ -56,6 +56,9 @@ export default async function Applicants({ params }: { params: { id: string } })
 
       return {
         id: a.id, talent_id: a.talent_id, status: a.status, rules_passed: a.rules_passed,
+        // The Elite answer guarantee, so the clock is visible where the
+        // decision is actually made.
+        answer_due_at: a.answer_due_at ?? null, answered_at: a.answered_at ?? null,
         ai_fit_score: a.ai_fit_score, ai_summary: a.ai_summary,
         created_at: a.created_at,
         name: prof?.full_name ?? a.guest_name ?? "—", guest: !a.talent_id,

@@ -14,6 +14,8 @@ type Job = {
   work_mode: string | null; role_level: string | null; employment_type: string;
   salary_note: string; salary_currency?: string; niche_id: string | null; status: string; key_requirements?: string[]; is_featured?: boolean; featured_rank?: number | null; company_name?: string | null; company_logo_path?: string | null; company_website?: string | null; locations?: JobLocation[]; is_multi_location?: boolean;
   closes_at: string | null; external_url: string | null; openings?: number;
+  /** Verified Elite members only until this moment. Null means open to all. */
+  elite_until?: string | null;
 };
 
 const MODES = ["remote", "hybrid", "onsite", "flexible"];
@@ -25,7 +27,7 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
   const [j, setJ] = useState<Job>(job ?? {
     title: "", description: "", location: "", work_mode: null, role_level: null,
     employment_type: "full_time", salary_note: "", salary_currency: "NGN", niche_id: null, key_requirements: [], is_featured: false, featured_rank: null, company_name: null, company_logo_path: null, company_website: null, locations: [], is_multi_location: false,
-    status: "draft", closes_at: null, external_url: null, openings: 1
+    status: "draft", closes_at: null, external_url: null, openings: 1, elite_until: null
   });
   const [busy, setBusy] = useState(false);
   const [pendingQuestions, setPendingQuestions] = useState<any[] | null>(null);
@@ -100,6 +102,9 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
       featured_rank: j.featured_rank ?? null,
       niche_id: j.niche_id, status: j.status as any,
       closes_at: j.closes_at || null, external_url: j.external_url || null, openings: Math.max(1, Number(j.openings) || 1),
+      // The Elite window. Nothing else in the app writes this column, so if
+      // it is not set here the perk is never used on any role.
+      elite_until: j.elite_until || null,
     };
     if (j.id) {
       let justPublished = false;
@@ -243,6 +248,34 @@ export function JobEditor({ job, niches, orgId, basePath = "/portal/admin/jobs" 
                 onChange={(e) => set("salary_note", e.target.value)} />
             </div>
             <p className="text-xs text-muted-2 mt-1">The symbol is added automatically — just type the figures.</p></div>
+
+          {/*
+              Early access, which is one of the six things the Elite page
+              promises. Expressed in hours from now rather than as a date,
+              because that is how the decision is actually made: hold it back
+              for three days, not until a particular Thursday afternoon.
+          */}
+          <div className="sm:col-span-2">
+            <label className="label">Elite early access</label>
+            <div className="flex flex-wrap gap-2">
+              {[0, 24, 72, 168].map((h) => {
+                const current = j.elite_until ? Math.round((new Date(j.elite_until).getTime() - Date.now()) / 3600000) : 0;
+                const on = h === 0 ? !j.elite_until || current <= 0 : Math.abs(current - h) <= 1;
+                return (
+                  <button key={h} type="button"
+                    className={`px-4 h-11 rounded-pill border text-xs font-bold transition ${on ? "bg-ink border-ink text-white" : "border-line bg-white hover:border-coral"}`}
+                    onClick={() => set("elite_until", h === 0 ? null : new Date(Date.now() + h * 3600000).toISOString())}>
+                    {h === 0 ? "Open to everyone" : h === 168 ? "Elite first for a week" : `Elite first for ${h} hours`}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-2 mt-1.5">
+              {j.elite_until && new Date(j.elite_until) > new Date()
+                ? `Hidden from the public board, the job page and search until ${new Date(j.elite_until).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}. Verified Elite members can see and apply now.`
+                : "Published to everyone at once. Choose a window to give verified Elite members first sight of this role."}
+            </p>
+          </div>
 
           <div className="sm:col-span-2">
             <label className="label">Application deadline</label>

@@ -1,7 +1,11 @@
 "use client";
 import { useState } from "react";
 
-type Match = { talent_id: string; name: string; score: number; reasons: string[]; competency_fit: boolean };
+type Match = {
+  talent_id: string; name: string; score: number; reasons: string[]; competency_fit: boolean;
+  /** Verified Elite member. Set by the matching route, shown as its own block. */
+  elite?: boolean;
+};
 
 const BAND = (fit: boolean) => fit
   ? "bg-green-100 text-green-700"
@@ -69,13 +73,34 @@ export function JobMatches({ jobId }: { jobId: string }) {
       {phase === "ready" && (
         <div className="space-y-2">
           {matches.length === 0 && <p className="text-sm text-muted-2">No strong matches yet — as more candidates get assessed, this fills in.</p>}
-          {matches.map((m) => {
+          {/*
+              Elite members are shown as their own block above the general
+              list, which is exactly what the membership promises them.
+              Deliberately a labelled group rather than a hidden boost on the
+              score: an employer can see why these are first, and the ranking
+              inside each group is still honest about fit.
+          */}
+          {matches.some((m) => m.elite) && (
+            <div className="flex items-center gap-2 pt-1 pb-2">
+              <span className="text-[10px] font-extrabold uppercase tracking-[.16em] text-coral">Elite members</span>
+              <span className="text-xs text-muted-2">credential verified by MYJOBHACK</span>
+            </div>
+          )}
+          {matches.map((m, i) => {
+            const firstGeneral = !m.elite && i > 0 && !!matches[i - 1]?.elite;
             const isUnlocked = unlocked.has(m.talent_id);
             return (
-              <div key={m.talent_id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-line">
+              <div key={m.talent_id}>
+                {firstGeneral && (
+                  <div className="flex items-center gap-2 pt-3 pb-2 border-t border-line mt-1">
+                    <span className="text-[10px] font-extrabold uppercase tracking-[.16em] text-muted">Everyone else</span>
+                  </div>
+                )}
+              <div className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${m.elite ? "border-coral/40 bg-coral-soft" : "border-line"}`}>
                 <div className="min-w-0">
                   <div className="font-semibold flex items-center gap-2">
                     {isUnlocked ? m.name : "Candidate"}
+                    {m.elite && <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-ink text-white">Elite</span>}
                     {m.competency_fit && <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${BAND(true)}`}>competency fit</span>}
                   </div>
                   <div className="text-xs text-muted-2 truncate">{m.reasons?.[0] ?? "Profile match"}</div>
@@ -92,6 +117,7 @@ export function JobMatches({ jobId }: { jobId: string }) {
                     <button className="btn-coral !h-8 text-xs" onClick={() => unlock(m.talent_id)}>Unlock</button>
                   )}
                 </div>
+              </div>
               </div>
             );
           })}

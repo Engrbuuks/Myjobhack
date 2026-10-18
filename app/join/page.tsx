@@ -20,9 +20,11 @@ export default async function JoinPage({ searchParams }: { searchParams: { ref?:
   const admin = createAdminClient();
   const [{ count: talentCount }, { data: jobs }] = await Promise.all([
     admin.from("profiles").select("*", { count: "exact", head: true }).in("role", ["job_seeker", "elite_member"]),
+    // Public page, service role, so the Elite window has to be in the query.
     admin.from("jobs").select("id, title, location, work_mode, org_id")
       .eq("status", "published")
       .or(`closes_at.is.null,closes_at.gt.${new Date().toISOString()}`)
+      .or(`elite_until.is.null,elite_until.lte.${new Date().toISOString()}`)
       .order("published_at", { ascending: false }).limit(4)
   ]);
   const _params = new URLSearchParams();

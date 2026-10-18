@@ -63,8 +63,23 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
   const { data: job } = await admin.from("jobs")
-    .select("id, title, status, org_id, form_id, description, jd_document_id, company_name").eq("id", job_id).single();
+    .select("id, title, status, org_id, form_id, description, jd_document_id, company_name, elite_until").eq("id", job_id).single();
   if (!job || job.status !== "published")
+    return NextResponse.json({ error: "This role is no longer open." }, { status: 404 });
+
+  /**
+   * A role inside its Elite early access window cannot be applied to here.
+   *
+   * This route is open to the public and reads with the service role, so no
+   * policy protects it. Hiding the role from every listing is not enough on
+   * its own: the id travels, and without this check anyone holding one could
+   * post a guest application straight into a role that is supposed to be
+   * Elite only for another two days.
+   *
+   * The same answer a closed role gets, because a different message would
+   * confirm that a held back role exists at that id.
+   */
+  if (job.elite_until && new Date(job.elite_until) > new Date())
     return NextResponse.json({ error: "This role is no longer open." }, { status: 404 });
 
   // one guest application per email per job

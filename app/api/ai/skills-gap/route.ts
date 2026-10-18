@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSubscriber } from "@/lib/ai-gate";
+import { requireSubscriber, recordRun } from "@/lib/ai-gate";
 import { extractDocumentText } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
 
@@ -46,9 +46,6 @@ Include 4-6 gaps ordered by priority.`;
   const r = await geminiJson(prompt);
   if (!r.data) return NextResponse.json({ error: r.error }, { status: 500 });
 
-  await supabase.from("ai_runs").insert({
-    profile_id: user!.id, tool: "skills_gap",
-    input: { niche, goal }, output: r.data, model: (r as any).model ?? "gemini"
-  });
+  await recordRun(g.runId, { input: { niche, goal }, output: r.data, model: (r as any).model ?? "gemini" });
   return NextResponse.json({ result: r.data });
 }

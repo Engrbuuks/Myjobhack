@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/resend";
 import { renderEmail } from "@/lib/email";
 import { requirePermission } from "@/lib/permissions.server";
+import { creditReferral } from "@/lib/referrals";
 
 export const runtime = "nodejs";
 
@@ -102,6 +103,18 @@ export async function POST(request: Request) {
     if (action === "verify") {
       // the transformation: role flips, portal changes on next load
       await admin.from("profiles").update({ role: "elite_member" }).eq("id", em.talent_id);
+
+      /**
+       * Credit whoever recommended this person, now that a human has agreed
+       * the recommendation was sound. Never on signup, and never fatal: a
+       * referral that cannot be credited must not block an approval.
+       */
+      const referral = await creditReferral(admin, em.talent_id);
+      if (referral.credited)
+        await admin.from("activity_log").insert({
+          actor_id: user.id, action: "referral credited", entity: "elite_referral",
+          entity_id: id, meta: { referrer_id: referral.referrerId, new_member: em.talent_id }
+        });
       await admin.from("talent_profiles").update({ verification: "verified" }).eq("profile_id", em.talent_id);
       await admin.from("notifications").insert({
         profile_id: em.talent_id, title: "Welcome to the room 🎉",

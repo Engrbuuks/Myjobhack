@@ -21,11 +21,30 @@ export type Limit = { bucket: string; max: number; windowSeconds: number };
 
 /** The caller's address, as far as the platform can tell. */
 export function clientIp(request: Request): string {
+  /**
+   * Headers the PLATFORM sets come first, because the one everybody reaches
+   * for can be written by the caller.
+   *
+   * x-forwarded-for is a list that proxies append to, so its leftmost entry
+   * is whatever the client sent. Reading that first meant one extra header
+   * per request gave every request a fresh identity and the rate limit
+   * counted nothing. Vercel sets x-vercel-forwarded-for and x-real-ip itself
+   * and they cannot be spoofed from outside, so they are consulted first.
+   *
+   * If only x-forwarded-for is present, the LAST entry is the one the nearest
+   * trusted proxy wrote, which is the closest thing to the truth available.
+   */
+  const platform = request.headers.get("x-vercel-forwarded-for")
+    ?? request.headers.get("x-real-ip")
+    ?? request.headers.get("cf-connecting-ip");
+  if (platform?.trim()) return platform.split(",").pop()!.trim();
+
   const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return request.headers.get("x-real-ip")
-    ?? request.headers.get("cf-connecting-ip")
-    ?? "unknown";
+  if (fwd?.trim()) {
+    const parts = fwd.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
+  return "unknown";
 }
 
 /**
@@ -75,7 +94,15 @@ export const LIMITS = {
   interest_ip:     { bucket: "interest_ip",     max: 6,  windowSeconds: 3600 },
   interest_email:  { bucket: "interest_email",  max: 3,  windowSeconds: 86_400 },
   register_ip:     { bucket: "register_ip",     max: 8,  windowSeconds: 3600 },
-  answer_ip:       { bucket: "answer_ip",       max: 40, windowSeconds: 3600 }
+  answer_ip:       { bucket: "answer_ip",       max: 40, windowSeconds: 3600 },
+  /**
+   * Credential verification is open to the public and takes a short code, so
+   * without a limit it is a way to walk the whole membership by guessing. An
+   * employer checking the letters of a shortlist might do ten in a sitting.
+   */
+  verify_ip:       { bucket: "verify_ip",       max: 20, windowSeconds: 3600 },
+  /** An invitation is a one at a time act, not a mail merge. */
+  referral_user:   { bucket: "referral_user",   max: 10, windowSeconds: 86_400 }
 } satisfies Record<string, Limit>;
 
 /** A 429 with the plain reason, and the header a well behaved client reads. */

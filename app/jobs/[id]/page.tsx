@@ -11,9 +11,20 @@ export const dynamic = "force-dynamic";
 async function getJob(id: string) {
   const admin = createAdminClient();
   const { data: job } = await admin.from("jobs")
-    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, company_name, company_logo_path, company_website, status, published_at, org_id, form_id")
+    .select("id, title, description, location, work_mode, role_level, employment_type, salary_note, salary_currency, closes_at, key_requirements, company_name, company_logo_path, company_website, status, published_at, org_id, form_id, elite_until")
     .eq("id", id).maybeSingle();
   if (!job || job.status !== "published") return null;
+
+  /**
+   * A role inside its Elite window does not exist on the public page, and
+   * answers 404 rather than a message.
+   *
+   * A notice saying "this is Elite only until Thursday" would tell the world
+   * the role exists, which is the thing the window withholds, and would hand
+   * any competitor an early feed of what is about to be hiring. Members see
+   * it in their own portal, where the viewer is known.
+   */
+  if (job.elite_until && new Date(job.elite_until) > new Date()) return null;
 
   /**
    * A closed job is still rendered, so the page keeps its SEO value and

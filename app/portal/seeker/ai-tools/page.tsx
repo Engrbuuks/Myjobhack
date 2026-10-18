@@ -3,13 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { PageHeader } from "@/components/PageHeader";
+import { toolkitUsage, TOOL_DB } from "@/lib/ai-gate";
 
 const TOOLS = [
-  { href: "/portal/seeker/ai-tools/resume-review", icon: "⌖", title: "Resume Review",
+  { href: "/portal/seeker/ai-tools/resume-review", slug: "resume-review", icon: "⌖", title: "Resume Review",
     body: "A brutally honest scan of your resume — every loophole, gap, and weakness employers will see. Diagnosis only; the fixing stays yours." },
-  { href: "/portal/seeker/ai-tools/interview-prep", icon: "❝", title: "Interview Preparer",
+  { href: "/portal/seeker/ai-tools/interview-prep", slug: "interview-prep", icon: "❝", title: "Interview Preparer",
     body: "Company, role, JD in — a complete prep kit out: your introduction, likely questions with answers, and smart questions to ask back." },
-  { href: "/portal/seeker/ai-tools/skills-gap", icon: "△", title: "Skills Gap Analysis",
+  { href: "/portal/seeker/ai-tools/skills-gap", slug: "skills-gap", icon: "△", title: "Skills Gap Analysis",
     body: "Your profile versus what the market is hiring for right now — gaps ranked by priority, with a six-month plan to close them." }
 ];
 
@@ -17,6 +18,16 @@ export default async function AiToolsHub() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const active = await hasActiveSubscription(user!.id);
+
+  /**
+   * What is left of the allowance, shown BEFORE anything is spent.
+   *
+   * The toolkit has always been metered and the page never said so, which
+   * turned an ordinary budget into what looked like a broken tool the moment
+   * somebody reached the limit. A visible balance is a budget; an invisible
+   * one is an ambush.
+   */
+  const usage = active ? await toolkitUsage(user!.id) : null;
 
   // The toolkit is now the improvement layer for competency assessment.
   const { data: tp } = await supabase.from("talent_profiles")
@@ -51,6 +62,24 @@ export default async function AiToolsHub() {
         sub={active ? "All tools unlocked. Every run is saved to your history." : "One subscription unlocks everything below — and every tool we add next."}
         action={!active ? <Link href="/portal/seeker/subscription" className="btn-coral">Unlock the toolkit →</Link> : undefined}
       />
+      {usage && (
+        <div className="card p-5 mb-6 flex flex-wrap items-center gap-x-10 gap-y-3">
+          <div className="text-sm">
+            <strong className="text-ink text-lg">{usage.monthly.left}</strong>
+            <span className="text-muted-2"> of {usage.monthly.limit} credits left this month</span>
+          </div>
+          <div className="text-sm text-muted-2">
+            Refills {usage.resetsOn} &middot; {usage.daily.left} of {usage.daily.limit} left today
+          </div>
+          {usage.tier === "subscriber" ? (
+            <Link href="/portal/seeker/elite" className="text-sm font-semibold text-coral ml-auto">
+              Elite members get more &rarr;
+            </Link>
+          ) : (
+            <span className="text-xs font-bold uppercase tracking-[.16em] text-coral ml-auto">Elite allowance</span>
+          )}
+        </div>
+      )}
       {gaps.length > 0 ? (
         <div className="card p-6 mb-6 border-coral/30" style={{ background: "linear-gradient(120deg,#fff,#FFF4F2)" }}>
           <div className="text-sm font-bold uppercase tracking-wide text-coral mb-2">From your competency assessment</div>
@@ -73,6 +102,11 @@ export default async function AiToolsHub() {
             <span className="w-11 h-11 rounded-full bg-coral-soft text-coral grid place-items-center text-xl mb-4">{t.icon}</span>
             <div className="font-display font-semibold text-xl mb-2">{t.title}</div>
             <p className="text-sm text-muted flex-1">{t.body}</p>
+            {usage && (
+              <div className="text-xs text-muted-2 mt-3">
+                {usage.weights[TOOL_DB[t.slug]] ?? 1} credit{(usage.weights[TOOL_DB[t.slug]] ?? 1) === 1 ? "" : "s"} a run
+              </div>
+            )}
             {active ? (
               <Link href={t.href} className="btn-coral mt-5 justify-center">Open →</Link>
             ) : (

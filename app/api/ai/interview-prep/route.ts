@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSubscriber } from "@/lib/ai-gate";
+import { requireSubscriber, recordRun } from "@/lib/ai-gate";
 import { extractDocumentText } from "@/lib/extract";
 import { geminiJson } from "@/lib/gemini";
 
@@ -47,9 +47,6 @@ Include 8-10 likely_questions (mix behavioural, technical for the role, and situ
   const r = await geminiJson(prompt);
   if (!r.data) return NextResponse.json({ error: r.error }, { status: 500 });
 
-  await supabase.from("ai_runs").insert({
-    profile_id: user!.id, tool: "interview_prep",
-    input: { company, role, has_jd: !!jd }, output: r.data, model: (r as any).model ?? "gemini"
-  });
+  await recordRun(g.runId, { input: { company, role, has_jd: !!jd }, output: r.data, model: (r as any).model ?? "gemini" });
   return NextResponse.json({ result: r.data });
 }

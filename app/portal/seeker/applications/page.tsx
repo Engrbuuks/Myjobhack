@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/PageHeader";
+import { slaState } from "@/lib/elite";
 
 const BADGE: Record<string, string> = {
   shortlisted: "bg-ink text-white", interviewing: "bg-ink text-white",
@@ -12,7 +13,7 @@ export default async function MyApplications() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const [{ data: apps }, { data: interviews }] = await Promise.all([
-    supabase.from("applications").select("id, job_id, status, created_at")
+    supabase.from("applications").select("id, job_id, status, created_at, answer_due_at, answered_at")
       .eq("talent_id", user!.id).order("created_at", { ascending: false }),
     supabase.from("interviews").select("*").eq("talent_id", user!.id)
       .in("status", ["invited", "scheduled"]).order("scheduled_at", { ascending: true, nullsFirst: true })
@@ -78,6 +79,26 @@ export default async function MyApplications() {
                 <div className="flex-1">
                   <div className="font-semibold text-sm">{j?.title ?? "Role"}</div>
                   <div className="text-xs text-muted-2">{j?.location ?? ""} · {new Date(a.created_at).toLocaleDateString()}</div>
+                  {/*
+                     The answer guarantee, shown to the member it was made to.
+                     Deliberately worded as the commitment rather than as an
+                     accusation: being told an employer is late helps nobody,
+                     and the breach is reported to staff, who can chase it.
+                  */}
+                  {(() => {
+                    const sla = slaState((a as any).answer_due_at, (a as any).answered_at);
+                    if (sla.none) return null;
+                    if (sla.answered)
+                      return <div className="text-xs text-muted-2 mt-1">Answered within the Elite guarantee</div>;
+                    return (
+                      <div className="text-xs mt-1">
+                        <span className="font-semibold text-coral">Elite answer guarantee</span>
+                        <span className="text-muted-2">
+                          {" · "}{sla.overdue ? "we are chasing this one" : sla.label.toLowerCase()}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <span className={`px-3 py-1.5 rounded-pill text-xs font-bold capitalize ${BADGE[a.status] ?? "bg-paper-2"}`}>
                   {a.status.replace(/_/g, " ")}

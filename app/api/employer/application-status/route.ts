@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
   const { data: app } = await admin.from("applications")
-    .select("id, job_id, talent_id, guest_name, guest_email").eq("id", id).single();
+    .select("id, job_id, talent_id, guest_name, guest_email, answered_at").eq("id", id).single();
   if (!app) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { data: job } = await admin.from("jobs").select("org_id").eq("id", app.job_id).single();
   if (!job) return NextResponse.json({ error: "That job no longer exists." }, { status: 404 });
@@ -49,8 +49,23 @@ export async function POST(request: Request) {
     }, { status: 403 });
   }
 
+  /**
+   * Stamp the answer, the first time one is given.
+   *
+   * This is what the Elite answer guarantee is measured against. It is set
+   * once and never moved: a later stage change is not a second answer, and
+   * overwriting it would let a late employer look punctual by moving the
+   * applicant on again.
+   *
+   * Any decision counts, including a rejection. The promise made to the
+   * member is an answer, not a yes.
+   */
+  const answeredPatch: Record<string, any> = {};
+  if (status !== "submitted" && !app.answered_at)
+    answeredPatch.answered_at = new Date().toISOString();
+
   const { error: upErr } = await admin.from("applications")
-    .update({ status: status as any, reviewed_by: user.id }).eq("id", id);
+    .update({ status: status as any, reviewed_by: user.id, ...answeredPatch }).eq("id", id);
   // A silently ignored failure here is what made this look like nothing
   // happened at all.
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });

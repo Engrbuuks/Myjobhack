@@ -10,6 +10,7 @@ import { ApplicantFilterBar } from "@/components/ApplicantFilterBar";
 import { callApi, postJson } from "@/lib/apiClient";
 import { formatPhone } from "@/lib/phone";
 import { howLongAgo } from "@/lib/contactHistory";
+import { slaState } from "@/lib/elite";
 import { APPLICANT_TOKENS, OFFICE_INVITE_SUBJECT, OFFICE_INVITE_BODY } from "@/lib/applicantEmail";
 import { WhatsAppBlast } from "@/components/WhatsAppBlast";
 import { BulkOffers } from "@/components/BulkOffers";
@@ -41,6 +42,12 @@ type Row = {
    * last written to but not what was said, because the message was written by
    * MYJOBHACK rather than by the employer.
    */
+  /**
+   * The Elite answer guarantee. Null on an ordinary application, which is
+   * what makes the perk checkable rather than a claim.
+   */
+  answer_due_at?: string | null;
+  answered_at?: string | null;
   contact?: {
     sentAt: string; subject?: string; count: number;
     /** Each named mailing this person has had, newest first, with its date. */
@@ -1007,6 +1014,32 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
                   <span className="text-coral font-semibold">Not yet emailed</span>
                 )}
               </div>
+              {/*
+                The answer clock, on the row where the decision is made.
+                An Elite applicant was promised a decision inside a set
+                number of working days, and a promise nobody can see on the
+                screen where the work happens is a promise that gets missed.
+              */}
+              {(() => {
+                const sla = slaState(r.answer_due_at, r.answered_at);
+                if (sla.none) return null;
+                if (sla.answered)
+                  return (
+                    <div className="text-xs mt-1">
+                      <span className={sla.overdue ? "text-muted-2" : "text-muted-2"}>
+                        &#9201; {sla.label}
+                      </span>
+                    </div>
+                  );
+                return (
+                  <div className="text-xs mt-1">
+                    <span className={sla.overdue ? "text-coral font-bold" : "font-semibold text-ink"}>
+                      &#9201; {sla.label}
+                    </span>
+                    <span className="text-muted-2"> &middot; Elite answer guarantee</span>
+                  </div>
+                );
+              })()}
               {/*
                 The mailings by name. "Emailed 3 days ago" is not enough to
                 act on when a stage is being worked as a mailing category:

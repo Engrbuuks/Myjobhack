@@ -50,6 +50,7 @@ export default async function RecruiterShortlists({ searchParams }: { searchPara
       const card = a.talent_id ? await buildCandidateCard(a.talent_id, false) : null;
       return {
         id: a.id, talent_id: a.talent_id, status: a.status, rules_passed: a.rules_passed,
+        answer_due_at: a.answer_due_at ?? null, answered_at: a.answered_at ?? null,
         ai_fit_score: a.ai_fit_score, ai_summary: a.ai_summary, created_at: a.created_at,
         name: prof?.full_name ?? a.guest_name ?? "—", guest: !a.talent_id,
         email: "🔒 Unlock to view", contact_locked: true, card,
