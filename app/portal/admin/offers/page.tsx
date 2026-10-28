@@ -1,5 +1,10 @@
 import { PageHeader } from "@/components/PageHeader";
+import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { can } from "@/lib/permissions";
+import { OfferLocationTag } from "@/components/OfferLocationTag";
+import { UNTAGGED, type OfferLocation } from "@/lib/offerLocations";
+import { readOfferFilters, applyOfferFilters, offerFilterQuery, offerOutcome } from "@/lib/offerFilters";
 import { LetterheadManager } from "@/components/LetterheadManager";
 import { BulkOffers } from "@/components/BulkOffers";
 import Link from "next/link";
@@ -14,29 +19,57 @@ export const dynamic = "force-dynamic";
  * else, and the sooner that is visible the sooner the role can be refilled.
  */
 export default async function OffersPage({ searchParams }: {
-  searchParams?: { q?: string; status?: string };
+  searchParams?: { q?: string; status?: string; loc?: string };
 }) {
+  /**
+   * Checked here, not left to the layout.
+   *
+   * Everything below reads with the service role, which ignores row level
+   * security, and this page shows salaries and candidate identities. The
+   * layout only checks for a staff role; the capability is the same one the
+   * offer route and the file route require, so a person who cannot issue or
+   * open an offer cannot list them either.
+   */
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   const admin = createAdminClient();
+  const { data: me } = user
+    ? await admin.from("profiles").select("role, permissions").eq("id", user.id).maybeSingle()
+    : { data: null as any };
+  if (!can(me, "applicants.contact"))
+    return (
+      <PageHeader title="Offers"
+        sub="You do not have permission to see offer letters. Ask an administrator for applicant contact access." />
+    );
 
   /**
    * Finding a letter months later is the point of keeping them, so the list
-   * searches by name, email or role, and filters by outcome. Commas and
-   * brackets are stripped because they are the separators in the query
-   * syntax, and a name containing one would otherwise break the search.
+   * searches by name, email or role, and filters by outcome and location.
    */
-  const q = String(searchParams?.q ?? "").replace(/[,()%]/g, " ").trim();
-  const status = ["sent", "accepted", "declined"].includes(String(searchParams?.status))
-    ? String(searchParams?.status) : "";
+  const filters = readOfferFilters(searchParams ?? {});
+  const { q, status, loc } = filters;
 
-  let query = admin.from("offer_letters")
-    .select("id, candidate_name, candidate_email, position_title, salary, start_date, status, sent_at, signed_at, signed_name, declined_at, decline_reason, cc_emails, application_id, job_id")
-    .order("sent_at", { ascending: false }).limit(300);
-  if (q) query = query.or(`candidate_name.ilike.%${q}%,candidate_email.ilike.%${q}%,position_title.ilike.%${q}%`);
-  if (status) query = query.eq("status", status);
-  const { data: offers, error } = await query;
+  const COLS = "id, candidate_name, candidate_email, position_title, salary, start_date, status, sent_at, signed_at, signed_name, declined_at, decline_reason, cc_emails, application_id, job_id, expires_at";
+  const listQuery = (withLocation: boolean) => applyOfferFilters(
+    admin.from("offer_letters")
+      .select(withLocation ? `${COLS}, location_id` : COLS)
+      .order("sent_at", { ascending: false }).limit(300),
+    filters, withLocation);
+
+  /**
+   * Locations arrive with migration 0065. Until it is run the page must keep
+   * working exactly as before, so a missing column drops back to the old
+   * query and says what to run, instead of reporting that offers are gone.
+   */
+  let { data: offers, error } = await listQuery(true);
+  let locationsReady = true;
+  if (error && /location_id/.test(error.message)) {
+    locationsReady = false;
+    ({ data: offers, error } = await listQuery(false));
+  }
 
   const tableMissing = error && /does not exist|could not find the table/i.test(error.message);
-  const rows = offers ?? [];
+  const rows = (offers ?? []) as any[];
 
   // Totals across every offer, not just the filtered list, so the figures do
   // not change meaning when you search.
@@ -48,6 +81,33 @@ export default async function OffersPage({ searchParams }: {
   const [pendingCount, acceptedCount, declinedCount] = tableMissing
     ? [0, 0, 0]
     : await Promise.all([countOf("sent"), countOf("accepted"), countOf("declined")]);
+
+  /**
+   * Offers per location, by outcome, from the 0065 view. Counted in the
+   * database rather than from the 300 rows on screen, so the numbers are
+   * the whole history and do not shift with the search box.
+   */
+  type Summary = { location_id: string | null; location_name: string | null; sent: number;
+    accepted: number; declined: number; withdrawn: number; expired: number; awaiting: number };
+  let summary: Summary[] = [];
+  let locations: OfferLocation[] = [];
+  if (locationsReady && !tableMissing) {
+    const [{ data: sum, error: sumErr }, { data: locs }] = await Promise.all([
+      admin.from("offer_location_summary").select("*"),
+      admin.from("offer_locations").select("id, name").order("name")
+    ]);
+    if (sumErr) locationsReady = false;
+    summary = ((sum ?? []) as Summary[])
+      .map((r) => ({ ...r, sent: Number(r.sent), accepted: Number(r.accepted), declined: Number(r.declined),
+        withdrawn: Number(r.withdrawn), expired: Number(r.expired), awaiting: Number(r.awaiting) }))
+      // Busiest first, with Not tagged always last so it never reads as a place.
+      .sort((a, b) => (a.location_id ? 0 : 1) - (b.location_id ? 0 : 1) || b.sent - a.sent);
+    locations = (locs ?? []) as OfferLocation[];
+  }
+  const locationName = new Map(locations.map((l) => [l.id, l.name]));
+  const countFor = (id: string | null) => summary.find((r) => (r.location_id ?? null) === id)?.sent ?? 0;
+  const allSent = summary.reduce((n, r) => n + r.sent, 0);
+  const href = (f: Partial<typeof filters>) => `/portal/admin/offers${offerFilterQuery(f)}`;
 
   const fileUrl = (id: string, copy: "signed" | "sent", download = false) =>
     `/api/admin/offer/file?id=${id}&copy=${copy}${download ? "&download=1" : ""}`;
@@ -78,8 +138,7 @@ export default async function OffersPage({ searchParams }: {
               const on = status === st;
               return (
                 <Link key={st}
-                  href={on ? `/portal/admin/offers${q ? `?q=${encodeURIComponent(q)}` : ""}`
-                           : `/portal/admin/offers?status=${st}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+                  href={href({ q, loc, status: on ? "" : st })}
                   className={`card p-4 transition hover:border-coral ${on ? "border-coral" : ""}`}>
                   <div className="numeral !text-3xl">{n}</div>
                   <div className="text-sm text-muted-2 mt-1">
@@ -90,19 +149,84 @@ export default async function OffersPage({ searchParams }: {
             })}
           </div>
 
+          {!locationsReady ? (
+            <div className="card p-4 mb-4 text-sm text-muted">
+              Offers can be tagged to a location once migration 0065_offer_locations.sql is run in
+              the Supabase SQL editor. Until then everything here works as before, untagged.
+            </div>
+          ) : summary.length > 0 && (
+            /* Sent per location, and what became of them. "Sent 12" says little
+               on its own; "sent 12, five accepted" is the number that matters. */
+            <div className="card p-4 mb-4 overflow-x-auto">
+              <div className="text-xs font-bold uppercase tracking-widest text-muted mb-2">
+                By location
+              </div>
+              <table className="w-full text-sm min-w-[520px]">
+                <thead>
+                  <tr className="text-left text-xs text-muted-2">
+                    <th className="font-medium py-1 pr-3">Location</th>
+                    <th className="font-medium py-1 px-2 text-right">Sent</th>
+                    <th className="font-medium py-1 px-2 text-right">Accepted</th>
+                    <th className="font-medium py-1 px-2 text-right">Declined</th>
+                    <th className="font-medium py-1 px-2 text-right">Expired</th>
+                    <th className="font-medium py-1 px-2 text-right">Awaiting</th>
+                    <th className="font-medium py-1 pl-2 text-right">Withdrawn</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.map((r) => {
+                    const key = r.location_id ?? UNTAGGED;
+                    const on = loc === key;
+                    return (
+                      <tr key={key} className={`border-t border-line ${on ? "bg-coral-soft" : ""}`}>
+                        <td className="py-1.5 pr-3">
+                          <Link href={href({ q, status, loc: on ? "" : key })}
+                            className={`hover:text-coral underline decoration-line underline-offset-4 ${
+                              r.location_id ? "font-semibold" : "text-muted-2 italic"}`}>
+                            {r.location_id ? (r.location_name ?? "Unnamed") : "Not tagged"}
+                          </Link>
+                        </td>
+                        <td className="py-1.5 px-2 text-right font-semibold">{r.sent}</td>
+                        <td className="py-1.5 px-2 text-right">{r.accepted}</td>
+                        <td className="py-1.5 px-2 text-right">{r.declined}</td>
+                        <td className="py-1.5 px-2 text-right">{r.expired}</td>
+                        <td className="py-1.5 px-2 text-right">{r.awaiting}</td>
+                        <td className="py-1.5 pl-2 text-right">{r.withdrawn}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <form method="get" className="flex flex-wrap gap-2 mb-5">
             {status && <input type="hidden" name="status" value={status} />}
             <input className="input !h-10 flex-1 min-w-56" name="q" defaultValue={q}
               placeholder="Search by name, email or role" />
+            {locationsReady && (
+              <select className="input !h-10 text-sm w-auto" name="loc" defaultValue={loc}
+                aria-label="Location">
+                <option value="">All locations · {allSent}</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name} · {countFor(l.id)}</option>
+                ))}
+                <option value={UNTAGGED}>Not tagged · {countFor(null)}</option>
+              </select>
+            )}
             <button className="btn-coral !h-10" type="submit">Search</button>
-            {(q || status) && (
+            {(q || status || loc) && (
               <Link href="/portal/admin/offers" className="btn-ghost !h-10">Clear</Link>
             )}
+            {/* The list as filtered, with every column, for pivoting outside the app.
+                Not capped at the 300 shown here. */}
+            <a href={`/api/admin/offer/export${offerFilterQuery(filters)}`}
+              className="btn-ghost !h-10">Export CSV</a>
           </form>
 
           {rows.length === 0 ? (
             <div className="card p-6 mb-8 text-sm text-muted">
-              {q || status
+              {q || status || loc
                 ? "No offers match that. Clear the search to see them all."
                 : "No offers issued yet. Open a job\u2019s applicants, find someone you have decided on, and use the Offer button on their row."}
             </div>
@@ -136,6 +260,12 @@ export default async function OffersPage({ searchParams }: {
                               cc {o.cc_emails.length}
                             </span>
                           )}
+                          {locationsReady && (
+                            <OfferLocationTag offerId={o.id} locations={locations}
+                              current={o.location_id
+                                ? { id: o.location_id, name: locationName.get(o.location_id) ?? "Unnamed" }
+                                : null} />
+                          )}
                         </div>
                         <div className="text-sm text-muted-2 mt-1">
                           {[o.position_title, o.salary,
@@ -147,7 +277,9 @@ export default async function OffersPage({ searchParams }: {
                             ? `Accepted by ${o.signed_name} on ${new Date(o.signed_at).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`
                             : o.declined_at
                               ? `Declined on ${new Date(o.declined_at).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}${o.decline_reason ? `: ${o.decline_reason}` : ""}`
-                              : `Sent ${days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`}${stale ? ", no reply yet" : ""}`}
+                              : offerOutcome(o) === "expired"
+                                ? `Sent ${days} day${days === 1 ? "" : "s"} ago, expired unanswered`
+                                : `Sent ${days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`}${stale ? ", no reply yet" : ""}`}
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2 shrink-0">

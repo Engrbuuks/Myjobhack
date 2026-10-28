@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import { postJson, callApi } from "@/lib/apiClient";
 import { parseRecipients, showDate } from "@/lib/recipientCsv";
 import { OFFER_TOKENS, DEFAULT_OFFER_BODY, FORMATTING_HELP } from "@/lib/offerLetter";
+import { OfferLocationPicker, locationPayload, type PickedLocation } from "@/components/OfferLocationPicker";
+import { locationKey, type OfferLocation } from "@/lib/offerLocations";
 
 type Recipient = {
   name: string; email: string;
@@ -15,6 +17,8 @@ type Recipient = {
    */
   application_id?: string;
   position?: string; salary?: string; start_date?: string; reporting_to?: string;
+  /** As written in a pasted list. Must match a saved location before sending. */
+  location?: string;
   status?: "pending" | "sent" | "failed";
   error?: string;
 };
@@ -31,8 +35,10 @@ type Recipient = {
  * blank, the shared values below are used, so a group joining on the same
  * terms is one paste rather than one row of repetition.
  */
-export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
+export function BulkOffers({ letterheads, applicants, jobTitle, jobId, onDone }: {
   letterheads: { id: string; name: string; is_default: boolean }[];
+  /** The job these applicants applied to, so its locations lead the list. */
+  jobId?: string;
   /** Supplied when opened from a selection on the applicant list. */
   applicants?: { id: string; name: string; email: string }[];
   jobTitle?: string;
@@ -64,6 +70,9 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
    */
   const [allowResend, setAllowResend] = useState(false);
   const [company, setCompany] = useState("");
+  const [location, setLocation] = useState<PickedLocation>(null);
+  const [savedLocations, setSavedLocations] = useState<OfferLocation[]>([]);
+  const [addingPlaces, setAddingPlaces] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -92,6 +101,44 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
     setReadNotes(r.notes);
   }
 
+  /**
+   * The location each person's offer is tagged to.
+   *
+   * A Location column in the pasted list wins for that row, but only when it
+   * matches a saved place, case insensitively. A name that matches nothing is
+   * held back rather than added, because a misspelling in a spreadsheet would
+   * otherwise become a new place and split the counts. Rows without one take
+   * the shared location.
+   */
+  function rowLocation(r: Recipient): PickedLocation | { unmatched: string } {
+    if (!r.location?.trim()) return location;
+    const hit = savedLocations.find((l) => locationKey(l.name) === locationKey(r.location!));
+    return hit ? { id: hit.id, name: hit.name } : { unmatched: r.location.trim() };
+  }
+  const unmatchedPlaces = Array.from(new Map(rows
+    .map((r) => rowLocation(r))
+    .filter((x): x is { unmatched: string } => !!x && "unmatched" in x)
+    .map((x) => [locationKey(x.unmatched), x.unmatched] as const)).values());
+  const locationFor = (r: Recipient) => {
+    const v = rowLocation(r);
+    return v && "unmatched" in v ? {} : locationPayload(v);
+  };
+
+  /** Add the places named in the file to the list, as a deliberate step. */
+  async function addPlaces() {
+    setAddingPlaces(true); setErr(null);
+    try {
+      let next = savedLocations;
+      for (const name of unmatchedPlaces) {
+        const r = await postJson("/api/admin/offer-locations", { name });
+        if (!r.ok) { setErr(r.error); break; }
+        const loc: OfferLocation = r.data.location;
+        if (!next.some((l) => l.id === loc.id)) next = [...next, loc];
+      }
+      setSavedLocations(next.sort((a, b) => a.name.localeCompare(b.name)));
+    } finally { setAddingPlaces(false); }
+  }
+
   async function preview() {
     if (!rows.length) return;
     setBusy(true); setErr(null);
@@ -107,7 +154,8 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
         position: r.position || position, salary: r.salary || salary,
         start_date: r.start_date || startDate || null,
         reporting_to: r.reporting_to || reportingTo,
-        countersign: true, start_offset: startOffset, company: company || undefined, preview: true
+        countersign: true, start_offset: startOffset, company: company || undefined,
+        ...locationFor(r), preview: true
       });
       if (!res.ok) { setErr(res.error); return; }
       const bytes = Uint8Array.from(atob(res.data.pdf_base64), (c) => c.charCodeAt(0));
@@ -123,6 +171,10 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
    * rest, and no way to tell who actually received a letter.
    */
   async function sendAll() {
+    if (unmatchedPlaces.length) {
+      setErr(`Not sent. ${unmatchedPlaces.join(", ")} ${unmatchedPlaces.length === 1 ? "is" : "are"} not in the location list. Add ${unmatchedPlaces.length === 1 ? "it" : "them"}, or correct the file.`);
+      return;
+    }
     setBusy(true); setErr(null);
     const ccList = cc.split(/[,\s]+/).map((s) => s.trim()).filter((s) => s.includes("@"));
 
@@ -145,6 +197,7 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
         start_date: r.start_date || startDate || null,
         reporting_to: r.reporting_to || reportingTo,
         countersign: true, start_offset: startOffset, company: company || undefined, cc: ccList,
+        ...locationFor(r),
         resend: allowResend
       });
       // Someone who already holds this offer is not a failure: they are done.
@@ -204,7 +257,7 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
           <p className="text-xs text-muted-2 mt-1.5">
             Name and email are all that is required. With a header row, columns are matched by
             name, so their order does not matter and extra columns such as Phone are ignored:
-            Name, Email, Position, Salary, Start Date, Reporting To. Amounts like &ldquo;NGN
+            Name, Email, Position, Salary, Start Date, Reporting To, Location. Amounts like &ldquo;NGN
             90,000&rdquo; and dates like 15/09/2026 are read correctly. Anything left out uses the
             shared terms below.
           </p>
@@ -245,7 +298,9 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
                 {/* What was read for this person, so a column read wrongly is
                     visible here rather than discovered as a failed send. */}
                 <div className="text-xs text-muted-2 mt-0.5">
-                  {[r.position, r.salary, r.start_date && `starts ${showDate(r.start_date)}`, r.reporting_to]
+                  {[r.position, r.salary, r.start_date && `starts ${showDate(r.start_date)}`, r.reporting_to,
+                    r.location && (() => { const v = rowLocation(r);
+                      return v && "unmatched" in v ? `${v.unmatched} (not in the list)` : v?.name; })()]
                     .filter(Boolean).join(" \u00b7 ") || "Uses the shared terms below"}
                 </div>
                 {r.status === "failed" && r.error && (
@@ -320,6 +375,15 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
               onChange={(e) => { setReportingTo(e.target.value); setPdfUrl(null); }} />
           </div>
           <div className="sm:col-span-2">
+            <OfferLocationPicker jobId={jobId} value={location} onList={setSavedLocations}
+              onChange={(v) => { setLocation(v); setPdfUrl(null); }} />
+            {rows.some((r) => r.location) && (
+              <p className="text-xs text-muted-2 mt-1">
+                Rows with their own Location column use that instead.
+              </p>
+            )}
+          </div>
+          <div className="sm:col-span-2">
             <label className="label !text-xs">Who should be told, separated by commas</label>
             <input className="input !h-10" value={cc} placeholder="associate@myjobhack.co"
               onChange={(e) => setCc(e.target.value)} />
@@ -369,6 +433,22 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
               </a>
             </p>
           </object>
+        </div>
+      )}
+
+      {unmatchedPlaces.length > 0 && (
+        <div className="card p-4 border-coral/40" style={{ background: "#FFF4F2" }}>
+          <p className="text-sm text-ink">
+            The list names {unmatchedPlaces.length === 1 ? "a location" : "locations"} not saved yet:{" "}
+            <strong>{unmatchedPlaces.join(", ")}</strong>. Nothing is sent until each one matches the
+            list, so a misspelling cannot become a new place and split the counts.
+          </p>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button className="btn-coral !h-9 text-xs" disabled={addingPlaces} onClick={addPlaces}>
+              {addingPlaces ? "Adding…" : `Add ${unmatchedPlaces.length === 1 ? "it" : `all ${unmatchedPlaces.length}`} to the list`}
+            </button>
+            <span className="text-xs text-muted-2 self-center">Or correct the spelling in the file and paste it again.</span>
+          </div>
         </div>
       )}
 
@@ -426,7 +506,7 @@ export function BulkOffers({ letterheads, applicants, jobTitle, onDone }: {
                 onChange={(e) => setAllowResend(e.target.checked)} />
               This corrects letters already sent. Send again to people who already have this offer.
             </label>
-            <button className="btn-coral" onClick={sendAll} disabled={busy}>
+            <button className="btn-coral" onClick={sendAll} disabled={busy || unmatchedPlaces.length > 0}>
               {busy ? `Sending, ${sent} of ${rows.length}…` : `Send ${rows.length} offer${rows.length === 1 ? "" : "s"}`}
             </button>
             <button className="btn-ghost" onClick={preview} disabled={busy}>Rebuild preview</button>

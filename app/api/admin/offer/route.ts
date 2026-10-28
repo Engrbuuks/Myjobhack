@@ -8,6 +8,7 @@ import { renderEmail } from "@/lib/email";
 import { logSends, getAllowance } from "@/lib/emailAllowance";
 import { makeToken } from "@/lib/resumeScan";
 import { readDate } from "@/lib/recipientCsv";
+import { findOrAddLocation, locationKey, missingTable, tidyLocationName } from "@/lib/offerLocations";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -44,6 +45,8 @@ export async function PATCH(request: Request) {
   if (!id) return NextResponse.json({ error: "Which offer? None was named." }, { status: 400 });
 
   const admin = createAdminClient();
+
+  if (b.action === "tag") return tagLocation(admin, id, b, gate.userId);
   const { data: offer } = await admin.from("offer_letters")
     .select("id, candidate_name, signed_at, declined_at, withdrawn_at").eq("id", id).maybeSingle();
   if (!offer) return NextResponse.json({ error: "That offer no longer exists." }, { status: 404 });
@@ -83,6 +86,55 @@ export async function PATCH(request: Request) {
   return NextResponse.json({
     ok: true,
     message: `The offer to ${offer.candidate_name} is withdrawn and its signing link no longer works. They have not been told, so send them a note if they are expecting it.`
+  });
+}
+
+/**
+ * Tag an offer with its location after it was sent.
+ *
+ * PATCH { offer_id, action: "tag", location_id | location_name | null }
+ *
+ * For offers sent before locations existed, which are left untagged rather
+ * than guessed. This records where the offer was for; it does not touch the
+ * letter, which went out as it was and stays that way. A change of an
+ * existing tag is logged with both values, so a count that moves can be
+ * explained.
+ */
+async function tagLocation(admin: any, id: string, b: any, userId: string) {
+  const { data: offer, error: readErr } = await admin.from("offer_letters")
+    .select("id, candidate_name, location_id").eq("id", id).maybeSingle();
+  if (readErr) return NextResponse.json({ error: missingTable(readErr.message) }, { status: 400 });
+  if (!offer) return NextResponse.json({ error: "That offer no longer exists." }, { status: 404 });
+
+  let locationId: string | null = null;
+  let locationName: string | null = null;
+  if (b.location_id) {
+    const { data: loc } = await admin.from("offer_locations")
+      .select("id, name").eq("id", String(b.location_id)).maybeSingle();
+    if (!loc) return NextResponse.json({ error: "That location is not in the list any more. Reload and pick again." }, { status: 400 });
+    locationId = loc.id; locationName = loc.name;
+  } else if (b.location_name) {
+    const r = await findOrAddLocation(admin, String(b.location_name), userId);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    locationId = r.location.id; locationName = r.location.name;
+  }
+
+  if ((offer.location_id ?? null) === locationId)
+    return NextResponse.json({ ok: true, already: true, message: "No change." });
+
+  const { error } = await admin.from("offer_letters").update({ location_id: locationId }).eq("id", id);
+  if (error) return NextResponse.json({ error: missingTable(error.message) }, { status: 400 });
+
+  await admin.from("activity_log").insert({
+    actor_id: userId, action: "Offer location tagged", entity: "offer", entity_id: id,
+    meta: { candidate: offer.candidate_name, from: offer.location_id ?? null, to: locationId }
+  });
+
+  return NextResponse.json({
+    ok: true, location_id: locationId,
+    message: locationName
+      ? `${offer.candidate_name}'s offer is tagged to ${locationName}. The letter itself is unchanged.`
+      : `${offer.candidate_name}'s offer is no longer tagged.`
   });
 }
 
@@ -217,7 +269,48 @@ async function handleOffer(request: Request) {
     ? new Date(`${b.start_date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
     : "";
 
-  const body = renderOfferBody(String(b.body ?? DEFAULT_OFFER_BODY), {
+  /**
+   * Which location this offer is for.
+   *
+   * An id picks a place already in the list. A name is a suggestion from the
+   * job, or a place added on purpose in the form; it is matched against the
+   * list case insensitively and only added on a real send, so a preview never
+   * writes anything. Neither is required: an offer with no location is sent
+   * untagged, exactly as before.
+   */
+  let location: { id: string | null; name: string } | null = null;
+  if (b.location_id) {
+    const { data: loc, error: locErr } = await admin.from("offer_locations")
+      .select("id, name").eq("id", String(b.location_id)).maybeSingle();
+    if (locErr) return NextResponse.json({ error: missingTable(locErr.message) }, { status: 400 });
+    if (!loc)
+      return NextResponse.json({
+        error: `That location is not in the list any more. Pick it again. Nothing was sent to ${name}.`
+      }, { status: 400 });
+    location = { id: loc.id, name: loc.name };
+  } else if (tidyLocationName(b.location_name ?? "")) {
+    const wanted = tidyLocationName(b.location_name);
+    const { data: list, error: locErr } = await admin.from("offer_locations").select("id, name");
+    if (locErr) return NextResponse.json({ error: missingTable(locErr.message) }, { status: 400 });
+    const match = (list ?? []).find((l: any) => locationKey(l.name) === locationKey(wanted));
+    location = match ? { id: match.id, name: match.name } : { id: null, name: wanted };
+  }
+
+  /**
+   * The letter and the tag must say the same place, so the letter takes it
+   * from the tag through {location} and never from typing. A letter that
+   * asks for a location with none chosen would arrive with the bare token in
+   * it, so that is refused on send and flagged on preview.
+   */
+  const rawBody = String(b.body ?? DEFAULT_OFFER_BODY);
+  const asksForLocation = /\{location\}/.test(rawBody);
+  if (asksForLocation && !location && !b.preview)
+    return NextResponse.json({
+      error: `The letter mentions {location} but no location is chosen. Pick one, or take {location} out of the letter. Nothing was sent to ${name}.`
+    }, { status: 400 });
+
+  const body = renderOfferBody(rawBody, {
+    location: location?.name ?? "",
     name, first_name: name.split(" ")[0],
     position: String(b.position ?? job?.title ?? ""),
     salary: String(b.salary ?? ""),
@@ -265,7 +358,13 @@ async function handleOffer(request: Request) {
         ...(lh ? [] : ["No letterhead is set up, so this letter is on plain paper. Upload one in Settings."]),
         ...(lh && !lh.signature_path ? ["No signature image on the letterhead, so a blank line is left to sign by hand."] : []),
         ...(!b.salary ? ["No salary stated. An offer without one is usually queried immediately."] : []),
-        ...(!b.start_date ? ["No start date stated."] : [])
+        ...(!b.start_date ? ["No start date stated."] : []),
+        ...(asksForLocation && !location
+          ? ["The letter mentions {location} but no location is chosen, so it shows the bare token. Sending will be refused until one is picked."] : []),
+        ...(location && !asksForLocation
+          ? [`Tagged to ${location.name}, but the letter does not say where. Add {location} to the letter if the candidate should see it.`] : []),
+        ...(location && !location.id
+          ? [`${location.name} is not in the location list yet. It will be added when this offer is sent.`] : [])
       ]
     });
   }
@@ -315,6 +414,16 @@ async function handleOffer(request: Request) {
       allowance
     }, { status: 429 });
 
+  // A place picked from the job's suggestions joins the list now, before the
+  // offer is written, so the offer points at a row and the next one picks
+  // the same spelling.
+  if (location && !location.id) {
+    const added = await findOrAddLocation(admin, location.name, gate.userId);
+    if (!added.ok)
+      return NextResponse.json({ error: `${added.error} Nothing was sent to ${name}.` }, { status: 400 });
+    location = { id: added.location.id, name: added.location.name };
+  }
+
   // ---- store, record, send ----
   const token = makeToken();
   /**
@@ -359,6 +468,14 @@ async function handleOffer(request: Request) {
       Date.now() + (Math.min(Math.max(Number(b.expires_in_days) || 14, 1), 90)) * 86_400_000
     ).toISOString()
   };
+  /**
+   * Only set when a location was chosen, so a database without 0065 still
+   * sends untagged offers. When one WAS chosen and the column is missing,
+   * the insert fails before any email goes, and the error names the
+   * migration: an offer that silently lost its tag would undercount the very
+   * location it was meant for.
+   */
+  if (location?.id) offerRow.location_id = location.id;
 
   let { data: row, error } = await admin.from("offer_letters")
     .insert(offerRow).select("id").single();
@@ -377,6 +494,10 @@ async function handleOffer(request: Request) {
   }
 
   if (error) {
+    if (/location_id/.test(error.message))
+      return NextResponse.json({
+        error: `${missingTable(error.message)} Nothing was sent to ${name}.`
+      }, { status: 400 });
     const missing = /relation .* does not exist|could not find the table/i.test(error.message);
     return NextResponse.json({
       error: missing

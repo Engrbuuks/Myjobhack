@@ -408,7 +408,7 @@ export function renderOfferBody(template: string, vars: Record<string, string>):
 
 export const OFFER_TOKENS = [
   "{first_name}", "{name}", "{position}", "{salary}",
-  "{start_date}", "{reporting_to}", "{company}", "{today}"
+  "{start_date}", "{reporting_to}", "{company}", "{location}", "{today}"
 ];
 
 export const FORMATTING_HELP =
