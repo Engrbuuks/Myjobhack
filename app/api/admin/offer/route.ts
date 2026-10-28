@@ -540,7 +540,8 @@ async function handleOffer(request: Request) {
    * are there to know a hire is happening, not to act on it, so they receive
    * the letter for their records and no way to accept or decline.
    *
-   * They are told separately when it is signed.
+   * They hear how it went in the morning summary of offer responses
+   * (lib/offerDigest.ts), not by an email per response.
    */
   const [res] = await routeMail([{
     to: email,
@@ -570,7 +571,7 @@ async function handleOffer(request: Request) {
         paragraphs: [
           `${name} has been sent an offer${b.position ? ` for ${b.position}` : ""}${b.salary ? ` at ${b.salary}` : ""}${b.start_date ? `, starting ${start}` : ""}.`,
           "A copy of the letter is attached for your records.",
-          "You will be told again when they accept or decline. Nothing is needed from you."
+          "Their answer will be in the morning summary of offer responses. Nothing is needed from you."
         ]
       }),
       attachments: attachment

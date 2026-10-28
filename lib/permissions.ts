@@ -140,5 +140,6 @@ export const NAV_CAPABILITY: Record<string, Capability> = {
   "/portal/admin/trainings": "trainings.manage",
   "/portal/admin/jobs": "jobs.view",
   "/portal/admin/settings": "settings.manage",
-  "/portal/admin/chapters": "chapters.manage"
+  "/portal/admin/chapters": "chapters.manage",
+  "/portal/admin/offers": "applicants.contact"
 };

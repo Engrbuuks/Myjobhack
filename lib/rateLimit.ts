@@ -102,7 +102,12 @@ export const LIMITS = {
    */
   verify_ip:       { bucket: "verify_ip",       max: 20, windowSeconds: 3600 },
   /** An invitation is a one at a time act, not a mail merge. */
-  referral_user:   { bucket: "referral_user",   max: 10, windowSeconds: 86_400 }
+  referral_user:   { bucket: "referral_user",   max: 10, windowSeconds: 86_400 },
+  /**
+   * A candidate downloading their own signed offer. A person does it once or
+   * twice; anything near this is a script guessing at links.
+   */
+  offer_file_ip:   { bucket: "offer_file_ip",   max: 30, windowSeconds: 3600 }
 } satisfies Record<string, Limit>;
 
 /** A 429 with the plain reason, and the header a well behaved client reads. */
