@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { callApi, postJson } from "@/lib/apiClient";
 import { OFFER_TOKENS, DEFAULT_OFFER_BODY, FORMATTING_HELP } from "@/lib/offerLetter";
+import { OfferLocationPicker, locationPayload, type PickedLocation } from "@/components/OfferLocationPicker";
 
 /**
  * Compose and issue an offer letter.
@@ -25,6 +26,7 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
   const [startOffset, setStartOffset] = useState(0);
   const [company, setCompany] = useState("");
   const [countersign, setCountersign] = useState(true);
+  const [location, setLocation] = useState<PickedLocation>(null);
 
   const [busy, setBusy] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
     body, position, salary, start_date: startDate || null,
     reporting_to: reportingTo, countersign, start_offset: startOffset,
     company: company || undefined,
+    ...locationPayload(location),
     cc: cc.split(/[,\s]+/).map((s) => s.trim()).filter((s) => s.includes("@"))
   });
 
@@ -147,6 +150,10 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
           <label className="label !text-xs">Reporting to</label>
           <input className="input !h-10" value={reportingTo} placeholder="Rita Adewale, Operations Lead"
             onChange={(e) => { setReportingTo(e.target.value); setPdfUrl(null); }} />
+        </div>
+        <div className="sm:col-span-2">
+          <OfferLocationPicker applicationId={applicationId} value={location}
+            onChange={(v) => { setLocation(v); setPdfUrl(null); }} />
         </div>
       </div>
 

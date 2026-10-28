@@ -610,6 +610,7 @@ export function ApplicantTable({ rows, statusEndpoint, jobId, formFields = [], j
           <BulkOffers
             letterheads={letterheads as any}
             jobTitle={jobTitle}
+            jobId={jobId}
             applicants={(picked.size ? visible.filter((r) => picked.has(r.id)) : visible)
               .filter((r) => r.email && r.email.includes("@"))
               .map((r) => ({ id: r.id, name: r.name, email: r.email }))}

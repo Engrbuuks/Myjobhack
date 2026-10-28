@@ -24,6 +24,12 @@ export type ParsedRecipient = {
   /** ISO yyyy-mm-dd, only ever set when the date was read with certainty. */
   start_date?: string;
   reporting_to?: string;
+  /**
+   * The place this person's offer is for, as written in the file. Matched
+   * against the saved location list by the bulk form, never added to it on
+   * its own, so a typo in a spreadsheet cannot create a new place.
+   */
+  location?: string;
 };
 
 export type ParseResult = {
@@ -186,7 +192,8 @@ const HEADERS: [Field, RegExp][] = [
   ["position", /^(position|role|job(\s*title)?|title|designation)$/i],
   ["salary", /^(salary|pay|remuneration|compensation|wage|monthly\s*salary|amount)$/i],
   ["start_date", /^(start(\s*date)?|resumption(\s*date)?|resume(\s*date)?|date(\s*of)?\s*(start|resumption)|start\s*on)$/i],
-  ["reporting_to", /^(reporting(\s*to)?|reports?\s*to|manager|supervisor|line\s*manager)$/i]
+  ["reporting_to", /^(reporting(\s*to)?|reports?\s*to|manager|supervisor|line\s*manager)$/i],
+  ["location", /^((work|job|offer)\s*)?location$|^(site|branch|centre|center|office|place\s*of\s*work|work\s*station)$/i]
 ];
 
 /**
