@@ -8,6 +8,7 @@ import {
 } from "@/lib/interviews";
 
 export type { InterviewRow } from "@/lib/interviews";
+import { roomKindOf } from "@/lib/interviewRoomKind";
 
 const DEFAULT_COMPETENCIES = ["Communication", "Technical depth", "Problem solving", "Role knowledge", "Values fit"];
 
@@ -472,9 +473,23 @@ function InterviewCard({ r, picked, onPick }: {
             <span>Round {r.round}</span>
             <span>{r.mode.replace(/_/g, " ")}</span>
             {r.location_or_link && (
-              /^https?:\/\//.test(r.location_or_link)
-                ? <a href={r.location_or_link} target="_blank" rel="noopener" className="text-coral font-semibold hover:underline">Interview link ↗</a>
-                : <span>{r.location_or_link}</span>
+              /* Our own room: the interviewer must not use the candidate's link,
+                 which would put them in under the candidate's name. */
+              roomKindOf(r.location_or_link) === "jitsi"
+                ? <>
+                    <a href={`/api/interview-room?id=${r.id}`} target="_blank" rel="noopener"
+                      className="text-coral font-semibold hover:underline">Join as interviewer ↗</a>
+                    <button type="button" className="hover:text-coral underline decoration-line underline-offset-2"
+                      title="Copy the candidate's own link, to resend it if they lost the email"
+                      onClick={() => navigator.clipboard?.writeText(r.location_or_link!)}>
+                      copy candidate link
+                    </button>
+                  </>
+                : /^https?:\/\//.test(r.location_or_link)
+                  ? <a href={r.location_or_link} target="_blank" rel="noopener" className="text-coral font-semibold hover:underline">
+                      {roomKindOf(r.location_or_link) === "meet" ? "Google Meet ↗" : "Interview link ↗"}
+                    </a>
+                  : <span>{r.location_or_link}</span>
             )}
             {r.resumeUrl
               ? <button onClick={openResume} className="text-coral font-semibold hover:underline">CV ↗</button>

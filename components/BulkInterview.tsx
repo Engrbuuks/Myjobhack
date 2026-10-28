@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { postJson } from "@/lib/apiClient";
 import { TOKENS, DEFAULT_SUBJECT, DEFAULT_BODY,
          CORRECTION_SUBJECT, CORRECTION_BODY } from "@/lib/interviewEmail";
+import { VideoRoomPicker, type RoomPick } from "@/components/VideoRoomPicker";
 
 /**
  * Invite many candidates to interview, each at their own time.
@@ -31,6 +32,8 @@ export function BulkInterview({ applicationIds, onDone }: {
   const [weekends, setWeekends] = useState(false);
   const [mode, setMode] = useState("video");
   const [where, setWhere] = useState("");
+  const [room, setRoom] = useState<RoomPick>({ kind: "manual" });
+  const pasting = mode !== "video" || room.kind === "manual";
   const [subjectTpl, setSubjectTpl] = useState(DEFAULT_SUBJECT);
   const [bodyTpl, setBodyTpl] = useState(DEFAULT_BODY);
   const [editing, setEditing] = useState(false);
@@ -60,7 +63,8 @@ export function BulkInterview({ applicationIds, onDone }: {
     try {
       const r = await postJson("/api/admin/interviews/bulk", {
         application_ids: applicationIds, rules: rules(),
-        mode, location_or_link: where,
+        mode, location_or_link: pasting ? where : "",
+        room: mode === "video" ? room : { kind: "manual" },
         subject_template: subjectTpl, body_template: bodyTpl,
         replace, preview: !commit
       });
@@ -160,13 +164,20 @@ export function BulkInterview({ applicationIds, onDone }: {
             <option value="in_person">In person</option>
           </select>
         </div>
-        <div className="sm:col-span-2">
-          <label className="label !text-xs">
-            {mode === "in_person" ? "Address" : "Interview link"}
-          </label>
-          <input className="input !h-10 text-sm" value={where} onChange={(e) => setWhere(e.target.value)}
-            placeholder={mode === "in_person" ? "14 Adeshina Street, Ikeja" : "https://meet.google.com/..."} />
-        </div>
+        {mode === "video" && (
+          <div className="sm:col-span-2">
+            <VideoRoomPicker value={room} onChange={(v) => { setRoom(v); setPreview(null); }} />
+          </div>
+        )}
+        {pasting && (
+          <div className="sm:col-span-2">
+            <label className="label !text-xs">
+              {mode === "in_person" ? "Address" : mode === "phone" ? "Phone number or note" : "Interview link"}
+            </label>
+            <input className="input !h-10 text-sm" value={where} onChange={(e) => setWhere(e.target.value)}
+              placeholder={mode === "in_person" ? "14 Adeshina Street, Ikeja" : "https://..."} />
+          </div>
+        )}
       </div>
 
       {(() => {
