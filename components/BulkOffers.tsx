@@ -389,7 +389,8 @@ export function BulkOffers({ letterheads, applicants, jobTitle, jobId, onDone }:
               onChange={(e) => setCc(e.target.value)} />
             <p className="text-xs text-muted-2 mt-1">
               They receive every letter for their records, including each person&rsquo;s salary, and
-              are told when each is signed or declined. They cannot accept on anyone&rsquo;s behalf.
+              the answers in the next morning&rsquo;s summary of offer responses. They cannot accept
+              on anyone&rsquo;s behalf.
             </p>
           </div>
         </div>

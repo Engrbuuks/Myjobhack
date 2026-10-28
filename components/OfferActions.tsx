@@ -33,13 +33,7 @@ export function OfferActions({ token, name }: { token: string; name: string }) {
     setBusy(false);
   }
 
-  if (done === "accept") return (
-    <div className="text-center">
-      <div className="w-14 h-14 rounded-full bg-coral-soft text-coral grid place-items-center text-2xl mx-auto mb-4">✓</div>
-      <p className="font-semibold text-lg mb-1">Offer accepted</p>
-      <p className="text-sm text-muted">We will be in touch with what happens next.</p>
-    </div>
-  );
+  if (done === "accept") return <SignedCopy token={token} justAccepted />;
   if (done === "decline") return (
     <div className="text-center">
       <p className="font-semibold text-lg mb-1">Offer declined</p>
@@ -88,6 +82,34 @@ export function OfferActions({ token, name }: { token: string; name: string }) {
       )}
 
       {err && <p className="text-sm text-coral">{err}</p>}
+    </div>
+  );
+}
+
+/**
+ * The signed letter, offered for download where the candidate accepted.
+ *
+ * No copy is emailed: that cost up to seven messages per acceptance from the
+ * daily allowance. So the prompt is the main thing on screen, and it says
+ * plainly that this is their copy and that it will not arrive by email.
+ */
+export function SignedCopy({ token, justAccepted }: { token: string; justAccepted?: boolean }) {
+  const href = `/api/public/offer/file?token=${encodeURIComponent(token)}`;
+  return (
+    <div className="text-center">
+      <div className="w-14 h-14 rounded-full bg-coral-soft text-coral grid place-items-center text-2xl mx-auto mb-4">✓</div>
+      <p className="font-semibold text-lg mb-1">{justAccepted ? "Offer accepted" : "You have accepted this offer"}</p>
+      <p className="text-sm text-muted mb-5">
+        Download your signed offer letter now and keep it safe. It is your record of what was
+        agreed, and <strong className="text-ink">it will not be sent to you by email</strong>.
+      </p>
+      <a href={href} className="btn-coral w-full justify-center" download>
+        Download my signed letter
+      </a>
+      <p className="text-xs text-muted-2 mt-3">
+        You can return to this page with the same link to download it again. We will be in touch
+        with what happens next.
+      </p>
     </div>
   );
 }

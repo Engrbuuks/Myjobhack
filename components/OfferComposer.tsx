@@ -199,8 +199,8 @@ export function OfferComposer({ applicationId, candidateName, jobTitle, onDone }
           <input className="input !h-10" value={cc} placeholder="hr@eppme.com, manager@eppme.com"
             onChange={(e) => setCc(e.target.value)} />
           <p className="text-xs text-muted-2 mt-1">
-            They receive the letter for their records, and are told again when it is signed or
-            declined. They cannot accept on the candidate&rsquo;s behalf. Up to five.
+            They receive the letter for their records, and the answer in the next morning&rsquo;s
+            summary of offer responses. They cannot accept on the candidate&rsquo;s behalf. Up to five.
           </p>
         </div>
         <label className="flex items-start gap-2 text-sm pt-6">

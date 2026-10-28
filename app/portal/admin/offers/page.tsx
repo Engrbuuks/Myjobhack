@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { can } from "@/lib/permissions";
 import { OfferLocationTag } from "@/components/OfferLocationTag";
+import { MarkOffersSeen } from "@/components/MarkOffersSeen";
+import { cookies } from "next/headers";
+import { OFFERS_SEEN_COOKIE, offersSeenSince, respondedSince } from "@/lib/offerSeen";
 import { UNTAGGED, type OfferLocation } from "@/lib/offerLocations";
 import { readOfferFilters, applyOfferFilters, offerFilterQuery, offerOutcome } from "@/lib/offerFilters";
 import { LetterheadManager } from "@/components/LetterheadManager";
@@ -109,6 +112,12 @@ export default async function OffersPage({ searchParams }: {
   const allSent = summary.reduce((n, r) => n + r.sent, 0);
   const href = (f: Partial<typeof filters>) => `/portal/admin/offers${offerFilterQuery(f)}`;
 
+  // What counts as new on this visit: the same rule as the sidebar badge.
+  // The visit is recorded after the page renders, so these stay marked
+  // while you read them.
+  const seenSince = offersSeenSince(cookies().get(OFFERS_SEEN_COOKIE)?.value);
+  const newCount = rows.filter((o) => respondedSince(o, seenSince)).length;
+
   const fileUrl = (id: string, copy: "signed" | "sent", download = false) =>
     `/api/admin/offer/file?id=${id}&copy=${copy}${download ? "&download=1" : ""}`;
 
@@ -122,6 +131,14 @@ export default async function OffersPage({ searchParams }: {
     <>
       <PageHeader title="Offers"
         sub="Letters issued, who has accepted, and the letterhead they are printed on." />
+      <MarkOffersSeen />
+      {newCount > 0 && (
+        <p className="text-sm text-ink mb-4">
+          <strong>{newCount}</strong> new {newCount === 1 ? "response" : "responses"} since you last
+          looked, marked <span className="rounded-pill px-2 py-0.5 text-[10px] uppercase tracking-wide bg-ink text-white">new</span> below.
+          Responses are no longer emailed as they happen; a summary goes out each morning.
+        </p>
+      )}
 
       {tableMissing ? (
         <div className="card p-6 mb-8">
@@ -249,6 +266,11 @@ export default async function OffersPage({ searchParams }: {
                             title={o.signed_at ? "Open the signed offer letter" : "Open the letter as sent"}>
                             {o.candidate_name}
                           </a>
+                          {respondedSince(o, seenSince) && (
+                            <span className="rounded-pill px-2 py-0.5 text-[10px] uppercase tracking-wide bg-ink text-white">
+                              new
+                            </span>
+                          )}
                           <span className={`rounded-pill px-2 py-0.5 text-[10px] uppercase tracking-wide ${
                             o.status === "accepted" ? "bg-coral text-white"
                             : o.status === "declined" ? "bg-paper-2 text-muted-2"

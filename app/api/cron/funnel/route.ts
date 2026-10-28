@@ -155,12 +155,28 @@ export async function GET(request: Request) {
   if (denied) return denied;
 
   const admin = createAdminClient();
+
+  /**
+   * The morning offer summary rides this run rather than a cron of its own.
+   * It goes first, before the funnel checks below can return early, because
+   * whether the seeker funnel is switched on has nothing to do with whether
+   * staff hear about yesterday's offer responses. Its failure never stops
+   * the funnel either.
+   */
+  let offerDigest: any = null;
+  try {
+    const { sendOfferDigest } = await import("@/lib/offerDigest");
+    offerDigest = await sendOfferDigest(admin);
+  } catch (e: any) {
+    offerDigest = { ok: false, error: e?.message ?? "failed" };
+  }
+
   const { data: cfg } = await admin.from("app_settings").select("value").eq("key", "funnel").maybeSingle();
   if ((cfg?.value as any)?.enabled === false)
-    return NextResponse.json({ ok: true, sent: 0, skipped: "The funnel is disabled in settings." });
+    return NextResponse.json({ ok: true, sent: 0, offerDigest, skipped: "The funnel is disabled in settings." });
 
   if (!process.env.RESEND_API_KEY)
-    return NextResponse.json({ ok: false, sent: 0, error: "RESEND_API_KEY is not set — nothing can send." }, { status: 500 });
+    return NextResponse.json({ ok: false, sent: 0, offerDigest, error: "RESEND_API_KEY is not set — nothing can send." }, { status: 500 });
 
   // Invite guest applicants into the pool — the warmest supply we touch.
   let applicantInvites = { invited: 0, skipped_existing: 0 };
@@ -197,5 +213,5 @@ export async function GET(request: Request) {
   }
   // scheduled campaigns due by now ride the same daily train
   const campaignsFired = await dispatchDue(admin);
-  return NextResponse.json({ ok: true, applicant_invites: applicantInvites, sent, campaignsFired });
+  return NextResponse.json({ ok: true, applicant_invites: applicantInvites, sent, campaignsFired, offerDigest });
 }

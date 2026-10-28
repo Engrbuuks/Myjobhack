@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { OfferActions } from "@/components/OfferActions";
+import { OfferActions, SignedCopy } from "@/components/OfferActions";
 
 export const dynamic = "force-dynamic";
 
@@ -32,12 +32,10 @@ export default async function OfferPage({ params }: { params: { token: string } 
   if (offer.signed_at) {
     return (
       <Shell>
-        <div className="w-14 h-14 rounded-full bg-coral-soft text-coral grid place-items-center text-2xl mx-auto mb-5">✓</div>
-        <h1 className="font-display text-2xl font-semibold mb-2">You have accepted this offer</h1>
-        <p className="text-muted">
-          Accepted on {new Date(offer.signed_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} as
-          <strong className="text-ink"> {offer.signed_name}</strong>. A countersigned copy is held
-          with your offer, and the attachment in your email remains yours to keep.
+        <SignedCopy token={params.token} />
+        <p className="text-xs text-muted-2 mt-5">
+          Accepted on {new Date(offer.signed_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} as{" "}
+          <strong className="text-ink">{offer.signed_name}</strong>.
         </p>
       </Shell>
     );
@@ -79,7 +77,8 @@ export default async function OfferPage({ params }: { params: { token: string } 
 
       <p className="text-sm text-muted-2 mb-5">
         The full letter is attached to the email we sent you. Read it before accepting. Accepting
-        here has the same effect as signing and returning the letter.
+        here has the same effect as signing and returning the letter, and your signed copy is
+        ready to download as soon as you accept.
       </p>
 
       <OfferActions token={params.token} name={offer.candidate_name} />
