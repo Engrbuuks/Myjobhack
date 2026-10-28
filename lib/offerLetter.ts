@@ -227,23 +227,177 @@ export async function buildOfferPdf(
     return w;
   };
 
-  /** Wrap to the usable width. pdf-lib has no layout engine, so this is manual. */
-  const paragraph = (text: string, opts: { size?: number; f?: any } = {}) => {
-    const size = opts.size ?? 11;
-    const f = opts.f ?? font;
-    const words = text.split(/\s+/);
-    let current = "";
-    for (const w of words) {
-      const trial = current ? `${current} ${w}` : w;
-      if (f.widthOfTextAtSize(trial, size) > usableWidth) {
-        line(current, { size, f, gap: 4 });
-        current = w;
-      } else {
-        current = trial;
+  /* ------------------------------------------------------------------
+   * The text engine.
+   *
+   * pdf-lib draws strings at coordinates and nothing more, so wrapping,
+   * justification and page breaks are all done here, once, and every block of
+   * running text in the letter goes through it: body paragraphs, list items
+   * and the acceptance clause alike. Two different wrappers was how the same
+   * letter came to have two different right edges.
+   * ------------------------------------------------------------------ */
+
+  const BODY = 11;
+  const LEAD = 15;         // baseline to baseline for body text
+  const PARA = 8;          // extra space after a paragraph
+  const INK = rgb(0.1, 0.1, 0.1);
+
+  type Tok = { text: string; font: any; space: boolean };
+
+  /** Split text into words and spaces that each carry their own style. */
+  const tokenize = (text: string): Tok[] => {
+    const out: Tok[] = [];
+    for (const piece of text.replace(/\s*\n\s*/g, " ").split(/(\*\*[^*]+\*\*|_[^_\s][^_]*_)/g).filter(Boolean)) {
+      let f = font, inner = piece;
+      if (piece.startsWith("**") && piece.endsWith("**") && piece.length > 4) { f = bold; inner = piece.slice(2, -2); }
+      else if (/^_[^_\s][^_]*_$/.test(piece)) { f = italic; inner = piece.slice(1, -1); }
+      for (const w of inner.split(/(\s+)/)) {
+        if (w === "") continue;
+        out.push(/^\s+$/.test(w) ? { text: " ", font: f, space: true } : { text: w, font: f, space: false });
       }
     }
-    if (current) line(current, { size, f, gap: 4 });
-    y -= 8;
+    return out;
+  };
+
+  const tokWidth = (t: Tok, size: number) => t.font.widthOfTextAtSize(t.text, size);
+
+  /**
+   * A word wider than the whole line, an email address or a long link, is cut
+   * into pieces that fit rather than running off the paper. Cut on a
+   * character boundary, with no hyphen added.
+   */
+  const splitLong = (t: Tok, size: number, width: number): Tok[] => {
+    if (t.space || tokWidth(t, size) <= width) return [t];
+    const parts: Tok[] = [];
+    let cur = "";
+    for (const ch of Array.from(t.text)) {
+      if (cur && t.font.widthOfTextAtSize(cur + ch, size) > width) {
+        parts.push({ ...t, text: cur });
+        cur = ch;
+      } else cur += ch;
+    }
+    if (cur) parts.push({ ...t, text: cur });
+    return parts;
+  };
+
+  /**
+   * Break a paragraph into lines with the spacing balanced across all of it.
+   *
+   * Filling each line as full as it will go, then moving on, leaves the
+   * occasional line with only three or four words and gaps a finger wide
+   * once it is justified. Instead every possible set of breaks is weighed,
+   * and the one where the lines are most evenly full wins: a line that is a
+   * little looser lets the next one avoid being very loose. This is the idea
+   * behind how typesetting systems set justified text, kept small enough for
+   * a letter. The last line costs nothing, because it is never stretched.
+   *
+   * Words joined without a space (a bold run followed by its comma) travel
+   * together as one unit, and spaces never begin or end a line.
+   */
+  const wrap = (tokens: Tok[], size: number, width: number): Tok[][] => {
+    type Box = { toks: Tok[]; w: number; glue: Tok | null };   // glue: the space before it
+    const boxes: Box[] = [];
+    let pendingGlue: Tok | null = null;
+    for (const raw of tokens) {
+      if (raw.space) { if (boxes.length) pendingGlue = raw; continue; }
+      splitLong(raw, size, width).forEach((t, k) => {
+        const last = boxes[boxes.length - 1];
+        if (last && !pendingGlue && k === 0) { last.toks.push(t); last.w += tokWidth(t, size); }
+        else { boxes.push({ toks: [t], w: tokWidth(t, size), glue: k === 0 ? pendingGlue : null }); }
+        pendingGlue = null;
+      });
+    }
+    const n = boxes.length;
+    if (!n) return [];
+
+    // best[i] = least cost to set boxes[0..i), prev[i] = where that line began.
+    const best = new Array(n + 1).fill(Infinity);
+    const prev = new Array(n + 1).fill(0);
+    best[0] = 0;
+    for (let j = 1; j <= n; j++) {
+      let w = 0;
+      for (let i = j - 1; i >= 0; i--) {
+        w += boxes[i].w + (i < j - 1 && boxes[i + 1].glue ? tokWidth(boxes[i + 1].glue!, size) : 0);
+        if (w > width && i < j - 1) break;            // too long; longer starts are longer still
+        const slack = Math.max(0, width - w);
+        const cost = j === n ? 0 : (slack / width) ** 2 * 1000 + (i === j - 1 ? 50 : 0);
+        if (best[i] + cost < best[j]) { best[j] = best[i] + cost; prev[j] = i; }
+      }
+    }
+
+    const lines: Tok[][] = [];
+    for (let j = n; j > 0; j = prev[j]) {
+      const i = prev[j];
+      const l: Tok[] = [];
+      for (let k = i; k < j; k++) {
+        if (k > i && boxes[k].glue) l.push(boxes[k].glue!);
+        l.push(...boxes[k].toks);
+      }
+      lines.unshift(l);
+    }
+    return lines;
+  };
+
+  /**
+   * Draw one line, justified when asked.
+   *
+   * The spare width is shared evenly between the spaces on the line. The
+   * last line of a paragraph is never stretched, and neither is a line that
+   * would need gaps more than about three spaces wide: that only happens to a
+   * line holding two or three long words, and stretched that far it reads
+   * worse than a ragged edge.
+   */
+  const drawLine = (l: Tok[], x0: number, width: number, size: number, justify: boolean) => {
+    const natural = l.reduce((n, t) => n + tokWidth(t, size), 0);
+    const gaps = l.filter((t) => t.space).length;
+    const spaceW = font.widthOfTextAtSize(" ", size);
+    let extra = justify && gaps ? (width - natural) / gaps : 0;
+    if (extra < 0 || extra > spaceW * 2.2) extra = 0;
+    let x = x0;
+    for (const t of l) {
+      if (t.space) { x += tokWidth(t, size) + extra; continue; }
+      page.drawText(t.text, { x, y, size, font: t.font, color: INK });
+      x += tokWidth(t, size);
+    }
+  };
+
+  /** How many more body lines fit on the current page. */
+  const linesLeft = () => Math.max(0, Math.floor((y - floorY - BODY) / LEAD) + 1);
+
+  /**
+   * Set a block of wrapped lines, keeping it readable across a page break:
+   * never one line stranded at the foot of a page (an orphan), never one
+   * line alone at the top of the next (a widow). Short blocks of up to three
+   * lines are kept whole.
+   */
+  const setLines = (lines: Tok[][], x0: number, colWidth: number, size: number, justify: boolean,
+                    firstPrefix?: (yy: number) => void) => {
+    const n = lines.length;
+    if (!n) return;
+    const fit = linesLeft();
+    let breakAt = -1;
+    if (fit < n) {
+      if (n <= 3 || fit < 2) breakAt = 0;          // move the whole block
+      else if (n - fit < 2) breakAt = n - 2;       // leave two for the next page
+      else breakAt = fit;
+    }
+    lines.forEach((l, i) => {
+      if (i === breakAt || y - BODY < floorY) {
+        page = pdf.addPage([width, height]);
+        stamp(page);
+        y = topY;
+      }
+      if (i === 0 && firstPrefix) firstPrefix(y);
+      drawLine(l, x0, colWidth, size, justify && i < n - 1);
+      y -= LEAD;
+    });
+  };
+
+  /** A paragraph of running text, justified to both margins. */
+  const paragraph = (text: string, opts: { size?: number; justify?: boolean } = {}) => {
+    const size = opts.size ?? BODY;
+    setLines(wrap(tokenize(text), size, usableWidth), LEFT, usableWidth, size, opts.justify !== false);
+    y -= PARA;
   };
 
   // ---- date and reference ----
@@ -253,9 +407,17 @@ export async function buildOfferPdf(
 
   // ---- body ----
   //
-  // Lines beginning with # are headings, and **bold** or _italic_ runs are
-  // honoured inside a paragraph. That covers what an offer letter actually
-  // needs: a subject line that stands out, and emphasis on the terms.
+  //   # Heading          a heading, wrapped, kept with what follows it
+  //   **bold**, _italic_ emphasis inside any line
+  //   * item, 1. item    a list, with the text hung clear of the marker
+  //   anything else      a justified paragraph
+  //
+  // A blank line separates blocks. Inside a block, a single line break is
+  // treated as a space unless the next line starts a list item, so a letter
+  // pasted from an email with hard wrapped lines still sets as paragraphs.
+  const LIST = /^\s*(?:([*\u2022\u2013-])|(\d{1,2}|[a-zA-Z])[.)])\s+/;
+  const INDENT = 20;
+
   for (const block of offer.body.split(/\n\s*\n/)) {
     const text = block.trim();
     if (!text) continue;
@@ -265,60 +427,46 @@ export async function buildOfferPdf(
     const heading = text.match(/^(#{1,3})\s+([\s\S]*)$/);
     if (heading) {
       const level = heading[1].length;
-      const size = level === 1 ? 14 : level === 2 ? 12 : 11;
-      newPageIfNeeded(size + 14);
+      const size = level === 1 ? 13.5 : level === 2 ? 12 : 11;
+      const hLines = wrap(
+        tokenize(heading[2]).map((t) => ({ ...t, font: t.font === italic ? italic : bold })),
+        size, usableWidth);
+      // Keep the heading with at least two lines of what follows it.
+      const need = hLines.length * (size + 5) + 6 + LEAD * 2;
+      if (y - need < floorY) { page = pdf.addPage([width, height]); stamp(page); y = topY; }
       y -= 4;
-      page.drawText(heading[2].replace(/\n/g, " ").trim(), {
-        x: LEFT, y, size, font: bold, color: rgb(0.05, 0.05, 0.05)
-      });
-      y -= size + 10;
+      for (const l of hLines) { drawLine(l, LEFT, usableWidth, size, false); y -= size + 5; }
+      y -= 7;
       continue;
     }
 
-    /**
-     * Tokenise into styled words BEFORE wrapping.
-     *
-     * Wrapping the raw string splits a run like **Monday, 15 September** in
-     * the middle, and each half then fails the "starts and ends with **"
-     * test, so the markers print literally. Splitting into words that each
-     * carry their own style makes a wrap harmless wherever it falls.
-     */
-    const tokens: { text: string; font: any }[] = [];
-    for (const piece of text.replace(/\n/g, " ").split(/(\*\*[^*]+\*\*|_[^_]+_)/g).filter(Boolean)) {
-      let f = font, inner = piece;
-      if (piece.startsWith("**") && piece.endsWith("**")) { f = bold; inner = piece.slice(2, -2); }
-      else if (piece.startsWith("_") && piece.endsWith("_")) { f = italic; inner = piece.slice(1, -1); }
-      inner.split(/(\s+)/).forEach((w) => { if (w !== "") tokens.push({ text: w, font: f }); });
-    }
-
-    let lineTokens: { text: string; font: any }[] = [];
-    const lineWidth = (ts: typeof tokens) =>
-      ts.reduce((n, t) => n + t.font.widthOfTextAtSize(t.text, 11), 0);
-
-    const flush = () => {
-      if (!lineTokens.length) return;
-      newPageIfNeeded(17);
-      let x = LEFT;
-      for (const t of lineTokens) {
-        page.drawText(t.text, { x, y, size: 11, font: t.font, color: rgb(0.1, 0.1, 0.1) });
-        x += t.font.widthOfTextAtSize(t.text, 11);
-      }
-      y -= 15;
-      lineTokens = [];
-    };
-
-    for (const tok of tokens) {
-      const candidate = [...lineTokens, tok];
-      if (lineWidth(candidate) > usableWidth && lineTokens.length) {
-        flush();
-        // Never begin a wrapped line with the space that caused the wrap.
-        if (!/^\s+$/.test(tok.text)) lineTokens.push(tok);
+    // Split the block into list items and plain runs of text.
+    const rows = text.split(/\n/);
+    const parts: { kind: "p" | "li"; marker?: string; text: string }[] = [];
+    for (const row of rows) {
+      const m = row.match(LIST);
+      if (m) {
+        parts.push({ kind: "li", marker: m[1] ? "\u2022" : `${m[2]}.`, text: row.slice(m[0].length) });
+      } else if (parts.length) {
+        parts[parts.length - 1].text += ` ${row.trim()}`;
       } else {
-        lineTokens.push(tok);
+        parts.push({ kind: "p", text: row.trim() });
       }
     }
-    flush();
-    y -= 8;
+
+    parts.forEach((part, i) => {
+      if (part.kind === "p") {
+        setLines(wrap(tokenize(part.text), BODY, usableWidth), LEFT, usableWidth, BODY, true);
+      } else {
+        const markerW = font.widthOfTextAtSize(part.marker!, BODY);
+        setLines(wrap(tokenize(part.text), BODY, usableWidth - INDENT), LEFT + INDENT, usableWidth - INDENT,
+          BODY, true, (yy) => page.drawText(part.marker!, {
+            x: LEFT + INDENT - 7 - markerW, y: yy, size: BODY, font, color: INK
+          }));
+        if (i < parts.length - 1) y -= 3;    // a little air between items
+      }
+    });
+    y -= PARA;
   }
 
   // ---- signatory ----
@@ -355,8 +503,18 @@ export async function buildOfferPdf(
 
   // ---- countersignature ----
   if (offer.countersign) {
-    newPageIfNeeded(150);
-    y -= 22;
+    /**
+     * The acceptance block, kept whole on one page. Measured rather than
+     * guessed: from the rule, heading 38, the clause 38, the signing lines
+     * 31, and the electronic acceptance note 22 more on a signed copy.
+     * Reserving more than it uses pushed it onto a page of its own.
+     */
+    const blockHeight = offer.signedName && offer.signedAt ? 131 : 109;
+    // The gap above the rule gives way first: a little less air beats a page
+    // holding nothing but the acceptance block.
+    const room = y - floorY - blockHeight;
+    if (room < 8) { page = pdf.addPage([width, height]); stamp(page); y = topY; }
+    else y -= Math.min(22, room);
     page.drawLine({
       start: { x: LEFT, y }, end: { x: width - RIGHT, y },
       thickness: 0.5, color: rgb(0.75, 0.75, 0.75)
@@ -412,7 +570,7 @@ export const OFFER_TOKENS = [
 ];
 
 export const FORMATTING_HELP =
-  "Start a line with # for a heading. Wrap text in **double asterisks** for bold, or _underscores_ for italic. Leave a blank line between paragraphs.";
+  "Start a line with # for a heading, * for a bullet point, or 1. for a numbered point. Wrap text in **double asterisks** for bold, or _underscores_ for italic. Leave a blank line between paragraphs. Paragraphs are justified to both margins.";
 
 export const DEFAULT_OFFER_BODY = `Dear {name},
 
