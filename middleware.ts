@@ -4,7 +4,10 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/auth", "/jobs", "/join", "/roles", "/trainings", "/api/public", "/a/", "/offer/", "/unsubscribe", "/j/", "/invoice/", "/logo-mark.png", "/robots.txt", "/sitemap.xml",
   // Credential proof. Open on purpose: an employer checking a member's
   // letter has no account here and should not need one.
-  "/verify", "/e/", "/api/elite/verify"];
+  "/verify", "/e/", "/api/elite/verify",
+  // A candidate's private interview room link. Open because most candidates
+  // have no account; the signature in the link is the credential.
+  "/interview/"];
 
 /**
  * Public pages a SIGNED IN person may also stay on.
@@ -17,7 +20,7 @@ const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/auth", "/jobs", "/join
  */
 const OPEN_TO_SIGNED_IN = ["/jobs", "/roles", "/join", "/trainings", "/api/public", "/api/auth",
   "/a/", "/offer/", "/unsubscribe", "/invoice/", "/j/", "/logo-mark",
-  "/verify", "/e/", "/api/elite/verify"];
+  "/verify", "/e/", "/api/elite/verify", "/interview/"];
 
 export async function middleware(request: NextRequest) {
   const reqHeaders = new Headers(request.headers);

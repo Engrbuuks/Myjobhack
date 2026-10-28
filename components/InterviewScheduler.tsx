@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { VideoRoomPicker, type RoomPick } from "@/components/VideoRoomPicker";
 
 export function InterviewScheduler({ applicationId, onDone }: {
   applicationId: string; onDone?: () => void;
@@ -19,6 +20,8 @@ export function InterviewScheduler({ applicationId, onDone }: {
   // whether a date happens to be filled in.
   const [booking, setBooking] = useState<"fixed" | "candidate_picks">("candidate_picks");
   const [defaultsLoaded, setDefaultsLoaded] = useState(false);
+  const [room, setRoom] = useState<RoomPick>({ kind: "manual" });
+  const pasting = mode !== "video" || room.kind === "manual";
 
   useEffect(() => {
     fetch("/api/admin/interview-defaults").then(r => r.json()).then(d => {
@@ -41,7 +44,8 @@ export function InterviewScheduler({ applicationId, onDone }: {
         // Fixed: we set the time. Candidate-picks: they book, so no time yet.
         scheduled_at: booking === "fixed" && when ? new Date(when).toISOString() : null,
         duration_min: Number(duration) || 30,
-        location_or_link: where,
+        location_or_link: pasting ? where : "",
+        room: mode === "video" ? room : { kind: "manual" },
         calendly_url: booking === "candidate_picks" ? calendly : "",
         message
       })
@@ -114,8 +118,12 @@ export function InterviewScheduler({ applicationId, onDone }: {
         </div>
       </div>
 
-      <div className="mb-3">
-        <label className="label">{mode === "in_person" ? "Venue" : "Interview link"}</label>
+      {mode === "video" && (
+        <div className="mb-3"><VideoRoomPicker value={room} onChange={setRoom} /></div>
+      )}
+
+      {pasting && <div className="mb-3">
+        <label className="label">{mode === "in_person" ? "Venue" : mode === "phone" ? "Phone number or note" : "Interview link"}</label>
         <input className="input !h-10"
           placeholder={mode === "in_person" ? "Office address" : "https://zoom.us/j/… (optional if your booking link sends one)"}
           value={where} onChange={(e) => setWhere(e.target.value)} />
@@ -124,7 +132,7 @@ export function InterviewScheduler({ applicationId, onDone }: {
             Leave blank if your booking tool generates the Zoom link automatically on booking.
           </p>
         )}
-      </div>
+      </div>}
       <label className="label">Personal note (goes in the email)</label>
       <textarea className="input !h-auto py-2.5 mb-3" rows={2}
         placeholder="We loved your portfolio — this will be a conversation about…"

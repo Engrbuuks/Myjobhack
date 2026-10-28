@@ -7,6 +7,9 @@ import { routeMail, summariseRouting } from "@/lib/mailRouter";
 import { renderEmail } from "@/lib/email";
 import { renderTemplate, toParagraphs, varsFor, unknownTokens, emptyTokens,
          DEFAULT_SUBJECT, DEFAULT_BODY } from "@/lib/interviewEmail";
+import { randomUUID } from "crypto";
+import { readRoomChoice, resolveRoom } from "@/lib/interviewRooms";
+import { roomGuidance } from "@/lib/interviewRoomKind";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -59,6 +62,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Choose the date interviews should start." }, { status: 400 });
   if (rules.end_date && rules.end_date < rules.start_date)
     return NextResponse.json({ error: "The end date cannot be before the start date." }, { status: 400 });
+
+  /**
+   * The video room, settled first so a bad choice is refused at preview, not
+   * discovered after thirty invitations went out with no link in them.
+   */
+  const mode = String(body.mode ?? "video");
+  const room = await resolveRoom(admin, readRoomChoice(body, String(body.location_or_link ?? "")), gate.userId, mode);
+  if (!room.ok) return NextResponse.json({ error: room.error }, { status: 400 });
+  const guidance = mode === "in_person" ? null : roomGuidance(room.kind);
 
   // Candidates, in a stable order so the preview matches what is committed.
   const { data: apps } = await admin.from("applications")
@@ -123,9 +135,16 @@ export async function POST(request: Request) {
     notes.push("None of these candidates currently has an interview, so nothing will be replaced. This will behave as a normal invitation.");
   if (!replace && mine.length)
     notes.push(`${mine.length} of these candidates already ${mine.length === 1 ? "has an interview" : "have interviews"}. Tick "replace" if this run is a correction, or they will end up with two.`);
-  const schedule = invitable.slice(0, slots.length).map((p, i) => ({
-    ...p, slot: slots[i].start.toISOString(), label: slots[i].label
-  }));
+  // Each interview's id is made now, so a private room's link is known
+  // before the row is written and goes into that one person's email.
+  const schedule = invitable.slice(0, slots.length).map((p, i) => {
+    const id = randomUUID();
+    return { ...p, id, link: room.linkFor(id), slot: slots[i].start.toISOString(), label: slots[i].label };
+  });
+  if (room.kind === "meet")
+    notes.push(`Everyone in this batch shares ${room.interviewerName ? `${room.interviewerName}'s` : "one"} Google Meet room and asks to join at their time. Admit one person at a time, and make sure the previous candidate has left first. Do not add candidates to a Google Calendar invite for that room, or they can walk straight in.`);
+  if (room.kind === "jitsi")
+    notes.push("Each candidate gets a private room of their own. Their link opens 15 minutes before their slot. Join as the interviewer from the interview desk.");
 
   const allowance = await getAllowance(admin);
   notes.push(...warnings(invitable.length, slots, rules));
@@ -152,14 +171,14 @@ export async function POST(request: Request) {
         name: schedule[0].name, role: jobRow?.title ?? "the role",
         company: jobRow?.company_name ?? "MYJOBHACK",
         slotIso: schedule[0].slot, duration: rules.slot_minutes,
-        location: String(body.location_or_link ?? ""),
+        location: schedule[0].link,
         timezone: rules.timezone || "Africa/Lagos"
       });
       sample = {
         to: schedule[0].email,
         name: schedule[0].name,
         subject: renderTemplate(subjectTpl, v),
-        body: renderTemplate(bodyTpl, v),
+        body: renderTemplate(bodyTpl, v) + (guidance ? `\n\n${guidance}` : ""),
         unknown_tokens: unknownTokens(bodyTpl + " " + subjectTpl, v),
         empty_tokens: emptyTokens(bodyTpl + " " + subjectTpl, v)
       };
@@ -200,8 +219,9 @@ export async function POST(request: Request) {
     slot_minutes: rules.slot_minutes, gap_minutes: rules.gap_minutes,
     day_start: rules.day_start, day_end: rules.day_end,
     timezone: rules.timezone || "Africa/Lagos",
-    mode: String(body.mode ?? "video"),
-    location_or_link: String(body.location_or_link ?? ""),
+    mode,
+    // A private room differs per person, so the batch records which kind.
+    location_or_link: room.kind === "jitsi" ? "Private room per interview" : room.linkFor(""),
     message: String(body.message ?? ""),
     invited_count: schedule.length
   }).select("id").single();
@@ -218,13 +238,14 @@ export async function POST(request: Request) {
   const sendable = schedule.slice(0, allowance.remaining);
 
   const rows = sendable.map((s) => ({
+    id: s.id,
     application_id: s.application_id, job_id: s.job_id, talent_id: s.talent_id,
     guest_name: s.talent_id ? null : s.name,
     guest_email: s.talent_id ? null : s.email,
     scheduled_by: gate.userId, batch_id: batch.id,
-    mode: String(body.mode ?? "video"),
+    mode,
     scheduled_at: s.slot, duration_min: rules.slot_minutes,
-    location_or_link: String(body.location_or_link ?? ""),
+    location_or_link: s.link,
     message: String(body.message ?? ""),
     // Stored so the list, the email and any export all render the same time.
     timezone: rules.timezone || "Africa/Lagos",
@@ -250,7 +271,7 @@ export async function POST(request: Request) {
       name: s.name, role: jobRow?.title ?? "the role",
       company: jobRow?.company_name ?? "MYJOBHACK",
       slotIso: s.slot, duration: rules.slot_minutes,
-      location: String(body.location_or_link ?? ""),
+      location: s.link,
       timezone: rules.timezone || "Africa/Lagos"
     });
     return {
@@ -262,7 +283,7 @@ export async function POST(request: Request) {
         kicker: "Interview invitation",
         heading: `${v.first_name}, we would like to meet you`,
         // The recruiter's own words, split into paragraphs on blank lines.
-        paragraphs: toParagraphs(renderTemplate(bodyTpl, v))
+        paragraphs: [...toParagraphs(renderTemplate(bodyTpl, v)), ...(guidance ? [guidance] : [])]
       })
     };
   }));

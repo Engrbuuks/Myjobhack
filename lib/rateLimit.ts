@@ -107,7 +107,12 @@ export const LIMITS = {
    * A candidate downloading their own signed offer. A person does it once or
    * twice; anything near this is a script guessing at links.
    */
-  offer_file_ip:   { bucket: "offer_file_ip",   max: 30, windowSeconds: 3600 }
+  offer_file_ip:   { bucket: "offer_file_ip",   max: 30, windowSeconds: 3600 },
+  /**
+   * Joining an interview room. A candidate on a bad connection may rejoin a
+   * dozen times; nobody needs a hundred passes an hour.
+   */
+  room_join_ip:    { bucket: "room_join_ip",    max: 60, windowSeconds: 3600 }
 } satisfies Record<string, Limit>;
 
 /** A 429 with the plain reason, and the header a well behaved client reads. */

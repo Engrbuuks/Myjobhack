@@ -8,6 +8,9 @@ import { logSends } from "@/lib/emailAllowance";
 import { renderTemplate, toParagraphs, varsFor,
          CANCEL_SUBJECT, CANCEL_BODY, RESCHEDULE_SUBJECT, RESCHEDULE_BODY } from "@/lib/interviewEmail";
 import { OUTCOME_COPY } from "@/lib/interviewOutcomeEmail";
+import { randomUUID } from "crypto";
+import { readRoomChoice, resolveRoom } from "@/lib/interviewRooms";
+import { roomGuidance, roomKindOf } from "@/lib/interviewRoomKind";
 
 export const runtime = "nodejs";
 
@@ -51,6 +54,16 @@ export async function POST(request: Request) {
   if (!auth) return NextResponse.json({ error: "Not authorized for this job" }, { status: 403 });
 
   /**
+   * The video room, settled before anything is saved or sent. The id is made
+   * here rather than by the database because our own rooms are named from it,
+   * so the link is known before the row exists and goes in on the insert.
+   */
+  const interviewId = randomUUID();
+  const room = await resolveRoom(admin, readRoomChoice(b, String(location_or_link ?? "")), user.id, mode ?? "video");
+  if (!room.ok) return NextResponse.json({ error: room.error }, { status: 400 });
+  const link = room.linkFor(interviewId);
+
+  /**
    * Guests can be interviewed too.
    *
    * talent_id is null for anyone who applied without registering, which is
@@ -58,6 +71,7 @@ export async function POST(request: Request) {
    * instead, the same way the bulk scheduler does it.
    */
   const { data: interview, error } = await admin.from("interviews").insert({
+    id: interviewId,
     application_id, job_id: app.job_id, talent_id: app.talent_id,
     guest_name: app.talent_id ? null : (app.guest_name ?? null),
     guest_email: app.talent_id ? null : (app.guest_email ?? null),
@@ -65,7 +79,7 @@ export async function POST(request: Request) {
     org_id: job?.org_id ?? null, scheduled_by: user.id,
     round: round ?? 1, mode: mode ?? "video",
     scheduled_at: scheduled_at || null, duration_min: duration_min ?? 30,
-    location_or_link: location_or_link ?? "", calendly_url: calendly_url ?? "",
+    location_or_link: link, calendly_url: calendly_url ?? "",
     message: message ?? "",
     status: scheduled_at ? "scheduled" : "invited"
   }).select("id").single();
@@ -105,7 +119,8 @@ export async function POST(request: Request) {
     if (when) details.push(["When", when]);
     details.push(["Format", (mode ?? "video").replace(/_/g, " ")]);
     if (duration_min) details.push(["Duration", `${duration_min ?? 30} minutes`]);
-    if (location_or_link) details.push([mode === "in_person" ? "Venue" : "Join link", location_or_link]);
+    if (link) details.push([mode === "in_person" ? "Venue" : "Join link", link]);
+    const guidance = mode === "in_person" ? null : roomGuidance(room.kind);
 
     const recipientName = talent?.full_name ?? app.guest_name ?? "there";
     await sendEmail(recipientEmail, `Interview invitation: ${job?.title}`, renderEmail({
@@ -115,7 +130,8 @@ export async function POST(request: Request) {
       paragraphs: [
         `Hi ${recipientName.split(" ")[0]}, your application for "${job?.title}" stood out. ${host} has invited you to interview.`,
         ...(message ? [message] : []),
-        ...(calendly_url && !when ? ["Choose the slot that works best for you using the button below. It takes a minute."] : [])
+        ...(calendly_url && !when ? ["Choose the slot that works best for you using the button below. It takes a minute."] : []),
+        ...(guidance ? [guidance] : [])
       ],
       details,
       cta: calendly_url && !when
@@ -127,7 +143,7 @@ export async function POST(request: Request) {
 
   await admin.from("activity_log").insert({
     actor_id: user.id, action: "Interview invitation sent", entity: "interview", entity_id: interview.id,
-    meta: { job: job?.title, scheduled: !!scheduled_at, calendly: !!calendly_url }
+    meta: { job: job?.title, scheduled: !!scheduled_at, calendly: !!calendly_url, room: room.kind }
   });
 
   return NextResponse.json({ ok: true, id: interview.id });
@@ -223,11 +239,13 @@ export async function PATCH(request: Request) {
         location: (b.location_or_link ?? iv.location_or_link) || "",
         timezone: iv.timezone ?? "Africa/Lagos"
       });
+      const guidance = roomGuidance(roomKindOf(v.location));
       const r = await sendEmail(to, renderTemplate(RESCHEDULE_SUBJECT, v), renderEmail({
         preheader: `Your interview has moved to ${v.day_and_time}`,
         kicker: "Interview moved",
         heading: "Your interview time has changed",
-        paragraphs: toParagraphs(renderTemplate(RESCHEDULE_BODY, v))
+        // A room of our own keeps the same link: it opens around the new time.
+        paragraphs: [...toParagraphs(renderTemplate(RESCHEDULE_BODY, v)), ...(guidance ? [guidance] : [])]
       })).catch(() => null);
       // sendEmail resolves with an error field rather than throwing, so the
       // result being present says nothing about whether it was delivered.

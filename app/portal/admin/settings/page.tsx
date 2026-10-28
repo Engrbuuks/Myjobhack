@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ToolLimits } from "@/components/ToolLimits";
 import { BankSettings, TaxonomyManager, ChapterManager, PlanManager } from "@/components/AdminSettings";
 import { InterviewSettings } from "@/components/InterviewSettings";
+import { InterviewRoomSettings } from "@/components/InterviewRoomSettings";
 
 export default async function AdminSettingsPage() {
   const supabase = createClient();
@@ -47,6 +48,7 @@ export default async function AdminSettingsPage() {
       <PageHeader title="Settings"
         sub="Bank details shown to subscribers, and the four CRM axes — deactivated options disappear from filters and the profile wizard, without touching anyone's existing profile." />
       <div className="mb-10">
+        <InterviewRoomSettings />
         <InterviewSettings initial={interviewDefaults} />
         <BankSettings ngn={(ngn?.value as any) ?? empty} usd={(usd?.value as any) ?? empty} />
       </div>
